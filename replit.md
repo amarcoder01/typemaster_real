@@ -76,3 +76,28 @@ Preferred communication style: Simple, everyday language.
 
 ### Certificate Signing
 - **Environment Variable**: `CERTIFICATE_SECRET` (required in production, min 32 characters)
+
+## Dictation Mode - Challenge Mode Timing
+
+### Overview
+Challenge Mode in Dictation (`/dictation-mode`) features time-based typing challenges with consequences for timeouts.
+
+### Time Calculation
+- **Formula**: `(BASE_TIME + words × PER_WORD) × difficultyMultiplier`
+- **BASE_TIME**: 8 seconds
+- **PER_WORD**: 2.5 seconds per word
+- **Difficulty Multipliers**: Easy 1.5x, Medium 1.0x, Hard 0.75x
+- **Grace Period**: 3 seconds after time expires before auto-submit
+
+### Features
+- **Countdown Timer**: Visible in header during active typing (format M:SS)
+- **Visual Warnings**: Yellow at 10 seconds, Red at 5 seconds with pulsing animation
+- **Auto-Submit**: Submits answer when grace period expires
+- **Time's Up Overlay**: Modal showing timeout status with dismiss button
+- **Streak Tracking**: Consecutive completions tracked with bonuses (2% per streak, max 10%)
+- **Overtime Penalties**: 10% accuracy reduction for submissions after time expires
+
+### Key Files
+- `client/src/features/dictation/types.ts` - CHALLENGE_TIMING constants and calculateTimeLimit function
+- `client/src/pages/dictation-mode.tsx` - Timer display and Time's Up overlay
+- `client/src/features/dictation/context/DictationContext.tsx` - Session stats management
