@@ -370,6 +370,16 @@ export function DictationProvider({ children }: DictationProviderProps) {
     dispatch({ type: 'RESET_TEST_STATE' });
     dispatch({ type: 'SET_SHOW_MODE_SELECTOR', payload: false });
     dispatch({ type: 'SET_IS_WAITING_TO_START', payload: true });
+    // Reset only challenge-specific counters, preserve aggregate stats for analytics
+    dispatch({
+      type: 'UPDATE_SESSION_STATS',
+      payload: {
+        challengeStreak: 0,
+        maxChallengeStreak: 0,
+        completedInTime: 0,
+        timedOut: 0,
+      },
+    });
   }, []);
   
   const beginSession = useCallback(() => {
@@ -459,12 +469,16 @@ export function DictationProvider({ children }: DictationProviderProps) {
     };
     dispatch({ type: 'ADD_SESSION_HISTORY', payload: historyItem });
     
-    // Update session stats
+    // Update session stats (preserve challenge-specific fields, they are updated separately)
     const newStats: SessionStats = {
       totalWpm: state.sessionStats.totalWpm + result.wpm,
       totalAccuracy: state.sessionStats.totalAccuracy + result.accuracy,
       totalErrors: state.sessionStats.totalErrors + result.errors,
       count: state.sessionStats.count + 1,
+      challengeStreak: state.sessionStats.challengeStreak,
+      maxChallengeStreak: state.sessionStats.maxChallengeStreak,
+      completedInTime: state.sessionStats.completedInTime,
+      timedOut: state.sessionStats.timedOut,
     };
     dispatch({ type: 'SET_SESSION_STATS', payload: newStats });
     

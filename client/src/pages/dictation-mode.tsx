@@ -45,6 +45,8 @@ import {
   ZEN_THEMES,
   getRandomEncouragement,
   INITIAL_ADAPTIVE_CONFIG,
+  calculateTimeLimit,
+  CHALLENGE_TIMING,
 } from '@/features/dictation';
 
 import {
@@ -405,9 +407,14 @@ function DictationModeContent() {
     
     if (sentence) {
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
+      
+      // Set time limit for Challenge Mode
+      const timeLimitMs = state.practiceMode === 'challenge' 
+        ? calculateTimeLimit(sentence.sentence, state.difficulty)
+        : null;
       dispatch({
         type: 'SET_TEST_STATE',
-        payload: { sentence },
+        payload: { sentence, timeLimitMs, timeExpired: false },
       });
       
       // Use streaming TTS for ultra-low latency (~500ms vs 3-5s)
@@ -429,6 +436,7 @@ function DictationModeContent() {
     state.difficulty,
     state.category,
     state.shownSentenceIds,
+    state.practiceMode,
     fetchSentence,
     audio,
     timer,
@@ -451,7 +459,12 @@ function DictationModeContent() {
       
       const sentence = prefetchedSentence;
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
-      dispatch({ type: 'SET_TEST_STATE', payload: { sentence } });
+      
+      // Set time limit for Challenge Mode
+      const timeLimitMs = state.practiceMode === 'challenge' 
+        ? calculateTimeLimit(sentence.sentence, state.difficulty)
+        : null;
+      dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs, timeExpired: false } });
       
       // Clear both ref and state
       prefetchedSentenceRef.current = null;
@@ -484,16 +497,17 @@ function DictationModeContent() {
     }
   }, [state.testState.sentence, audio, actions]);
   
-  const handleSubmit = useCallback(async () => {
-    const { sentence, startTime, typedText, replayCount, hintShown } = state.testState;
+  const handleSubmit = useCallback(async (isAutoSubmit = false) => {
+    const { sentence, startTime, typedText, replayCount, hintShown, timeExpired } = state.testState;
     
     if (!sentence || !startTime || !typedText.trim()) return;
     
     const endTime = Date.now();
     const elapsedSeconds = (endTime - startTime) / 1000;
-    const duration = Math.round(elapsedSeconds);
+    const duration = Math.max(1, Math.round(elapsedSeconds)); // Minimum 1 second for calculations
     
-    if (elapsedSeconds < 1) {
+    // Skip "too fast" check for auto-submit (Challenge Mode time expiry) or if time already expired
+    if (elapsedSeconds < 1 && !isAutoSubmit && !timeExpired) {
       toast({
         title: 'Too fast!',
         description: 'Please take your time to type the sentence.',
@@ -506,8 +520,38 @@ function DictationModeContent() {
     const wpm = calculateDictationWPM(typedText.length, elapsedSeconds);
     const wordErrors = accuracyResult.wordDiff.filter((d) => d.status !== 'correct').length;
     
+    // Challenge Mode: Check if completed in time and apply streak/penalties
+    let finalAccuracy = accuracyResult.accuracy;
+    let completedInTime = true;
+    
+    if (state.practiceMode === 'challenge' && state.testState.timeLimitMs !== null) {
+      const elapsedMs = elapsedSeconds * 1000;
+      const timeRemainingMs = state.testState.timeLimitMs - elapsedMs;
+      
+      completedInTime = timeRemainingMs > 0;
+      
+      if (!completedInTime) {
+        // Apply overtime penalty (10% accuracy reduction)
+        finalAccuracy = Math.max(0, accuracyResult.accuracy - (CHALLENGE_TIMING.OVERTIME_PENALTY * 100));
+        toast({
+          title: 'Overtime!',
+          description: `Time expired! -${Math.round(CHALLENGE_TIMING.OVERTIME_PENALTY * 100)}% accuracy penalty applied.`,
+          variant: 'destructive',
+        });
+      } else {
+        // Apply streak bonus if applicable
+        const streakBonus = Math.min(
+          state.sessionStats.challengeStreak * CHALLENGE_TIMING.STREAK_BONUS,
+          CHALLENGE_TIMING.MAX_STREAK_BONUS
+        );
+        if (streakBonus > 0) {
+          finalAccuracy = Math.min(100, accuracyResult.accuracy + (streakBonus * 100));
+        }
+      }
+    }
+    
     const result: DictationTestResult = {
-      accuracy: accuracyResult.accuracy,
+      accuracy: finalAccuracy,
       wpm,
       errors: wordErrors,
       duration,
@@ -518,6 +562,29 @@ function DictationModeContent() {
       correctWords: accuracyResult.correctWords,
       totalWords: accuracyResult.totalWords,
     };
+    
+    // Update challenge streak for Challenge Mode
+    if (state.practiceMode === 'challenge') {
+      const newStreak = completedInTime ? state.sessionStats.challengeStreak + 1 : 0;
+      const maxStreak = Math.max(state.sessionStats.maxChallengeStreak, newStreak);
+      dispatch({
+        type: 'UPDATE_SESSION_STATS',
+        payload: {
+          challengeStreak: newStreak,
+          maxChallengeStreak: maxStreak,
+          completedInTime: state.sessionStats.completedInTime + (completedInTime ? 1 : 0),
+          timedOut: state.sessionStats.timedOut + (completedInTime ? 0 : 1),
+        },
+      });
+      
+      // Show streak notification
+      if (completedInTime && newStreak > 1) {
+        toast({
+          title: `Streak: ${newStreak}!`,
+          description: `+${Math.round(Math.min(newStreak * CHALLENGE_TIMING.STREAK_BONUS, CHALLENGE_TIMING.MAX_STREAK_BONUS) * 100)}% bonus applied!`,
+        });
+      }
+    }
     
     // Stop timer
     timer.stop();
@@ -605,7 +672,12 @@ function DictationModeContent() {
       
       const sentence = prefetchedSentence;
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
-      dispatch({ type: 'SET_TEST_STATE', payload: { sentence } });
+      
+      // Set time limit for Challenge Mode
+      const timeLimitMs = state.practiceMode === 'challenge' 
+        ? calculateTimeLimit(sentence.sentence, state.difficulty)
+        : null;
+      dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs, timeExpired: false } });
       
       // Clear both ref and state
       prefetchedSentenceRef.current = null;
@@ -630,6 +702,86 @@ function DictationModeContent() {
       await loadNextSentence();
     }
   }, [state.sessionProgress, state.sessionLength, state.prefetchedSentence, countdown, timer, dispatch, audio, loadNextSentence]);
+  
+  // Auto-submit for Challenge Mode when time expires
+  useEffect(() => {
+    // Only applies to Challenge Mode with active typing
+    if (state.practiceMode !== 'challenge') return;
+    if (!state.testState.sentence) return;
+    if (!state.testState.startTime) return;
+    if (state.testState.isComplete) return;
+    if (state.testState.timeLimitMs === null) return;
+    if (state.testState.timeExpired) return;
+    
+    const elapsedMs = state.elapsedTime * 1000;
+    const timeRemainingMs = state.testState.timeLimitMs - elapsedMs;
+    
+    // Check if time has expired (with grace period)
+    if (timeRemainingMs <= -CHALLENGE_TIMING.GRACE_PERIOD_MS) {
+      // Mark as expired and show Time's Up overlay
+      dispatch({ type: 'SET_TEST_STATE', payload: { timeExpired: true, showTimeUpOverlay: true } });
+      
+      // Auto-submit whatever is typed (pass true to bypass elapsed time check)
+      if (state.testState.typedText.trim()) {
+        handleSubmit(true);
+      } else {
+        // No text typed - record 0% accuracy failure result
+        const sentence = state.testState.sentence;
+        const failureResult: DictationTestResult = {
+          accuracy: 0,
+          wpm: 0,
+          errors: sentence.sentence.length,
+          duration: Math.max(1, state.elapsedTime),
+          characterDiff: [],
+          wordDiff: [],
+          correctChars: 0,
+          totalChars: sentence.sentence.length,
+          correctWords: 0,
+          totalWords: sentence.sentence.split(/\s+/).length,
+        };
+        
+        // Mark as complete with failure result
+        dispatch({
+          type: 'SET_TEST_STATE',
+          payload: {
+            endTime: Date.now(),
+            isComplete: true,
+            result: failureResult,
+          },
+        });
+        
+        // Update session stats with failure
+        dispatch({
+          type: 'UPDATE_SESSION_STATS',
+          payload: {
+            totalWpm: state.sessionStats.totalWpm + 0,
+            totalAccuracy: state.sessionStats.totalAccuracy + 0,
+            totalErrors: state.sessionStats.totalErrors + sentence.sentence.length,
+            count: state.sessionStats.count + 1,
+            challengeStreak: 0,
+            timedOut: state.sessionStats.timedOut + 1,
+          },
+        });
+        
+        // Add to session history
+        dispatch({
+          type: 'ADD_SESSION_HISTORY',
+          payload: {
+            sentence: sentence.sentence,
+            typedText: '',
+            accuracy: 0,
+            wpm: 0,
+            errors: sentence.sentence.length,
+            timestamp: Date.now(),
+            errorCategories: [],
+          },
+        });
+        
+        // Update progress
+        dispatch({ type: 'INCREMENT_SESSION_PROGRESS' });
+      }
+    }
+  }, [state.practiceMode, state.testState, state.elapsedTime, state.sessionStats, dispatch, handleSubmit]);
   
   const handleToggleBookmark = useCallback(() => {
     const { sentence, result } = state.testState;
@@ -669,6 +821,12 @@ function DictationModeContent() {
       loadNextSentence();
     }, 100);
   }, [audio, timer, countdown, actions, loadNextSentence]);
+  
+  // Dismiss Time's Up overlay and move to next sentence
+  const handleDismissTimeUpOverlay = useCallback(() => {
+    dispatch({ type: 'SET_TEST_STATE', payload: { showTimeUpOverlay: false } });
+    handleNextSentence();
+  }, [dispatch, handleNextSentence]);
   
   // ============================================================================
   // CERTIFICATE FUNCTIONS
@@ -1134,29 +1292,46 @@ function DictationModeContent() {
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold">{PRACTICE_MODES[state.practiceMode].name}</h1>
             
-            {/* Timer Pressure indicator for Challenge Mode - only show during active typing, hide during all overlays */}
+            {/* Countdown Timer for Challenge Mode - only show during active typing, hide during all overlays */}
             {PRACTICE_MODES[state.practiceMode].timerPressure && 
              state.testState.sentence && 
              !state.testState.isComplete && 
              state.testState.startTime !== null &&
+             state.testState.timeLimitMs !== null &&
              !state.showSettings && 
              !state.showAnalytics &&
-             !state.showBookmarks && (
-              <Badge 
-                variant="outline"
-                className={`font-mono text-sm px-3 py-1 ${
-                  state.elapsedTime > 30 
-                    ? 'bg-red-500/20 text-red-500 border-red-500/50 animate-pulse' 
-                    : state.elapsedTime > 15 
-                      ? 'bg-yellow-500/20 text-yellow-600 border-yellow-500/50' 
-                      : 'bg-muted'
-                }`}
-              >
-                <Clock className="w-3 h-3 mr-1.5" />
-                {Math.floor(state.elapsedTime / 60)}:{String(state.elapsedTime % 60).padStart(2, '0')}
-                {state.elapsedTime > 30 && <span className="ml-1.5 text-xs">Hurry!</span>}
-              </Badge>
-            )}
+             !state.showBookmarks && (() => {
+              const timeRemainingMs = Math.max(0, state.testState.timeLimitMs! - (state.elapsedTime * 1000));
+              const timeRemainingSec = Math.ceil(timeRemainingMs / 1000);
+              const isUrgent = timeRemainingMs <= CHALLENGE_TIMING.URGENT_THRESHOLD_MS;
+              const isWarning = timeRemainingMs <= CHALLENGE_TIMING.WARNING_THRESHOLD_MS;
+              const isExpired = timeRemainingMs <= 0;
+              
+              return (
+                <Badge 
+                  variant="outline"
+                  className={`font-mono text-sm px-3 py-1 ${
+                    isExpired
+                      ? 'bg-red-600/30 text-red-400 border-red-500/70 animate-pulse'
+                      : isUrgent
+                        ? 'bg-red-500/20 text-red-500 border-red-500/50 animate-pulse' 
+                        : isWarning 
+                          ? 'bg-yellow-500/20 text-yellow-600 border-yellow-500/50' 
+                          : 'bg-muted'
+                  }`}
+                >
+                  <Clock className="w-3 h-3 mr-1.5" />
+                  {isExpired ? (
+                    <span className="text-red-400">Time's Up!</span>
+                  ) : (
+                    <>
+                      {Math.floor(timeRemainingSec / 60)}:{String(timeRemainingSec % 60).padStart(2, '0')}
+                      {isUrgent && <span className="ml-1.5 text-xs">Hurry!</span>}
+                    </>
+                  )}
+                </Badge>
+              );
+            })()}
           </div>
           
           <div className="flex gap-2">
@@ -1558,6 +1733,31 @@ function DictationModeContent() {
             username={user?.username}
             speedLevel={state.speedLevel}
           />
+        )}
+        
+        {/* Time's Up Overlay for Challenge Mode */}
+        {state.testState.showTimeUpOverlay && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <Card className="max-w-sm w-full mx-4 text-center border-red-500/30 bg-background/95">
+              <CardContent className="pt-8 pb-6">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
+                  <Clock className="w-8 h-8 text-red-500" />
+                </div>
+                <h2 className="text-2xl font-bold mb-2 text-red-500">Time's Up!</h2>
+                <p className="text-muted-foreground mb-6">
+                  {state.testState.typedText.trim() 
+                    ? 'Your answer was auto-submitted.' 
+                    : 'You ran out of time. Try to type faster next time!'}
+                </p>
+                <Button 
+                  onClick={handleDismissTimeUpOverlay}
+                  data-testid="button-dismiss-timeout"
+                >
+                  {state.sessionProgress >= state.sessionLength ? 'View Results' : 'Next Sentence'}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
         )}
       </div>
     </TooltipProvider>

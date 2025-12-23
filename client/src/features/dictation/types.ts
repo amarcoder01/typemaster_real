@@ -149,6 +149,41 @@ export interface DictationTestState {
   showHint: boolean;
   isComplete: boolean;
   result: DictationTestResult | null;
+  // Challenge Mode time limit fields
+  timeLimitMs: number | null;
+  timeExpired: boolean;
+  showTimeUpOverlay: boolean;
+}
+
+// ============================================================================
+// CHALLENGE MODE TIMING
+// ============================================================================
+
+export const CHALLENGE_TIMING = {
+  BASE_TIME_MS: 8000,        // 8 seconds base time
+  PER_WORD_MS: 2500,         // 2.5 seconds per word
+  GRACE_PERIOD_MS: 3000,     // 3 second grace period after time expires
+  WARNING_THRESHOLD_MS: 10000, // Yellow warning at 10 seconds remaining
+  URGENT_THRESHOLD_MS: 5000,   // Red urgent at 5 seconds remaining
+  DIFFICULTY_MULTIPLIERS: {
+    easy: 1.5,
+    medium: 1.0,
+    hard: 0.75,
+  } as Record<DifficultyLevel, number>,
+  OVERTIME_PENALTY: 0.1,     // 10% accuracy penalty for overtime
+  STREAK_BONUS: 0.02,        // 2% bonus per streak (max 10%)
+  MAX_STREAK_BONUS: 0.10,    // Cap at 10% bonus
+} as const;
+
+export function calculateTimeLimit(
+  sentenceText: string,
+  difficulty: DifficultyLevel
+): number {
+  const wordCount = sentenceText.trim().split(/\s+/).length;
+  const multiplier = CHALLENGE_TIMING.DIFFICULTY_MULTIPLIERS[difficulty];
+  return Math.round(
+    (CHALLENGE_TIMING.BASE_TIME_MS + wordCount * CHALLENGE_TIMING.PER_WORD_MS) * multiplier
+  );
 }
 
 export interface SessionStats {
@@ -156,6 +191,11 @@ export interface SessionStats {
   totalAccuracy: number;
   totalErrors: number;
   count: number;
+  // Challenge Mode streak tracking
+  challengeStreak: number;
+  maxChallengeStreak: number;
+  completedInTime: number;
+  timedOut: number;
 }
 
 export interface ErrorCategory {
@@ -324,6 +364,9 @@ export const INITIAL_TEST_STATE: DictationTestState = {
   showHint: false,
   isComplete: false,
   result: null,
+  timeLimitMs: null,
+  timeExpired: false,
+  showTimeUpOverlay: false,
 };
 
 export const INITIAL_SESSION_STATS: SessionStats = {
@@ -331,6 +374,10 @@ export const INITIAL_SESSION_STATS: SessionStats = {
   totalAccuracy: 0,
   totalErrors: 0,
   count: 0,
+  challengeStreak: 0,
+  maxChallengeStreak: 0,
+  completedInTime: 0,
+  timedOut: 0,
 };
 
 export const INITIAL_ADAPTIVE_CONFIG: AdaptiveDifficultyConfig = {
