@@ -334,7 +334,6 @@ function DictationModeContent() {
     
     const prefetch = async () => {
       dispatch({ type: 'SET_IS_PREFETCHING', payload: true });
-      console.log('[Dictation] Prefetching first sentence during setup...');
       
       try {
         const sentence = await fetchSentence({
@@ -350,13 +349,11 @@ function DictationModeContent() {
           prefetchedSentenceRef.current = sentence;
           prefetchedAudioReadyRef.current = false;
           dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: sentence });
-          console.log('[Dictation] Prefetched sentence, now preloading audio...');
           
           // Preload audio in background for instant playback
           audio.preloadAudio(sentence.sentence).then((success) => {
             if (success && isMountedRef.current) {
               prefetchedAudioReadyRef.current = true;
-              console.log('[Dictation] Audio preloaded, ready for instant start!');
             }
           });
         }
@@ -452,7 +449,6 @@ function DictationModeContent() {
     const prefetchedSentence = prefetchedSentenceRef.current || state.prefetchedSentence;
     
     if (prefetchedSentence) {
-      console.log('[Dictation] Using prefetched sentence for instant start');
       timer.reset();
       countdown.reset();
       dispatch({ type: 'RESET_TEST_STATE' });
@@ -474,18 +470,15 @@ function DictationModeContent() {
       setTimeout(() => {
         if (isMountedRef.current) {
           if (prefetchedAudioReadyRef.current || audio.hasPreloadedAudio(sentence.sentence)) {
-            console.log('[Dictation] Playing preloaded audio (instant!)');
             prefetchedAudioReadyRef.current = false;
             audio.speakPreloaded(sentence.sentence);
           } else {
-            console.log('[Dictation] Preload not ready, using streaming');
             audio.speakStreaming(sentence.sentence);
           }
         }
       }, 50);
     } else {
       // Fallback to fetching if prefetch failed
-      console.log('[Dictation] No prefetched sentence, fetching now...');
       await loadNextSentence();
     }
   }, [actions, state.prefetchedSentence, audio, timer, countdown, dispatch, loadNextSentence]);
@@ -616,8 +609,6 @@ function DictationModeContent() {
     // Note: We purposely DON'T clear refs here - we only clear when the new sentence is ready
     // This prevents a race condition where the user clicks Next before prefetch completes
     if (state.sessionProgress < state.sessionLength) {
-      console.log('[Dictation] Prefetching next sentence while showing results...');
-      
       fetchSentence({
         difficulty: state.difficulty,
         category: state.category,
@@ -636,7 +627,6 @@ function DictationModeContent() {
           audio.preloadAudio(nextSentence.sentence).then((success) => {
             if (success && isMountedRef.current) {
               prefetchedAudioReadyRef.current = true;
-              console.log('[Dictation] Next sentence audio preloaded!');
             }
           });
         }
@@ -665,7 +655,6 @@ function DictationModeContent() {
     const prefetchedSentence = prefetchedSentenceRef.current || state.prefetchedSentence;
     
     if (prefetchedSentence) {
-      console.log('[Dictation] Using prefetched next sentence (instant!)');
       timer.reset();
       countdown.reset();
       dispatch({ type: 'RESET_TEST_STATE' });
@@ -687,18 +676,15 @@ function DictationModeContent() {
       setTimeout(() => {
         if (isMountedRef.current) {
           if (prefetchedAudioReadyRef.current || audio.hasPreloadedAudio(sentence.sentence)) {
-            console.log('[Dictation] Playing preloaded audio (instant!)');
             prefetchedAudioReadyRef.current = false;
             audio.speakPreloaded(sentence.sentence);
           } else {
-            console.log('[Dictation] Preload not ready, using streaming');
             audio.speakStreaming(sentence.sentence);
           }
         }
       }, 50);
     } else {
       // Fallback to fetching if prefetch failed
-      console.log('[Dictation] No prefetched sentence available, fetching now...');
       await loadNextSentence();
     }
   }, [state.sessionProgress, state.sessionLength, state.prefetchedSentence, countdown, timer, dispatch, audio, loadNextSentence]);

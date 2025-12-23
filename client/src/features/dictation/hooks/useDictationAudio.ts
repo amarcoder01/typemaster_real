@@ -163,8 +163,6 @@ export function useDictationAudio(options: UseDictationAudioOptions): UseDictati
     if (!isMountedRef.current) return;
     
     if (isUsingOpenAI) {
-      console.log('[DictationAudio] Using streaming TTS for:', text.substring(0, 50) + '...');
-      
       try {
         // Start preloading in parallel for fallback and future replays
         const preloadPromise = preloader.preload(text).catch(() => false);
@@ -176,17 +174,13 @@ export function useDictationAudio(options: UseDictationAudioOptions): UseDictati
         // Wait for preload to complete in background for replays
         preloadPromise.catch(() => {});
       } catch (streamError) {
-        console.log('[DictationAudio] Streaming failed, attempting fallback:', streamError);
-        
         // Try preloaded audio if available
         if (preloader.hasPreloaded(text)) {
-          console.log('[DictationAudio] Falling back to preloaded audio');
           setCombinedSpeaking(true);
           await preloader.playPreloaded(text);
           setCombinedSpeaking(false);
         } else {
           // Last resort: use the legacy non-streaming fetch
-          console.log('[DictationAudio] Falling back to legacy TTS');
           baseSpeek(text);
         }
       }
@@ -200,7 +194,6 @@ export function useDictationAudio(options: UseDictationAudioOptions): UseDictati
     if (!isUsingOpenAI) {
       return true;
     }
-    console.log('[DictationAudio] Preloading audio for:', text.substring(0, 50) + '...');
     return preloader.preload(text);
   }, [isUsingOpenAI, preloader]);
 
@@ -220,7 +213,6 @@ export function useDictationAudio(options: UseDictationAudioOptions): UseDictati
       setCombinedSpeaking(false);
       
       if (!success) {
-        console.log('[DictationAudio] Preloaded playback failed, falling back to streaming');
         await streaming.speakStreaming(text);
       }
     } else {

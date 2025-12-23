@@ -71,9 +71,8 @@ export function DictationShareDialog({
   const rating = getPerformanceRating(wpm, accuracy);
   const modeDisplay = duration >= 60 ? `${Math.floor(duration / 60)} minute` : `${duration}s`;
   
-  const trackShare = (platform: string) => {
-    // Analytics tracking placeholder
-    console.log(`[Share] Dictation shared to ${platform}`);
+  const trackShare = (_platform: string) => {
+    // Analytics tracking placeholder - implement when analytics service is configured
   };
   
   const createShareLink = async () => {

@@ -150,10 +150,9 @@ export function useDictationAPI(): UseDictationAPIReturn {
           break;
         }
         
-        // Log retry attempt
+        // Retry with exponential backoff
         if (attempt < maxRetries) {
           const backoffMs = Math.min(1000 * Math.pow(2, attempt), 8000); // 1s, 2s, 4s, 8s
-          console.log(`[DictationAPI] Fetch attempt ${attempt + 1} failed, retrying in ${backoffMs}ms...`);
           await delay(backoffMs);
         }
       }
