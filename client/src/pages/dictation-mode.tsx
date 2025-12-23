@@ -318,10 +318,56 @@ function DictationModeContent() {
     actions.startPracticeMode(mode);
   }, [actions]);
   
-  const handleBeginSession = useCallback(async () => {
-    actions.beginSession();
-    await loadNextSentence();
-  }, [actions]);
+  // Prefetch sentence and preload audio when entering waiting screen
+  // This eliminates the 7-10 second delay when starting a session
+  useEffect(() => {
+    if (!state.isWaitingToStart || state.prefetchedSentence || state.isPrefetching) {
+      return;
+    }
+    
+    const prefetch = async () => {
+      dispatch({ type: 'SET_IS_PREFETCHING', payload: true });
+      console.log('[Dictation] Prefetching first sentence during setup...');
+      
+      try {
+        const sentence = await fetchSentence({
+          difficulty: state.difficulty,
+          category: state.category,
+          excludeIds: state.shownSentenceIds,
+        });
+        
+        if (sentence && isMountedRef.current) {
+          dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: sentence });
+          console.log('[Dictation] Prefetched sentence, now preloading audio...');
+          
+          // Preload audio in background for instant playback
+          audio.preloadAudio(sentence.sentence).then((success) => {
+            if (success) {
+              console.log('[Dictation] Audio preloaded, ready for instant start!');
+            }
+          });
+        }
+      } catch (error) {
+        console.error('[Dictation] Failed to prefetch sentence:', error);
+      } finally {
+        if (isMountedRef.current) {
+          dispatch({ type: 'SET_IS_PREFETCHING', payload: false });
+        }
+      }
+    };
+    
+    prefetch();
+  }, [state.isWaitingToStart, state.prefetchedSentence, state.isPrefetching, state.difficulty, state.category, state.shownSentenceIds, fetchSentence, audio, dispatch]);
+  
+  // Re-prefetch when settings change during waiting
+  useEffect(() => {
+    if (!state.isWaitingToStart || !state.prefetchedSentence) {
+      return;
+    }
+    
+    // Settings changed, clear prefetched sentence to trigger re-fetch
+    dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
+  }, [state.difficulty, state.category]);
   
   const handleRecoverSession = useCallback(() => {
     actions.recoverSession();
@@ -377,6 +423,40 @@ function DictationModeContent() {
     dispatch,
     toast,
   ]);
+  
+  const handleBeginSession = useCallback(async () => {
+    actions.beginSession();
+    
+    // Use prefetched sentence if available (instant start!)
+    if (state.prefetchedSentence) {
+      console.log('[Dictation] Using prefetched sentence for instant start');
+      timer.reset();
+      countdown.reset();
+      dispatch({ type: 'RESET_TEST_STATE' });
+      
+      const sentence = state.prefetchedSentence;
+      dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
+      dispatch({ type: 'SET_TEST_STATE', payload: { sentence } });
+      dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
+      
+      // Play preloaded audio immediately (should be instant!)
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          if (audio.hasPreloadedAudio(sentence.sentence)) {
+            console.log('[Dictation] Playing preloaded audio (instant!)');
+            audio.speakPreloaded(sentence.sentence);
+          } else {
+            console.log('[Dictation] Preload not ready, using streaming');
+            audio.speakStreaming(sentence.sentence);
+          }
+        }
+      }, 50);
+    } else {
+      // Fallback to fetching if prefetch failed
+      console.log('[Dictation] No prefetched sentence, fetching now...');
+      await loadNextSentence();
+    }
+  }, [actions, state.prefetchedSentence, audio, timer, countdown, dispatch, loadNextSentence]);
   
   const handleReplay = useCallback(() => {
     if (state.testState.sentence && !audio.isSpeaking) {
@@ -445,11 +525,31 @@ function DictationModeContent() {
       dispatch({ type: 'SET_LAST_TEST_RESULT_ID', payload: saveResult.id });
     }
     
+    // Prefetch next sentence while user reviews results (instant next!)
+    if (state.sessionProgress < state.sessionLength) {
+      console.log('[Dictation] Prefetching next sentence while showing results...');
+      fetchSentence({
+        difficulty: state.difficulty,
+        category: state.category,
+        excludeIds: [...state.shownSentenceIds, sentence.id],
+      }).then((nextSentence) => {
+        if (nextSentence && isMountedRef.current) {
+          dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: nextSentence });
+          // Preload audio for instant playback
+          audio.preloadAudio(nextSentence.sentence).then((success) => {
+            if (success) {
+              console.log('[Dictation] Next sentence audio preloaded!');
+            }
+          });
+        }
+      }).catch(() => {});
+    }
+    
     // Start auto-advance if enabled
     if (PRACTICE_MODES[state.practiceMode].autoAdvance) {
       countdown.start();
     }
-  }, [state.testState, state.speedLevel, state.practiceMode, audio, timer, countdown, actions, dispatch, saveTest, toast]);
+  }, [state.testState, state.speedLevel, state.practiceMode, state.sessionProgress, state.sessionLength, state.difficulty, state.category, state.shownSentenceIds, audio, timer, countdown, actions, dispatch, saveTest, fetchSentence, toast]);
   
   const handleNextSentence = useCallback(async () => {
     countdown.stop();
@@ -461,8 +561,35 @@ function DictationModeContent() {
       return;
     }
     
-    await loadNextSentence();
-  }, [state.sessionProgress, state.sessionLength, countdown, dispatch, loadNextSentence]);
+    // Use prefetched sentence if available (instant next!)
+    if (state.prefetchedSentence) {
+      console.log('[Dictation] Using prefetched next sentence (instant!)');
+      timer.reset();
+      countdown.reset();
+      dispatch({ type: 'RESET_TEST_STATE' });
+      
+      const sentence = state.prefetchedSentence;
+      dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
+      dispatch({ type: 'SET_TEST_STATE', payload: { sentence } });
+      dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
+      
+      // Play preloaded audio immediately
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          if (audio.hasPreloadedAudio(sentence.sentence)) {
+            console.log('[Dictation] Playing preloaded audio (instant!)');
+            audio.speakPreloaded(sentence.sentence);
+          } else {
+            console.log('[Dictation] Preload not ready, using streaming');
+            audio.speakStreaming(sentence.sentence);
+          }
+        }
+      }, 50);
+    } else {
+      // Fallback to fetching if prefetch failed
+      await loadNextSentence();
+    }
+  }, [state.sessionProgress, state.sessionLength, state.prefetchedSentence, countdown, timer, dispatch, audio, loadNextSentence]);
   
   const handleToggleBookmark = useCallback(() => {
     const { sentence, result } = state.testState;

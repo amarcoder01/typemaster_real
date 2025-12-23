@@ -54,6 +54,10 @@ interface DictationState {
   showModeSelector: boolean;
   isWaitingToStart: boolean;
   
+  // Prefetched sentence for instant start (fetched during waiting phase)
+  prefetchedSentence: DictationSentence | null;
+  isPrefetching: boolean;
+  
   // Test Settings
   difficulty: DifficultyLevel;
   speedLevel: string;
@@ -109,6 +113,8 @@ type DictationAction =
   | { type: 'SET_PRACTICE_MODE'; payload: PracticeMode }
   | { type: 'SET_SHOW_MODE_SELECTOR'; payload: boolean }
   | { type: 'SET_IS_WAITING_TO_START'; payload: boolean }
+  | { type: 'SET_PREFETCHED_SENTENCE'; payload: DictationSentence | null }
+  | { type: 'SET_IS_PREFETCHING'; payload: boolean }
   | { type: 'SET_DIFFICULTY'; payload: DifficultyLevel }
   | { type: 'SET_SPEED_LEVEL'; payload: string }
   | { type: 'SET_CATEGORY'; payload: string }
@@ -154,6 +160,8 @@ const initialState: DictationState = {
   practiceMode: 'quick',
   showModeSelector: true,
   isWaitingToStart: false,
+  prefetchedSentence: null,
+  isPrefetching: false,
   difficulty: 'easy',
   speedLevel: '1.0',
   category: 'all',
@@ -194,6 +202,10 @@ function dictationReducer(state: DictationState, action: DictationAction): Dicta
       return { ...state, showModeSelector: action.payload };
     case 'SET_IS_WAITING_TO_START':
       return { ...state, isWaitingToStart: action.payload };
+    case 'SET_PREFETCHED_SENTENCE':
+      return { ...state, prefetchedSentence: action.payload };
+    case 'SET_IS_PREFETCHING':
+      return { ...state, isPrefetching: action.payload };
     case 'SET_DIFFICULTY':
       return { ...state, difficulty: action.payload };
     case 'SET_SPEED_LEVEL':
@@ -286,6 +298,8 @@ function dictationReducer(state: DictationState, action: DictationAction): Dicta
         currentCoachingTip: null,
         showModeSelector: true,
         isWaitingToStart: false,
+        prefetchedSentence: null,
+        isPrefetching: false,
         lastTestResultId: null,
       };
     case 'RESTORE_SESSION':
