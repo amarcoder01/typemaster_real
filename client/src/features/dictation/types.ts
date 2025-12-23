@@ -153,6 +153,7 @@ export interface DictationTestState {
   timeLimitMs: number | null;
   timeExpired: boolean;
   showTimeUpOverlay: boolean;
+  showTimePreview: boolean;
 }
 
 // ============================================================================
@@ -367,6 +368,7 @@ export const INITIAL_TEST_STATE: DictationTestState = {
   timeLimitMs: null,
   timeExpired: false,
   showTimeUpOverlay: false,
+  showTimePreview: false,
 };
 
 export const INITIAL_SESSION_STATS: SessionStats = {
