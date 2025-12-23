@@ -15,7 +15,7 @@
 
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { Link } from 'wouter';
-import { ArrowLeft, RotateCcw, Settings2, BarChart3, Bookmark, Sparkles } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Settings2, BarChart3, Bookmark, Sparkles, X, Minimize2, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -42,7 +42,7 @@ import {
   type DictationTestResult,
   PRACTICE_MODES,
   CATEGORIES,
-  getDifficultyEmoji,
+  ZEN_THEMES,
   getRandomEncouragement,
   INITIAL_ADAPTIVE_CONFIG,
 } from '@/features/dictation';
@@ -973,6 +973,145 @@ function DictationModeContent() {
     ? state.bookmarks.some((b) => b.id === state.testState.sentence!.id)
     : false;
   
+  // Get current zen theme config
+  const zenThemeConfig = ZEN_THEMES[state.zenTheme];
+  
+  // Zen Mode fullscreen view for Focus Mode
+  if (state.isZenMode && state.practiceMode === 'focus') {
+    return (
+      <div 
+        className="fixed inset-0 z-50 flex flex-col items-center justify-center p-8"
+        style={{ background: zenThemeConfig.gradient }}
+      >
+        {/* Exit Zen Mode button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute top-4 right-4"
+          style={{ color: zenThemeConfig.textColor }}
+          onClick={actions.exitZenMode}
+          data-testid="button-exit-zen"
+        >
+          <Minimize2 className="w-5 h-5" />
+        </Button>
+        
+        {/* Zen Mode content */}
+        <div className="w-full max-w-2xl space-y-8">
+          {/* Encouragement message */}
+          <p 
+            className="text-center text-lg italic opacity-80"
+            style={{ color: zenThemeConfig.textColor }}
+          >
+            {getRandomEncouragement()}
+          </p>
+          
+          {/* Progress indicator */}
+          <div className="text-center">
+            <span 
+              className="text-sm font-medium"
+              style={{ color: zenThemeConfig.accentColor }}
+            >
+              Sentence {state.sessionProgress + 1} of {state.sessionLength}
+            </span>
+          </div>
+          
+          {/* Audio player with play button for Zen mode */}
+          <div className="flex flex-col items-center gap-4">
+            <DictationAudioPlayer
+              isSpeaking={audio.isSpeaking}
+              isReady={isReady}
+              isLoading={isFetching}
+              showHint={state.testState.showHint}
+              hintText={state.testState.sentence?.sentence}
+            />
+            
+            {/* Play/Replay button in Zen mode - use speakStreaming, let onSpeechEnd handle timer start */}
+            {state.testState.sentence && !audio.isSpeaking && !state.testState.isComplete && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  // Use speakStreaming - timer starts via onSpeechEnd callback in standard flow
+                  audio.speakStreaming(state.testState.sentence!.sentence);
+                  // Increment replay count if already started
+                  if (state.testState.startTime !== null) {
+                    actions.incrementReplayCount();
+                  }
+                }}
+                style={{ 
+                  background: zenThemeConfig.buttonBg,
+                  color: zenThemeConfig.textColor,
+                  borderColor: zenThemeConfig.accentColor
+                }}
+                data-testid="button-zen-play"
+              >
+                <RotateCcw className="w-4 h-4 mr-2" />
+                {state.testState.startTime === null ? 'Play Audio' : 'Replay Audio'}
+              </Button>
+            )}
+          </div>
+          
+          {/* Typing area */}
+          {state.testState.sentence && !state.testState.isComplete && (
+            <div 
+              className="rounded-lg p-4"
+              style={{ background: zenThemeConfig.inputBg }}
+            >
+              <DictationTypingArea
+                typedText={state.testState.typedText}
+                onTypedTextChange={actions.setTypedText}
+                onSubmit={handleSubmit}
+                onReplay={handleReplay}
+                onToggleHint={actions.toggleHint}
+                showHint={state.testState.showHint}
+                elapsedTime={state.elapsedTime}
+                practiceMode={state.practiceMode}
+                isSpeaking={audio.isSpeaking}
+                isReady={isReady}
+                disabled={isFetching || isSaving}
+              />
+            </div>
+          )}
+          
+          {/* Results in zen mode */}
+          {state.testState.isComplete && state.testState.result && (
+            <div 
+              className="rounded-lg p-6"
+              style={{ background: zenThemeConfig.inputBg }}
+            >
+              <DictationResults
+                result={state.testState.result}
+                sentence={state.testState.sentence!.sentence}
+                typedText={state.testState.typedText}
+                replayCount={state.testState.replayCount}
+                hintUsed={state.testState.hintShown}
+                duration={state.testState.result.duration}
+                isBookmarked={isBookmarked}
+                coachingTip={state.currentCoachingTip}
+                autoAdvanceCountdown={countdown.countdown}
+                isLastSentence={state.sessionProgress >= state.sessionLength}
+                onNext={handleNextSentence}
+                onReplay={() => {
+                  dispatch({
+                    type: 'SET_TEST_STATE',
+                    payload: {
+                      typedText: '',
+                      startTime: null,
+                      endTime: null,
+                      isComplete: false,
+                      result: null,
+                    },
+                  });
+                  timer.reset();
+                }}
+                onToggleBookmark={handleToggleBookmark}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  
   return (
     <TooltipProvider delayDuration={300}>
       <div className="container max-w-4xl mx-auto p-6">
@@ -992,7 +1131,33 @@ function DictationModeContent() {
             <TooltipContent>Return to mode selection</TooltipContent>
           </Tooltip>
           
-          <h1 className="text-xl font-bold">{PRACTICE_MODES[state.practiceMode].name}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold">{PRACTICE_MODES[state.practiceMode].name}</h1>
+            
+            {/* Timer Pressure indicator for Challenge Mode - only show during active typing, hide during all overlays */}
+            {PRACTICE_MODES[state.practiceMode].timerPressure && 
+             state.testState.sentence && 
+             !state.testState.isComplete && 
+             state.testState.startTime !== null &&
+             !state.showSettings && 
+             !state.showAnalytics &&
+             !state.showBookmarks && (
+              <Badge 
+                variant="outline"
+                className={`font-mono text-sm px-3 py-1 ${
+                  state.elapsedTime > 30 
+                    ? 'bg-red-500/20 text-red-500 border-red-500/50 animate-pulse' 
+                    : state.elapsedTime > 15 
+                      ? 'bg-yellow-500/20 text-yellow-600 border-yellow-500/50' 
+                      : 'bg-muted'
+                }`}
+              >
+                <Clock className="w-3 h-3 mr-1.5" />
+                {Math.floor(state.elapsedTime / 60)}:{String(state.elapsedTime % 60).padStart(2, '0')}
+                {state.elapsedTime > 30 && <span className="ml-1.5 text-xs">Hurry!</span>}
+              </Badge>
+            )}
+          </div>
           
           <div className="flex gap-2">
             <Tooltip>
@@ -1249,9 +1414,9 @@ function DictationModeContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="easy">{getDifficultyEmoji('easy')} Easy</SelectItem>
-                      <SelectItem value="medium">{getDifficultyEmoji('medium')} Medium</SelectItem>
-                      <SelectItem value="hard">{getDifficultyEmoji('hard')} Hard</SelectItem>
+                      <SelectItem value="easy">Easy</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="hard">Hard</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
