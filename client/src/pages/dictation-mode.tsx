@@ -351,23 +351,14 @@ function DictationModeContent() {
         payload: { sentence },
       });
       
-      // Preload audio in background, then speak immediately when ready
-      // This eliminates the 5-8 second latency by fetching audio while updating UI
-      audio.preloadAudio(sentence.sentence).then((preloaded) => {
-        if (!isMountedRef.current) return;
-        
-        // Small delay for UI to settle, then play preloaded audio
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            if (preloaded) {
-              audio.speakPreloaded(sentence.sentence);
-            } else {
-              // Fallback to regular speak if preload failed
-              audio.speak(sentence.sentence);
-            }
-          }
-        }, 100);
-      });
+      // Use streaming TTS for ultra-low latency (~500ms vs 3-5s)
+      // Audio starts playing as chunks arrive from the server
+      // This also preloads for instant replays in the background
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          audio.speakStreaming(sentence.sentence);
+        }
+      }, 50);
     } else {
       toast({
         title: 'Failed to load sentence',

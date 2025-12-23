@@ -4003,6 +4003,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Streaming TTS endpoint for ultra-low latency playback
+  // Audio starts playing as chunks arrive instead of waiting for full file
+  app.post("/api/dictation/tts/stream", async (req, res) => {
+    try {
+      const { text, voice = "alloy", speed = 1.0 } = req.body;
+      
+      if (!text || typeof text !== "string" || text.trim().length === 0) {
+        return res.status(400).json({ message: "Text is required" });
+      }
+      
+      if (text.length > 1000) {
+        return res.status(400).json({ message: "Text too long (max 1000 characters)" });
+      }
+      
+      const apiKey = process.env.OPENAI_TTS_API_KEY 
+        || process.env.OPENAI_API_KEY 
+        || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({ 
+          message: "TTS not available", 
+          fallback: true 
+        });
+      }
+      
+      const validVoices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
+      const selectedVoice = validVoices.includes(voice) ? voice : "alloy";
+      const selectedSpeed = Math.max(0.25, Math.min(4.0, speed));
+      
+      // Use PCM format for lowest latency (no encoding/decoding overhead)
+      const response = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "tts-1",
+          input: text,
+          voice: selectedVoice,
+          speed: selectedSpeed,
+          response_format: "pcm",
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("OpenAI TTS streaming error:", response.status, errorText);
+        return res.status(503).json({ 
+          message: "TTS generation failed", 
+          fallback: true 
+        });
+      }
+
+      // Stream the response directly to client
+      res.set({
+        "Content-Type": "audio/pcm",
+        "Transfer-Encoding": "chunked",
+        "Cache-Control": "no-cache",
+        "X-Audio-Sample-Rate": "24000",
+        "X-Audio-Channels": "1",
+        "X-Audio-Bit-Depth": "16",
+      });
+
+      // Pipe OpenAI's streaming response directly to the client
+      if (response.body) {
+        const reader = response.body.getReader();
+        
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            res.write(Buffer.from(value));
+          }
+          res.end();
+        } catch (streamError) {
+          console.error("TTS stream error:", streamError);
+          if (!res.headersSent) {
+            res.status(503).json({ message: "Stream interrupted", fallback: true });
+          } else {
+            res.end();
+          }
+        }
+      } else {
+        res.status(503).json({ message: "No stream available", fallback: true });
+      }
+    } catch (error: any) {
+      console.error("TTS streaming error:", error);
+      if (!res.headersSent) {
+        res.status(503).json({ 
+          message: "TTS service error", 
+          fallback: true 
+        });
+      }
+    }
+  });
+
   // Rate limiter for stress test submissions (prevent rapid-fire submissions)
   const stressTestSubmitLimiter = rateLimit({
     windowMs: 30 * 1000, // 30 second window
