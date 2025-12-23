@@ -122,9 +122,13 @@ function DictationModeContent() {
   const [lastResultId, setLastResultId] = useState<number | null>(null);
   const [certificateData, setCertificateData] = useState<any>(null);
   
-  // Refs for cleanup
+  // Refs for cleanup and prefetch
   const isMountedRef = useRef(true);
   const certificateRef = useRef<HTMLDivElement>(null);
+  
+  // Ref to store prefetched sentence for immediate access (avoids React state delays)
+  const prefetchedSentenceRef = useRef<typeof state.prefetchedSentence>(null);
+  const prefetchedAudioReadyRef = useRef(false);
 
   // ============================================================================
   // NAVIGATION & HISTORY MANAGEMENT
@@ -321,7 +325,8 @@ function DictationModeContent() {
   // Prefetch sentence and preload audio when entering waiting screen
   // This eliminates the 7-10 second delay when starting a session
   useEffect(() => {
-    if (!state.isWaitingToStart || state.prefetchedSentence || state.isPrefetching) {
+    // Skip if not waiting to start, or if we already have a prefetched sentence (in state or ref)
+    if (!state.isWaitingToStart || state.prefetchedSentence || prefetchedSentenceRef.current || state.isPrefetching) {
       return;
     }
     
@@ -334,15 +339,21 @@ function DictationModeContent() {
           difficulty: state.difficulty,
           category: state.category,
           excludeIds: state.shownSentenceIds,
+          maxRetries: 3,
         });
         
         if (sentence && isMountedRef.current) {
+          // Atomically set both ref AND state together for consistency
+          // Ref first for immediate access, then state for React consistency
+          prefetchedSentenceRef.current = sentence;
+          prefetchedAudioReadyRef.current = false;
           dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: sentence });
           console.log('[Dictation] Prefetched sentence, now preloading audio...');
           
           // Preload audio in background for instant playback
           audio.preloadAudio(sentence.sentence).then((success) => {
-            if (success) {
+            if (success && isMountedRef.current) {
+              prefetchedAudioReadyRef.current = true;
               console.log('[Dictation] Audio preloaded, ready for instant start!');
             }
           });
@@ -361,11 +372,13 @@ function DictationModeContent() {
   
   // Re-prefetch when settings change during waiting
   useEffect(() => {
-    if (!state.isWaitingToStart || !state.prefetchedSentence) {
+    if (!state.isWaitingToStart || (!state.prefetchedSentence && !prefetchedSentenceRef.current)) {
       return;
     }
     
     // Settings changed, clear prefetched sentence to trigger re-fetch
+    prefetchedSentenceRef.current = null;
+    prefetchedAudioReadyRef.current = false;
     dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
   }, [state.difficulty, state.category]);
   
@@ -427,23 +440,29 @@ function DictationModeContent() {
   const handleBeginSession = useCallback(async () => {
     actions.beginSession();
     
-    // Use prefetched sentence if available (instant start!)
-    if (state.prefetchedSentence) {
+    // Use prefetched sentence from ref (immediate access) or state
+    const prefetchedSentence = prefetchedSentenceRef.current || state.prefetchedSentence;
+    
+    if (prefetchedSentence) {
       console.log('[Dictation] Using prefetched sentence for instant start');
       timer.reset();
       countdown.reset();
       dispatch({ type: 'RESET_TEST_STATE' });
       
-      const sentence = state.prefetchedSentence;
+      const sentence = prefetchedSentence;
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
       dispatch({ type: 'SET_TEST_STATE', payload: { sentence } });
+      
+      // Clear both ref and state
+      prefetchedSentenceRef.current = null;
       dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
       
       // Play preloaded audio immediately (should be instant!)
       setTimeout(() => {
         if (isMountedRef.current) {
-          if (audio.hasPreloadedAudio(sentence.sentence)) {
+          if (prefetchedAudioReadyRef.current || audio.hasPreloadedAudio(sentence.sentence)) {
             console.log('[Dictation] Playing preloaded audio (instant!)');
+            prefetchedAudioReadyRef.current = false;
             audio.speakPreloaded(sentence.sentence);
           } else {
             console.log('[Dictation] Preload not ready, using streaming');
@@ -526,23 +545,37 @@ function DictationModeContent() {
     }
     
     // Prefetch next sentence while user reviews results (instant next!)
+    // Use silent mode with retries to avoid showing error toasts for background prefetch
+    // Note: We purposely DON'T clear refs here - we only clear when the new sentence is ready
+    // This prevents a race condition where the user clicks Next before prefetch completes
     if (state.sessionProgress < state.sessionLength) {
       console.log('[Dictation] Prefetching next sentence while showing results...');
+      
       fetchSentence({
         difficulty: state.difficulty,
         category: state.category,
         excludeIds: [...state.shownSentenceIds, sentence.id],
+        maxRetries: 3,
+        silent: true, // Don't show toasts for background prefetch
       }).then((nextSentence) => {
         if (nextSentence && isMountedRef.current) {
+          // Atomically set both ref AND state together
+          // Ref first for immediate access, then state for React consistency
+          prefetchedSentenceRef.current = nextSentence;
+          prefetchedAudioReadyRef.current = false;
           dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: nextSentence });
+          
           // Preload audio for instant playback
           audio.preloadAudio(nextSentence.sentence).then((success) => {
-            if (success) {
+            if (success && isMountedRef.current) {
+              prefetchedAudioReadyRef.current = true;
               console.log('[Dictation] Next sentence audio preloaded!');
             }
           });
         }
-      }).catch(() => {});
+      }).catch((error) => {
+        console.error('[Dictation] Failed to prefetch next sentence:', error);
+      });
     }
     
     // Start auto-advance if enabled
@@ -561,23 +594,29 @@ function DictationModeContent() {
       return;
     }
     
-    // Use prefetched sentence if available (instant next!)
-    if (state.prefetchedSentence) {
+    // Use prefetched sentence from ref (immediate access) or state
+    const prefetchedSentence = prefetchedSentenceRef.current || state.prefetchedSentence;
+    
+    if (prefetchedSentence) {
       console.log('[Dictation] Using prefetched next sentence (instant!)');
       timer.reset();
       countdown.reset();
       dispatch({ type: 'RESET_TEST_STATE' });
       
-      const sentence = state.prefetchedSentence;
+      const sentence = prefetchedSentence;
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
       dispatch({ type: 'SET_TEST_STATE', payload: { sentence } });
+      
+      // Clear both ref and state
+      prefetchedSentenceRef.current = null;
       dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
       
       // Play preloaded audio immediately
       setTimeout(() => {
         if (isMountedRef.current) {
-          if (audio.hasPreloadedAudio(sentence.sentence)) {
+          if (prefetchedAudioReadyRef.current || audio.hasPreloadedAudio(sentence.sentence)) {
             console.log('[Dictation] Playing preloaded audio (instant!)');
+            prefetchedAudioReadyRef.current = false;
             audio.speakPreloaded(sentence.sentence);
           } else {
             console.log('[Dictation] Preload not ready, using streaming');
@@ -587,6 +626,7 @@ function DictationModeContent() {
       }, 50);
     } else {
       // Fallback to fetching if prefetch failed
+      console.log('[Dictation] No prefetched sentence available, fetching now...');
       await loadNextSentence();
     }
   }, [state.sessionProgress, state.sessionLength, state.prefetchedSentence, countdown, timer, dispatch, audio, loadNextSentence]);
