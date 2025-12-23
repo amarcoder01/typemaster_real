@@ -212,16 +212,27 @@ export class EmailService {
     retryBackoffMultiplier?: number;
   }) {
     const apiKey = process.env.MAILGUN_API_KEY;
+    const domain = process.env.MAILGUN_DOMAIN;
     this.fromEmail = process.env.MAILGUN_FROM_EMAIL || "no-reply@typemasterai.com";
     this.fromName = process.env.MAILGUN_FROM_NAME || "TypeMasterAI";
-    this.domain = process.env.MAILGUN_DOMAIN || "sandbox3f76c67c33064dd69234ec4b94f9895c.mailgun.org";
     this.appUrl = process.env.APP_URL || "https://typemasterai.com";
 
-    if (apiKey) {
+    // Validate required environment variables at startup
+    const missingVars: string[] = [];
+    if (!apiKey) missingVars.push("MAILGUN_API_KEY");
+    if (!domain) missingVars.push("MAILGUN_DOMAIN");
+
+    if (missingVars.length > 0) {
+      console.warn(`[EmailService] Missing required environment variables: ${missingVars.join(", ")}`);
+      console.warn("[EmailService] Email functionality will be disabled - emails will be logged only");
+      this.domain = "";
+      this.initialized = false;
+    } else {
+      this.domain = domain!;
       const mailgun = new Mailgun(formData);
       this.mg = mailgun.client({
         username: 'api',
-        key: apiKey,
+        key: apiKey!,
         url: 'https://api.mailgun.net'
       });
       this.initialized = true;
@@ -229,8 +240,6 @@ export class EmailService {
       console.log(`[EmailService] From Email: ${this.fromEmail}`);
       console.log(`[EmailService] From Name: ${this.fromName}`);
       console.log(`[EmailService] Domain: ${this.domain}`);
-    } else {
-      console.warn("[EmailService] No Mailgun API key found - emails will be logged only");
     }
 
     this.rateLimiter = new EmailRateLimiter(
