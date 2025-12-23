@@ -18,6 +18,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { ChallengeTimePreview } from './ChallengeTimePreview';
 import type { 
   DifficultyLevel, 
   AdaptiveDifficultyConfig 
@@ -34,6 +35,12 @@ interface DictationSetupPanelProps {
   openAIVoices: { id: string; name: string }[];
   currentRate: number;
   adaptiveDifficulty: AdaptiveDifficultyConfig;
+  
+  // Challenge Mode time preview
+  isChallenge?: boolean;
+  challengeTimeLimitMs?: number | null;
+  challengeWordCount?: number;
+  isPreviewLoading?: boolean;
   
   // Callbacks
   onDifficultyChange: (difficulty: DifficultyLevel) => void;
@@ -64,6 +71,10 @@ export function DictationSetupPanel({
   openAIVoices,
   currentRate,
   adaptiveDifficulty,
+  isChallenge = false,
+  challengeTimeLimitMs,
+  challengeWordCount,
+  isPreviewLoading = false,
   onDifficultyChange,
   onSpeedLevelChange,
   onCategoryChange,
@@ -239,6 +250,16 @@ export function DictationSetupPanel({
 
       {/* Side Panel: Advanced & Info */}
       <div className="space-y-6">
+        {/* Challenge Mode Time Preview */}
+        {isChallenge && (
+          <ChallengeTimePreview
+            timeLimitMs={challengeTimeLimitMs ?? null}
+            difficulty={difficulty}
+            isLoading={isPreviewLoading}
+            wordCount={challengeWordCount}
+          />
+        )}
+        
         {/* Adaptive Mode Card */}
         <Card>
           <CardHeader className="pb-3">

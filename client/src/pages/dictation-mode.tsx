@@ -1093,6 +1093,18 @@ function DictationModeContent() {
             openAIVoices={audio.openAIVoices}
             currentRate={audio.currentRate}
             adaptiveDifficulty={state.adaptiveDifficulty}
+            isChallenge={state.practiceMode === 'challenge'}
+            challengeTimeLimitMs={
+              state.prefetchedSentence && state.practiceMode === 'challenge'
+                ? calculateTimeLimit(state.prefetchedSentence.sentence, state.difficulty)
+                : null
+            }
+            challengeWordCount={
+              state.prefetchedSentence
+                ? state.prefetchedSentence.sentence.trim().split(/\s+/).length
+                : undefined
+            }
+            isPreviewLoading={state.isPrefetching && state.practiceMode === 'challenge'}
             onDifficultyChange={(diff) => dispatch({ type: 'SET_DIFFICULTY', payload: diff })}
             onSpeedLevelChange={(speed) => dispatch({ type: 'SET_SPEED_LEVEL', payload: speed })}
             onCategoryChange={(cat) => dispatch({ type: 'SET_CATEGORY', payload: cat })}
