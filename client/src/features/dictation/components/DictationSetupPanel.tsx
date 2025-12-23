@@ -22,10 +22,7 @@ import type {
   DifficultyLevel, 
   AdaptiveDifficultyConfig 
 } from '../types';
-import { 
-  CATEGORIES, 
-  getDifficultyEmoji 
-} from '../types';
+import { CATEGORIES } from '../types';
 
 interface DictationSetupPanelProps {
   // Current settings
@@ -112,9 +109,9 @@ export function DictationSetupPanel({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="easy">{getDifficultyEmoji('easy')} Easy</SelectItem>
-                    <SelectItem value="medium">{getDifficultyEmoji('medium')} Medium</SelectItem>
-                    <SelectItem value="hard">{getDifficultyEmoji('hard')} Hard</SelectItem>
+                    <SelectItem value="easy">Easy</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="hard">Hard</SelectItem>
                   </SelectContent>
                 </Select>
                 {adaptiveDifficulty.enabled && (
