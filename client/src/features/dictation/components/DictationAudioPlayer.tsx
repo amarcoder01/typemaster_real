@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Volume2, Mic, Check, Loader2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { LoadingDots } from '@/components/ui/loading-dots';
 
 interface DictationAudioPlayerProps {
   isSpeaking: boolean;
@@ -79,7 +80,9 @@ export function DictationAudioPlayer({
               </div>
             </div>
             <div className="space-y-2 text-center">
-              <p className="text-xl font-semibold text-muted-foreground">Preparing...</p>
+              <p className="text-xl font-semibold text-muted-foreground">
+                <LoadingDots text="Preparing" size="lg" />
+              </p>
               <p className="text-sm text-muted-foreground/70">Getting your next sentence ready</p>
             </div>
           </div>
@@ -231,7 +234,9 @@ export function DictationAudioPlayer({
       <div className="bg-gradient-to-br from-muted to-muted/50 p-6 rounded-full border-4 border-muted-foreground/20">
         <Volume2 className="w-16 h-16 text-muted-foreground" />
       </div>
-      <p className="mt-4 text-muted-foreground">Waiting...</p>
+      <p className="mt-4 text-muted-foreground">
+        <LoadingDots text="Waiting" size="md" />
+      </p>
     </div>
   );
 }

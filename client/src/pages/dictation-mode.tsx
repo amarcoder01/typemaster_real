@@ -920,7 +920,7 @@ function DictationModeContent() {
               const newUrl = window.location.pathname;
               window.history.pushState(null, '', newUrl);
             }}
-            isLoading={isFetching}
+            isLoading={isFetching || state.isPrefetching}
           />
         </div>
       </TooltipProvider>

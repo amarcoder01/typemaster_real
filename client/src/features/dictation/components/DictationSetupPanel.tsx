@@ -1,4 +1,3 @@
-import React from 'react';
 import { 
   Settings2, 
   Play, 
@@ -11,6 +10,7 @@ import {
   Mic
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { LoadingDots } from '@/components/ui/loading-dots';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
@@ -229,7 +229,7 @@ export function DictationSetupPanel({
           </Button>
           <Button size="lg" onClick={onStartSession} disabled={isLoading} className="px-8 shadow-lg shadow-primary/20">
             {isLoading ? (
-              'Loading...'
+              <LoadingDots text="Preparing" size="md" />
             ) : (
               <>
                 <Play className="w-4 h-4 mr-2 fill-current" />
