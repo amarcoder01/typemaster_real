@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis';
+import { useTTSPreloader } from '@/hooks/useTTSPreloader';
 import { getSpeedRate } from '@shared/dictation-utils';
 import { getSavedVoice, saveVoiceSelection } from '../utils/persistence';
 
@@ -12,8 +13,12 @@ interface UseDictationAudioOptions {
 
 interface UseDictationAudioReturn {
   speak: (text: string) => void;
+  speakPreloaded: (text: string) => Promise<void>;
   cancel: () => void;
   replay: (text: string) => void;
+  preloadAudio: (text: string) => Promise<boolean>;
+  isPreloading: boolean;
+  hasPreloadedAudio: (text: string) => boolean;
   isSpeaking: boolean;
   isSupported: boolean;
   error: string | null;
@@ -38,7 +43,7 @@ interface UseDictationAudioReturn {
 
 /**
  * Hook for managing dictation audio with proper cleanup
- * Handles both browser TTS and OpenAI TTS
+ * Handles both browser TTS and OpenAI TTS with audio preloading support
  */
 export function useDictationAudio(options: UseDictationAudioOptions): UseDictationAudioReturn {
   const { speedLevel, onSpeechStart, onSpeechEnd, onSpeechError } = options;
@@ -46,6 +51,7 @@ export function useDictationAudio(options: UseDictationAudioOptions): UseDictati
   const currentRate = getSpeedRate(speedLevel);
   const isMountedRef = useRef(true);
   const speechCallbacksRef = useRef({ onSpeechStart, onSpeechEnd, onSpeechError });
+  const [combinedSpeaking, setCombinedSpeaking] = useState(false);
   
   // Update refs when callbacks change
   useEffect(() => {
@@ -54,8 +60,8 @@ export function useDictationAudio(options: UseDictationAudioOptions): UseDictati
   
   const {
     speak: baseSpeek,
-    cancel,
-    isSpeaking,
+    cancel: baseCancel,
+    isSpeaking: baseSpeaking,
     isSupported,
     error: speechError,
     voices,
@@ -70,6 +76,15 @@ export function useDictationAudio(options: UseDictationAudioOptions): UseDictati
     rate: currentRate,
     lang: 'en-US',
   });
+
+  // TTS Preloader for OpenAI
+  const preloader = useTTSPreloader({
+    voice: currentOpenAIVoice,
+    speed: currentRate,
+  });
+  
+  // Combined speaking state from both sources
+  const isSpeaking = combinedSpeaking || baseSpeaking || preloader.isSpeaking;
   
   // Filter English voices
   const englishVoices = voices.filter(v => v.lang.startsWith('en'));
@@ -100,10 +115,8 @@ export function useDictationAudio(options: UseDictationAudioOptions): UseDictati
   const wasSpeakingRef = useRef(false);
   useEffect(() => {
     if (isSpeaking && !wasSpeakingRef.current) {
-      // Speech started
       speechCallbacksRef.current.onSpeechStart?.();
     } else if (!isSpeaking && wasSpeakingRef.current) {
-      // Speech ended
       speechCallbacksRef.current.onSpeechEnd?.();
     }
     wasSpeakingRef.current = isSpeaking;
@@ -111,45 +124,95 @@ export function useDictationAudio(options: UseDictationAudioOptions): UseDictati
   
   // Track errors
   useEffect(() => {
-    if (speechError) {
-      speechCallbacksRef.current.onSpeechError?.(speechError);
+    const error = speechError || preloader.error;
+    if (error) {
+      speechCallbacksRef.current.onSpeechError?.(error);
     }
-  }, [speechError]);
+  }, [speechError, preloader.error]);
   
   // Cleanup on unmount
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      cancel();
+      baseCancel();
+      preloader.cancel();
+      preloader.clearCache();
     };
-  }, [cancel]);
+  }, [baseCancel]);
+
+  // Preload audio for a sentence (call this when sentence is fetched)
+  const preloadAudio = useCallback(async (text: string): Promise<boolean> => {
+    if (!isUsingOpenAI) {
+      return true;
+    }
+    console.log('[DictationAudio] Preloading audio for:', text.substring(0, 50) + '...');
+    return preloader.preload(text);
+  }, [isUsingOpenAI, preloader]);
+
+  // Check if audio is already preloaded
+  const hasPreloadedAudio = useCallback((text: string): boolean => {
+    if (!isUsingOpenAI) return true;
+    return preloader.hasPreloaded(text);
+  }, [isUsingOpenAI, preloader]);
+
+  // Speak using preloaded audio (instant playback)
+  const speakPreloaded = useCallback(async (text: string) => {
+    if (!isMountedRef.current) return;
+    
+    if (isUsingOpenAI) {
+      setCombinedSpeaking(true);
+      const success = await preloader.playPreloaded(text);
+      setCombinedSpeaking(false);
+      
+      if (!success) {
+        console.log('[DictationAudio] Preloaded playback failed, falling back to direct speech');
+        baseSpeek(text);
+      }
+    } else {
+      baseSpeek(text);
+    }
+  }, [isUsingOpenAI, preloader, baseSpeek]);
   
-  // Speak with safety check
+  // Speak with safety check (legacy method, still fetches on demand)
   const speak = useCallback((text: string) => {
     if (!isMountedRef.current) return;
     baseSpeek(text);
   }, [baseSpeek]);
+
+  // Cancel all audio
+  const cancel = useCallback(() => {
+    baseCancel();
+    preloader.cancel();
+    setCombinedSpeaking(false);
+  }, [baseCancel, preloader]);
   
   // Replay with delay
   const replay = useCallback((text: string) => {
     if (!isMountedRef.current) return;
     cancel();
-    // Small delay to ensure clean state
     setTimeout(() => {
       if (isMountedRef.current) {
-        baseSpeek(text);
+        if (isUsingOpenAI && preloader.hasPreloaded(text)) {
+          preloader.playPreloaded(text);
+        } else {
+          baseSpeek(text);
+        }
       }
     }, 200);
-  }, [cancel, baseSpeek]);
+  }, [cancel, baseSpeek, isUsingOpenAI, preloader]);
   
   return {
     speak,
+    speakPreloaded,
     cancel,
     replay,
+    preloadAudio,
+    isPreloading: preloader.isPreloading,
+    hasPreloadedAudio,
     isSpeaking,
     isSupported,
-    error: speechError,
+    error: speechError || preloader.error,
     voices,
     englishVoices,
     currentVoice,

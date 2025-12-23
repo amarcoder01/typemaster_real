@@ -351,12 +351,23 @@ function DictationModeContent() {
         payload: { sentence },
       });
       
-      // Speak the sentence after a short delay
-      setTimeout(() => {
-        if (isMountedRef.current) {
-          audio.speak(sentence.sentence);
-        }
-      }, 800);
+      // Preload audio in background, then speak immediately when ready
+      // This eliminates the 5-8 second latency by fetching audio while updating UI
+      audio.preloadAudio(sentence.sentence).then((preloaded) => {
+        if (!isMountedRef.current) return;
+        
+        // Small delay for UI to settle, then play preloaded audio
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            if (preloaded) {
+              audio.speakPreloaded(sentence.sentence);
+            } else {
+              // Fallback to regular speak if preload failed
+              audio.speak(sentence.sentence);
+            }
+          }
+        }, 100);
+      });
     } else {
       toast({
         title: 'Failed to load sentence',
