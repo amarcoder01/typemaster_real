@@ -91,21 +91,36 @@ function DictationModeContent() {
   // API
   const { fetchSentence, isFetching, saveTest, isSaving } = useDictationAPI();
   
-  // Audio with callbacks
+  // Refs to track current state values and avoid stale closure issues
+  const startTimeRef = useRef<number | null>(null);
+  const sentenceRef = useRef<typeof state.testState.sentence>(null);
+  
+  // Keep refs in sync with state
+  useEffect(() => {
+    startTimeRef.current = state.testState.startTime;
+  }, [state.testState.startTime]);
+  
+  useEffect(() => {
+    sentenceRef.current = state.testState.sentence;
+  }, [state.testState.sentence]);
+  
+  // Timer - declared before audio so it can be used in onSpeechEnd
+  const timer = useDictationTimer({
+    onTick: (elapsed) => dispatch({ type: 'SET_ELAPSED_TIME', payload: elapsed }),
+  });
+  
+  // Audio with callbacks - uses refs to avoid stale closures
   const audio = useDictationAudio({
     speedLevel: state.speedLevel,
     onSpeechEnd: () => {
-      // Start timer when speech ends
-      if (state.testState.sentence && !state.testState.startTime) {
-        dispatch({ type: 'SET_TEST_STATE', payload: { startTime: Date.now() } });
+      // Start timer when speech ends - use refs to check current state values
+      if (sentenceRef.current && startTimeRef.current === null) {
+        const now = Date.now();
+        startTimeRef.current = now; // Update ref immediately
+        dispatch({ type: 'SET_TEST_STATE', payload: { startTime: now } });
         timer.start();
       }
     },
-  });
-  
-  // Timer
-  const timer = useDictationTimer({
-    onTick: (elapsed) => dispatch({ type: 'SET_ELAPSED_TIME', payload: elapsed }),
   });
   
   // Auto-advance countdown
@@ -452,6 +467,7 @@ function DictationModeContent() {
     // Reset states
     timer.reset();
     countdown.reset();
+    startTimeRef.current = null; // Reset ref to allow timer to start on next sentence
     dispatch({ type: 'RESET_TEST_STATE' });
     dispatch({ type: 'SET_ELAPSED_TIME', payload: 0 }); // Reset elapsed time for new sentence
     
@@ -515,6 +531,7 @@ function DictationModeContent() {
     if (prefetchedSentence) {
       timer.reset();
       countdown.reset();
+      startTimeRef.current = null; // Reset ref to allow timer to start
       dispatch({ type: 'RESET_TEST_STATE' });
       dispatch({ type: 'SET_ELAPSED_TIME', payload: 0 }); // Reset elapsed time for new session
       
@@ -730,6 +747,7 @@ function DictationModeContent() {
     if (prefetchedSentence) {
       timer.reset();
       countdown.reset();
+      startTimeRef.current = null; // Reset ref to allow timer to start on next sentence
       dispatch({ type: 'RESET_TEST_STATE' });
       dispatch({ type: 'SET_ELAPSED_TIME', payload: 0 }); // Reset elapsed time for new sentence
       
@@ -1027,6 +1045,7 @@ function DictationModeContent() {
           sessionLength={state.sessionLength}
           speedLevel={state.speedLevel}
           username={user?.username}
+          practiceMode={state.practiceMode}
           consistency={consistency}
           onNewSession={handleNewSession}
           onShare={() => setShowShareModal(true)}

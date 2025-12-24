@@ -10,7 +10,10 @@ import {
   Target,
   Clock,
   RotateCcw,
-  TrendingUp
+  TrendingUp,
+  Timer,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,7 +22,7 @@ import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
-import type { SessionStats, SessionHistoryItem, Achievement } from '../types';
+import type { SessionStats, SessionHistoryItem, Achievement, PracticeMode } from '../types';
 import { SESSION_LENGTH_OPTIONS } from '../types';
 import { calculateAchievements } from '../utils/scoring';
 import { getSpeedLevelName } from '@shared/dictation-utils';
@@ -30,6 +33,7 @@ interface DictationSessionCompleteProps {
   sessionLength: number;
   speedLevel: string;
   username?: string;
+  practiceMode?: PracticeMode;
   // Certificate data
   totalWords?: number;
   totalCharacters?: number;
@@ -68,6 +72,7 @@ export function DictationSessionComplete({
   sessionLength,
   speedLevel,
   username,
+  practiceMode,
   consistency = 100,
   onNewSession,
   onShare,
@@ -228,6 +233,58 @@ export function DictationSessionComplete({
             </CardContent>
           </Card>
         </div>
+        
+        {/* Challenge Mode Stats */}
+        {practiceMode === 'challenge' && (
+          <Card className="mb-6 border-orange-500/20 bg-gradient-to-br from-orange-500/5 to-yellow-500/5">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Timer className="w-5 h-5 text-orange-500" />
+                Challenge Mode Performance
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center p-3 rounded-lg bg-background/50">
+                  <div className="flex items-center justify-center gap-1 mb-1">
+                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                  </div>
+                  <div className="text-2xl font-bold text-green-500" data-testid="text-completed-in-time">
+                    {sessionStats.completedInTime}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Completed In Time</div>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-background/50">
+                  <div className="flex items-center justify-center gap-1 mb-1">
+                    <XCircle className="w-4 h-4 text-red-500" />
+                  </div>
+                  <div className="text-2xl font-bold text-red-500" data-testid="text-timed-out">
+                    {sessionStats.timedOut}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Timed Out</div>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-background/50">
+                  <div className="flex items-center justify-center gap-1 mb-1">
+                    <Flame className="w-4 h-4 text-orange-500" />
+                  </div>
+                  <div className="text-2xl font-bold text-orange-500" data-testid="text-max-streak">
+                    {sessionStats.maxChallengeStreak}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Best Streak</div>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-background/50">
+                  <div className="flex items-center justify-center gap-1 mb-1">
+                    <Target className="w-4 h-4 text-blue-500" />
+                  </div>
+                  <div className="text-2xl font-bold text-blue-500" data-testid="text-success-rate">
+                    {sessionStats.count > 0 ? Math.round((sessionStats.completedInTime / sessionStats.count) * 100) : 0}%
+                  </div>
+                  <div className="text-xs text-muted-foreground">Success Rate</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
         
         {/* Achievements */}
         {unlockedAchievements.length > 0 && (
