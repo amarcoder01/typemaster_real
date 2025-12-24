@@ -172,13 +172,19 @@ export const CHALLENGE_TIMING = {
   MAX_TIME_MS: 180000,       // Maximum 3 minutes
   DEFAULT_DIFFICULTY: 'medium' as DifficultyLevel,
   
-  // WPM-based time calculation per difficulty
-  // Target WPM: Expected typing speed the user should achieve
-  // Buffer: Extra time multiplier to allow for thinking/listening
+  // Fixed time limits per difficulty (in milliseconds)
+  // More challenging times to keep pressure on
+  FIXED_TIME_MS: {
+    easy: 30000,    // 30 seconds - challenging but achievable
+    medium: 40000,  // 40 seconds - moderate challenge
+    hard: 50000,    // 50 seconds - more time for complex sentences
+  } as Record<DifficultyLevel, number>,
+  
+  // Legacy WPM-based config (kept for reference)
   DIFFICULTY_CONFIG: {
-    easy: { targetWPM: 25, buffer: 2.5 },    // Beginner: generous time (2.4s per word)
-    medium: { targetWPM: 40, buffer: 1.8 },  // Standard: moderate time (1.35s per word)
-    hard: { targetWPM: 60, buffer: 1.4 },    // Advanced: challenging time (0.7s per word)
+    easy: { targetWPM: 25, buffer: 2.5 },
+    medium: { targetWPM: 40, buffer: 1.8 },
+    hard: { targetWPM: 60, buffer: 1.4 },
   } as Record<DifficultyLevel, { targetWPM: number; buffer: number }>,
   
   // Overtime penalties
@@ -222,33 +228,11 @@ export function calculateTimeLimit(
   sentenceText: string,
   difficulty: DifficultyLevel
 ): number {
-  // Guard against empty/invalid sentences
-  if (!sentenceText || typeof sentenceText !== 'string') {
-    return CHALLENGE_TIMING.MIN_TIME_MS;
-  }
+  // Use fixed time limits per difficulty for consistent challenge
+  const fixedTime = CHALLENGE_TIMING.FIXED_TIME_MS[difficulty] ?? 
+    CHALLENGE_TIMING.FIXED_TIME_MS[CHALLENGE_TIMING.DEFAULT_DIFFICULTY];
   
-  const trimmed = sentenceText.trim();
-  if (trimmed.length === 0) {
-    return CHALLENGE_TIMING.MIN_TIME_MS;
-  }
-  
-  // Calculate word count
-  const wordCount = Math.max(1, trimmed.split(/\s+/).filter(w => w.length > 0).length);
-  
-  // Get difficulty config with fallback for unknown values
-  const config = CHALLENGE_TIMING.DIFFICULTY_CONFIG[difficulty] ?? 
-    CHALLENGE_TIMING.DIFFICULTY_CONFIG[CHALLENGE_TIMING.DEFAULT_DIFFICULTY];
-  
-  // WPM-based formula: Time = (Words / TargetWPM) * Buffer * 60 seconds * 1000 (to ms)
-  const rawTimeMs = (wordCount / config.targetWPM) * config.buffer * 60 * 1000;
-  
-  // Clamp to min/max bounds and round
-  const clampedTime = Math.max(
-    CHALLENGE_TIMING.MIN_TIME_MS,
-    Math.min(CHALLENGE_TIMING.MAX_TIME_MS, rawTimeMs)
-  );
-  
-  return Math.round(clampedTime);
+  return fixedTime;
 }
 
 export interface SessionStats {

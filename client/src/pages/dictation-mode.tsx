@@ -122,40 +122,20 @@ function DictationModeContent() {
   const [lastResultId, setLastResultId] = useState<number | null>(null);
   const [certificateData, setCertificateData] = useState<any>(null);
   
-  // Estimated time limits for Challenge Mode preview
-  // Uses the same WPM-based formula as the actual Challenge Mode timer (CHALLENGE_TIMING)
-  // Note: These are ESTIMATES - actual time depends on real sentence length
+  // Time limits for Challenge Mode preview
+  // Uses fixed times per difficulty for consistent challenge
   const { estimatedPerSentenceMs, estimatedTotalMs } = useMemo(() => {
     if (state.practiceMode !== 'challenge') return { estimatedPerSentenceMs: null, estimatedTotalMs: null };
     
-    // Realistic average words per sentence by difficulty (based on actual dictation content)
-    // Easy sentences are shorter and simpler
-    // Hard sentences are longer with complex vocabulary
-    const avgWordsPerSentence: Record<DifficultyLevel, number> = {
-      easy: 10,   // Short, simple sentences (~50 chars)
-      medium: 16, // Moderate complexity sentences (~80 chars)
-      hard: 24,   // Long, complex sentences (~120 chars)
-    };
-    
-    // Use shared CHALLENGE_TIMING config to stay in sync with runtime timer
-    const config = CHALLENGE_TIMING.DIFFICULTY_CONFIG[state.difficulty];
-    const wordsPerSentence = avgWordsPerSentence[state.difficulty];
-    
-    // Formula: Time = (Words / TargetWPM) * Buffer * 60s * 1000ms
-    const perSentenceMs = (wordsPerSentence / config.targetWPM) * config.buffer * 60 * 1000;
-    
-    // Clamp per-sentence time
-    const clampedPerSentence = Math.max(
-      CHALLENGE_TIMING.MIN_TIME_MS,
-      Math.min(CHALLENGE_TIMING.MAX_TIME_MS, perSentenceMs)
-    );
+    // Get fixed time per sentence based on difficulty
+    const perSentenceMs = CHALLENGE_TIMING.FIXED_TIME_MS[state.difficulty];
     
     // Total session time = per-sentence time * number of sentences
-    const totalMs = clampedPerSentence * state.sessionLength;
+    const totalMs = perSentenceMs * state.sessionLength;
     
     return {
-      estimatedPerSentenceMs: Math.round(clampedPerSentence),
-      estimatedTotalMs: Math.round(totalMs),
+      estimatedPerSentenceMs: perSentenceMs,
+      estimatedTotalMs: totalMs,
     };
   }, [state.practiceMode, state.difficulty, state.sessionLength]);
   

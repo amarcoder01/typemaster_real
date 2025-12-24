@@ -60,7 +60,7 @@ export function ChallengeTimePreview({
               {formatTimeLimit(perSentenceMs)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              per sentence
+              time per sentence
             </p>
           </div>
           <div className="text-center">
@@ -68,7 +68,7 @@ export function ChallengeTimePreview({
               {formatTimeLimit(totalSessionMs)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              total session
+              total session time
             </p>
           </div>
         </div>
