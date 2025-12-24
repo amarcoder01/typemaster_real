@@ -1646,6 +1646,12 @@ function DictationModeContent() {
             lastResultId={state.lastTestResultId}
             username={user?.username}
             speedLevel={state.speedLevel}
+            verificationId={formattedVerificationId}
+            onViewCertificate={() => setShowCertificate(true)}
+            onCopyCertificateImage={handleCopyCertificateImage}
+            onShareCertificateWithImage={handleShareCertificateWithImage}
+            isCopying={certificateImageCopied}
+            isSharing={isSharingCertificate}
           />
         )}
         
