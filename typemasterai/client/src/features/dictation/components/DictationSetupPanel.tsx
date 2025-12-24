@@ -313,23 +313,22 @@ export function DictationSetupPanel({
               <span className="text-muted-foreground">Voice Speed:</span>
               <span className="font-medium">{currentRate}x</span>
             </div>
-            {isChallenge && (
-              <>
-                <Separator className="bg-primary/10" />
-                <div className="flex justify-between text-sm items-center">
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    <Timer className="w-3 h-3" />
-                    Time Limit:
-                  </span>
-                  <Badge variant="secondary" className="font-mono">
-                    {estimatedTimeLimit?.formatted || '---'}
-                  </Badge>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Based on {sessionLength} sentences at {difficulty} difficulty
-                </p>
-              </>
-            )}
+            <Separator className="bg-primary/10" />
+            <div className="flex justify-between text-sm items-center">
+              <span className="text-muted-foreground flex items-center gap-1">
+                <Timer className="w-3 h-3" />
+                Time Limit:
+              </span>
+              <Badge variant="secondary" className="font-mono">
+                {isChallenge ? (estimatedTimeLimit?.formatted || '---') : 'N/A'}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {isChallenge 
+                ? `Based on ${sessionLength} sentences at ${difficulty} difficulty`
+                : 'Only available in Challenge Mode'
+              }
+            </p>
             <Separator className="bg-primary/10" />
             <p className="text-xs text-muted-foreground leading-relaxed">
               Listen carefully to each sentence. Use <kbd className="bg-background px-1 rounded border">R</kbd> to replay audio and <kbd className="bg-background px-1 rounded border">H</kbd> for a visual hint if you get stuck.
