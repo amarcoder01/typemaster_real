@@ -34,6 +34,8 @@ const LRU_CHECK_INTERVAL_MS = 60 * 1000; // Check for LRU eviction every minute
 class RaceCache {
   private cache: Map<number, CachedRace> = new Map();
   private progressBuffer: Map<number, ParticipantProgress> = new Map();
+  // O(1) participant→race mapping to avoid O(n) scans on every progress update
+  private participantToRace: Map<number, number> = new Map();
   private stats: CacheStats = {
     hits: 0,
     misses: 0,
@@ -86,6 +88,13 @@ class RaceCache {
       this.evictLRU();
     }
 
+    // Clear old participant→race mappings if replacing an existing entry
+    if (existing) {
+      for (const oldP of existing.participants) {
+        this.participantToRace.delete(oldP.id);
+      }
+    }
+
     this.cache.set(race.id, {
       race,
       participants,
@@ -93,6 +102,11 @@ class RaceCache {
       accessedAt: now,
       version: existing ? existing.version + 1 : 1,
     });
+
+    // Update participant→race mapping for O(1) lookups
+    for (const p of participants) {
+      this.participantToRace.set(p.id, race.id);
+    }
 
     this.updateStats();
   }
@@ -102,6 +116,10 @@ class RaceCache {
     if (entry) {
       const now = Date.now();
       if (now - entry.updatedAt > CACHE_TTL_MS) {
+        // Clean up participant mappings before deleting
+        for (const p of entry.participants) {
+          this.participantToRace.delete(p.id);
+        }
         this.cache.delete(raceId);
         this.stats.evictions++;
         return undefined;
@@ -117,9 +135,19 @@ class RaceCache {
   updateParticipants(raceId: number, participants: RaceParticipant[]): void {
     const entry = this.cache.get(raceId);
     if (entry) {
+      // Clear old participant→race mappings for this race's previous participants
+      for (const oldP of entry.participants) {
+        this.participantToRace.delete(oldP.id);
+      }
+      
       entry.participants = participants;
       entry.updatedAt = Date.now();
       entry.version++;
+      
+      // Rebuild mappings for new participant list
+      for (const newP of participants) {
+        this.participantToRace.set(newP.id, raceId);
+      }
     }
   }
 
@@ -134,6 +162,8 @@ class RaceCache {
       }
       entry.updatedAt = Date.now();
       entry.version++;
+      // Update participant→race mapping
+      this.participantToRace.set(participant.id, raceId);
     }
   }
 
@@ -143,6 +173,8 @@ class RaceCache {
       entry.participants = entry.participants.filter(p => p.id !== participantId);
       entry.updatedAt = Date.now();
       entry.version++;
+      // Clean up participant→race mapping
+      this.participantToRace.delete(participantId);
     }
   }
 
@@ -170,15 +202,18 @@ class RaceCache {
       dirty: true,
     });
 
-    const entries = Array.from(this.cache.values());
-    for (const entry of entries) {
-      const participant = entry.participants.find((p: RaceParticipant) => p.id === participantId);
-      if (participant) {
-        participant.progress = progress;
-        participant.wpm = wpm;
-        participant.accuracy = accuracy;
-        participant.errors = errors;
-        break;
+    // O(1) lookup using participant→race mapping instead of O(n) scan
+    const raceId = this.participantToRace.get(participantId);
+    if (raceId !== undefined) {
+      const entry = this.cache.get(raceId);
+      if (entry) {
+        const participant = entry.participants.find((p: RaceParticipant) => p.id === participantId);
+        if (participant) {
+          participant.progress = progress;
+          participant.wpm = wpm;
+          participant.accuracy = accuracy;
+          participant.errors = errors;
+        }
       }
     }
   }
@@ -256,6 +291,13 @@ class RaceCache {
     }
 
     for (const raceId of entriesToRemove) {
+      // Clean up participant mappings before deleting
+      const entry = this.cache.get(raceId);
+      if (entry) {
+        for (const p of entry.participants) {
+          this.participantToRace.delete(p.id);
+        }
+      }
       this.cache.delete(raceId);
       this.stats.evictions++;
     }
@@ -280,6 +322,13 @@ class RaceCache {
     }
 
     if (oldestRaceId !== null) {
+      // Clean up participant mappings before deleting
+      const entry = this.cache.get(oldestRaceId);
+      if (entry) {
+        for (const p of entry.participants) {
+          this.participantToRace.delete(p.id);
+        }
+      }
       this.cache.delete(oldestRaceId);
       this.stats.evictions++;
       console.log(`[RaceCache] LRU eviction: race ${oldestRaceId}`);
@@ -296,7 +345,18 @@ class RaceCache {
     this.stats.totalParticipants = totalParticipants;
   }
 
+  // Helper to clean up participant→race mappings when a race is deleted
+  private cleanupRaceParticipantMappings(raceId: number): void {
+    const entry = this.cache.get(raceId);
+    if (entry) {
+      for (const p of entry.participants) {
+        this.participantToRace.delete(p.id);
+      }
+    }
+  }
+
   deleteRace(raceId: number): void {
+    this.cleanupRaceParticipantMappings(raceId);
     this.cache.delete(raceId);
     this.updateStats();
   }

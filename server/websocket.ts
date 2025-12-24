@@ -208,17 +208,18 @@ class RaceWebSocketServer {
     console.log(`[WS] Shards: ${NUM_SHARDS}, Heartbeat: ${HEARTBEAT_INTERVAL_MS}ms`);
   }
 
-  shutdown() {
+  async shutdown(): Promise<void> {
+    console.log("[WS] Starting graceful shutdown...");
+    
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
     
-    raceCache.shutdown();
-    wsRateLimiter.shutdown();
-    raceCleanupScheduler.shutdown();
-    
+    // Stop all active bots and update race statuses
     const raceRooms = Array.from(this.races.values());
+    const shutdownPromises: Promise<void>[] = [];
+    
     for (const raceRoom of raceRooms) {
       if (raceRoom.countdownTimer) {
         clearInterval(raceRoom.countdownTimer);
@@ -226,9 +227,40 @@ class RaceWebSocketServer {
       if (raceRoom.timedRaceTimer) {
         clearTimeout(raceRoom.timedRaceTimer);
       }
+      
+      // Stop all bots in this race
+      const cachedRace = raceCache.getRace(raceRoom.raceId);
+      if (cachedRace?.participants) {
+        botService.stopAllBotsInRace(raceRoom.raceId, cachedRace.participants);
+      }
+      
+      // Mark active races as interrupted (not finished cleanly)
+      if (cachedRace?.race?.status === "racing" || cachedRace?.race?.status === "countdown") {
+        shutdownPromises.push(
+          storage.updateRaceStatus(raceRoom.raceId, "finished")
+            .catch(err => console.error(`[WS Shutdown] Failed to update race ${raceRoom.raceId} status:`, err))
+        );
+      }
+      
+      // Notify connected clients of shutdown
+      this.broadcastToRace(raceRoom.raceId, {
+        type: "server_shutdown",
+        message: "Server is shutting down. Your progress has been saved."
+      });
     }
     
+    // Wait for all race status updates to complete
+    if (shutdownPromises.length > 0) {
+      console.log(`[WS Shutdown] Waiting for ${shutdownPromises.length} race status updates...`);
+      await Promise.all(shutdownPromises);
+    }
+    
+    raceCache.shutdown();
+    wsRateLimiter.shutdown();
+    raceCleanupScheduler.shutdown();
+    
     this.races.clear();
+    console.log("[WS] Graceful shutdown complete");
   }
 
   private async flushProgressToDatabase(updates: Map<number, { progress: number; wpm: number; accuracy: number; errors: number; lastUpdate: number; dirty: boolean }>): Promise<void> {
@@ -472,7 +504,8 @@ class RaceWebSocketServer {
         await this.handleReady(message);
         break;
       case "progress":
-        await this.handleProgress(message);
+        // Pass authenticated raceId for O(1) lookup instead of O(n) scan
+        await this.handleProgress(message, (ws as any).authenticatedRaceId);
         break;
       case "finish":
         await this.handleFinish(message);
@@ -1055,12 +1088,13 @@ class RaceWebSocketServer {
     }, 1000);
   }
 
-  private async handleProgress(message: any) {
+  private async handleProgress(message: any, authenticatedRaceId?: number) {
     const { participantId, progress, wpm, accuracy, errors } = message;
 
     raceCache.bufferProgress(participantId, progress, wpm, accuracy, errors);
 
-    const raceId = this.findRaceIdByParticipant(participantId);
+    // Use authenticated raceId for O(1) lookup, fallback to O(n) scan only if not available
+    const raceId = authenticatedRaceId || this.findRaceIdByParticipant(participantId);
     if (raceId) {
       const raceRoom = this.races.get(raceId);
       if (raceRoom) {

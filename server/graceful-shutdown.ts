@@ -47,11 +47,11 @@ async function handleShutdown(signal: string): Promise<void> {
       httpServer.close();
     }
     
+    console.log("[Shutdown] Closing WebSocket connections and cleaning up races...");
+    await raceWebSocket.shutdown();
+    
     console.log("[Shutdown] Flushing cache to database...");
     await raceCache.flushAll();
-    
-    console.log("[Shutdown] Closing WebSocket connections...");
-    raceWebSocket.shutdown();
     
     console.log("[Shutdown] Stopping cleanup scheduler...");
     raceCleanupScheduler.shutdown();
