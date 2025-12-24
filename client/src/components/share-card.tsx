@@ -144,25 +144,6 @@ export function ShareCard({ wpm, accuracy, mode, language, username, freestyle =
     ctx.textAlign = "left";
     ctx.fillText("TypeMasterAI", 40, 55);
 
-    // Mode badge (if provided) - show centered below WPM section
-    if (modeLabel) {
-      ctx.fillStyle = "rgba(168, 85, 247, 0.4)";
-      const badgeText = modeLabel;
-      ctx.font = "bold 12px 'DM Sans', sans-serif";
-      const badgeWidth = ctx.measureText(badgeText).width + 20;
-      const badgeX = (canvas.width - badgeWidth) / 2;
-      const badgeY = 88;
-      ctx.beginPath();
-      ctx.roundRect(badgeX, badgeY, badgeWidth, 24, 12);
-      ctx.fill();
-      ctx.strokeStyle = "#a855f7";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.fillStyle = "#e9d5ff";
-      ctx.textAlign = "center";
-      ctx.fillText(badgeText, canvas.width / 2, badgeY + 16);
-    }
-
     ctx.fillStyle = rating.color;
     ctx.font = "12px 'DM Sans', sans-serif";
     ctx.textAlign = "right";
@@ -181,7 +162,25 @@ export function ShareCard({ wpm, accuracy, mode, language, username, freestyle =
     ctx.font = "18px 'DM Sans', sans-serif";
     ctx.fillText(rating.title, canvas.width / 2, 215);
 
-    const statsY = 260;
+    // Mode badge (if provided) - positioned between title and stats box
+    const statsY = modeLabel ? 275 : 260;
+    if (modeLabel) {
+      ctx.fillStyle = "rgba(168, 85, 247, 0.3)";
+      const badgeText = modeLabel;
+      ctx.font = "bold 11px 'DM Sans', sans-serif";
+      const badgeWidth = ctx.measureText(badgeText).width + 20;
+      const badgeX = (canvas.width - badgeWidth) / 2;
+      const badgeY = 228;
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeWidth, 22, 11);
+      ctx.fill();
+      ctx.strokeStyle = "#a855f7";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = "#e9d5ff";
+      ctx.textAlign = "center";
+      ctx.fillText(badgeText, canvas.width / 2, badgeY + 15);
+    }
     ctx.fillStyle = "rgba(30, 41, 59, 0.8)";
     ctx.fillRect(40, statsY - 25, canvas.width - 80, 60);
     ctx.strokeStyle = rating.color;
