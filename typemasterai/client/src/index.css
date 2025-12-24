@@ -845,3 +845,169 @@
     color: hsl(0 100% 50%);
   }
 }
+
+/* ===== Stress Test Arena - Neon Gaming Styles ===== */
+
+/* Glassmorphism card base */
+.glass-card {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-card-hover:hover {
+  background: rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Neon glow effects */
+.neon-glow-cyan {
+  box-shadow: 0 0 20px rgba(0, 245, 255, 0.3), 0 0 40px rgba(0, 245, 255, 0.1);
+}
+
+.neon-glow-purple {
+  box-shadow: 0 0 20px rgba(181, 55, 255, 0.3), 0 0 40px rgba(181, 55, 255, 0.1);
+}
+
+.neon-glow-orange {
+  box-shadow: 0 0 20px rgba(255, 107, 53, 0.3), 0 0 40px rgba(255, 107, 53, 0.1);
+}
+
+.neon-glow-green {
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.3), 0 0 40px rgba(34, 197, 94, 0.1);
+}
+
+.neon-glow-red {
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.3), 0 0 40px rgba(239, 68, 68, 0.1);
+}
+
+/* Neon text glow */
+.neon-text-cyan {
+  text-shadow: 0 0 10px rgba(0, 245, 255, 0.8), 0 0 20px rgba(0, 245, 255, 0.5), 0 0 30px rgba(0, 245, 255, 0.3);
+}
+
+.neon-text-purple {
+  text-shadow: 0 0 10px rgba(181, 55, 255, 0.8), 0 0 20px rgba(181, 55, 255, 0.5), 0 0 30px rgba(181, 55, 255, 0.3);
+}
+
+.neon-text-orange {
+  text-shadow: 0 0 10px rgba(255, 107, 53, 0.8), 0 0 20px rgba(255, 107, 53, 0.5), 0 0 30px rgba(255, 107, 53, 0.3);
+}
+
+/* Neon border colors */
+.neon-border-cyan {
+  border-color: rgba(0, 245, 255, 0.5);
+}
+
+.neon-border-purple {
+  border-color: rgba(181, 55, 255, 0.5);
+}
+
+.neon-border-orange {
+  border-color: rgba(255, 107, 53, 0.5);
+}
+
+/* Animated gradient background */
+.arena-gradient {
+  background: linear-gradient(135deg, 
+    rgba(0, 245, 255, 0.05) 0%, 
+    rgba(181, 55, 255, 0.05) 50%, 
+    rgba(255, 107, 53, 0.05) 100%);
+}
+
+/* Pulse animation for neon elements */
+@keyframes neon-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.neon-pulse {
+  animation: neon-pulse 2s ease-in-out infinite;
+}
+
+/* Stress meter gradient */
+.stress-meter-gradient {
+  background: linear-gradient(to right, 
+    hsl(120, 100%, 40%) 0%, 
+    hsl(60, 100%, 50%) 33%, 
+    hsl(30, 100%, 50%) 66%, 
+    hsl(0, 100%, 50%) 100%);
+}
+
+/* Arena HUD panel */
+.hud-panel {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.5rem;
+}
+
+/* Countdown pulse */
+@keyframes countdown-pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.8; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.countdown-pulse {
+  animation: countdown-pulse 1s ease-in-out infinite;
+}
+
+/* Combo explosion effect */
+@keyframes combo-burst {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+.combo-burst {
+  animation: combo-burst 0.3s ease-out;
+}
+
+/* Stats card shimmer effect */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.stats-shimmer {
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.05) 50%, 
+    transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 3s infinite;
+}
+
+/* Difficulty card intensity indicators */
+.intensity-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.intensity-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Progress ring for timer */
+.progress-ring {
+  transform: rotate(-90deg);
+}
+
+.progress-ring-circle {
+  transition: stroke-dashoffset 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neon-pulse,
+  .countdown-pulse,
+  .combo-burst,
+  .stats-shimmer {
+    animation: none !important;
+  }
+}
