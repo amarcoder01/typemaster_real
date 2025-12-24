@@ -283,7 +283,7 @@ export function DictationSessionComplete({
                   </div>
                 ) : (
                   <Select value={sessionLength.toString()} onValueChange={handleSessionLengthChange}>
-                    <SelectTrigger className="w-32">
+                    <SelectTrigger className="w-auto min-w-[140px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
