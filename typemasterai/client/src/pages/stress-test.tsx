@@ -419,8 +419,6 @@ function StressTestContent() {
   const [isComposing, setIsComposing] = useState(false);
   const [isTabHidden, setIsTabHidden] = useState(false);
   const [corrections, setCorrections] = useState(0);
-  const pendingInputValueRef = useRef<string | null>(null);
-  const pendingInputRafRef = useRef<number | null>(null);
   const isClarityWindowRef = useRef(false);
   const startTimeHighPrecisionRef = useRef<number | null>(null);
   const [chromaticOffset, setChromaticOffset] = useState({ r: 0, g: 0, b: 0 });
@@ -1118,17 +1116,9 @@ function StressTestContent() {
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (isComposing) return; // Don't process during IME composition
     
-    const value = e.target.value;
-    // Coalesce rapid input changes into a single rAF tick for performance
-    pendingInputValueRef.current = value;
-    if (pendingInputRafRef.current == null) {
-      pendingInputRafRef.current = requestAnimationFrame(() => {
-        const v = pendingInputValueRef.current ?? "";
-        pendingInputValueRef.current = null;
-        pendingInputRafRef.current = null;
-        processInput(v);
-      });
-    }
+    // Process input directly - no debouncing needed for controlled inputs
+    // The controlled input pattern requires immediate state updates
+    processInput(e.target.value);
   }, [isComposing, processInput]);
 
   const handleCompositionStart = useCallback(() => {
