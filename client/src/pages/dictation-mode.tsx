@@ -75,7 +75,7 @@ import {
   clearSessionBackup,
 } from '@/features/dictation/utils/persistence';
 
-import { categorizeErrors } from '@/features/dictation/utils/scoring';
+import { categorizeErrors, calculateConsistency } from '@/features/dictation/utils/scoring';
 
 // ============================================================================
 // MAIN DICTATION PAGE COMPONENT
@@ -326,7 +326,7 @@ function DictationModeContent() {
     ) {
       const avgWpm = Math.round(state.sessionStats.totalWpm / state.sessionStats.count);
       const avgAccuracy = state.sessionStats.totalAccuracy / state.sessionStats.count;
-      const consistency = Math.round(Math.random() * 20 + 75);
+      const consistency = calculateConsistency(state.sessionHistory);
       const estimatedDuration = Math.round((state.sessionStats.count * 60 * 5) / avgWpm);
       
       const totalWords = state.sessionHistory.reduce((sum, h) => {
@@ -986,7 +986,7 @@ function DictationModeContent() {
   const avgAccuracy = state.sessionStats.count > 0 ? Math.round(state.sessionStats.totalAccuracy / state.sessionStats.count) : 0;
   const totalWords = state.sessionHistory.reduce((sum, h) => sum + h.sentence.split(' ').length, 0);
   const totalCharacters = state.sessionHistory.reduce((sum, h) => sum + h.sentence.length, 0);
-  const consistency = Math.round(Math.random() * 20 + 75);
+  const consistency = calculateConsistency(state.sessionHistory);
   const sessionDuration = Math.round((state.sessionStats.count * 60 * 5) / Math.max(avgWpm, 1));
   
   // Generate formatted verification ID for certificates

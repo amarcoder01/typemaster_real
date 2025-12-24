@@ -192,3 +192,47 @@ export function getWeakestAreaTip(weakestArea: string): string {
   };
   return tips[weakestArea] || 'Keep practicing to improve!';
 }
+
+/**
+ * Calculates typing consistency based on WPM variance across sentences.
+ * Uses coefficient of variation (CV) = stdDev / mean.
+ * Returns a 0-100 score where 100 = perfectly consistent.
+ * 
+ * Industry standard: Consistency measures how stable your typing speed is.
+ * Lower variance in WPM across sentences = higher consistency.
+ */
+export function calculateConsistency(sessionHistory: SessionHistoryItem[]): number {
+  if (sessionHistory.length === 0) {
+    return 100; // No data, assume perfect
+  }
+  
+  if (sessionHistory.length === 1) {
+    return 100; // Single sentence, no variance possible
+  }
+  
+  const wpmValues = sessionHistory.map(h => h.wpm);
+  
+  // Calculate mean
+  const mean = wpmValues.reduce((sum, wpm) => sum + wpm, 0) / wpmValues.length;
+  
+  if (mean === 0) {
+    return 0; // Edge case: all zeros
+  }
+  
+  // Calculate variance
+  const squaredDiffs = wpmValues.map(wpm => Math.pow(wpm - mean, 2));
+  const variance = squaredDiffs.reduce((sum, diff) => sum + diff, 0) / wpmValues.length;
+  
+  // Standard deviation
+  const stdDev = Math.sqrt(variance);
+  
+  // Coefficient of variation (as percentage)
+  const cv = (stdDev / mean) * 100;
+  
+  // Convert to consistency score (100 - CV, clamped to 0-100)
+  // Lower CV = more consistent = higher score
+  // Cap CV at 50 to avoid negative scores for very inconsistent typing
+  const consistency = Math.max(0, Math.min(100, Math.round(100 - cv)));
+  
+  return consistency;
+}
