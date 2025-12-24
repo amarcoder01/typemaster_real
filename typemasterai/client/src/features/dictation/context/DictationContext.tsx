@@ -99,6 +99,12 @@ interface DictationState {
   
   // Last saved test ID
   lastTestResultId: number | null;
+  
+  // Challenge Mode Time Limit
+  sessionTimeLimit: number | null;  // Total time limit in seconds (null = no limit)
+  remainingTime: number | null;     // Seconds remaining (null = not counting down)
+  isTimedOut: boolean;              // True when time runs out in challenge mode
+  challengeSentences: import('@shared/schema').DictationSentence[];  // Prefetched sentences for challenge mode
 }
 
 // ============================================================================
@@ -144,7 +150,12 @@ type DictationAction =
   | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'SET_LAST_TEST_RESULT_ID'; payload: number | null }
   | { type: 'RESET_SESSION' }
-  | { type: 'RESTORE_SESSION'; payload: Partial<DictationState> };
+  | { type: 'RESTORE_SESSION'; payload: Partial<DictationState> }
+  | { type: 'SET_SESSION_TIME_LIMIT'; payload: number | null }
+  | { type: 'SET_REMAINING_TIME'; payload: number | null }
+  | { type: 'DECREMENT_REMAINING_TIME' }
+  | { type: 'SET_IS_TIMED_OUT'; payload: boolean }
+  | { type: 'SET_CHALLENGE_SENTENCES'; payload: import('@shared/schema').DictationSentence[] };
 
 // ============================================================================
 // INITIAL STATE
@@ -180,6 +191,10 @@ const initialState: DictationState = {
   isLoading: false,
   error: null,
   lastTestResultId: null,
+  sessionTimeLimit: null,
+  remainingTime: null,
+  isTimedOut: false,
+  challengeSentences: [],
 };
 
 // ============================================================================
@@ -287,9 +302,26 @@ function dictationReducer(state: DictationState, action: DictationAction): Dicta
         showModeSelector: true,
         isWaitingToStart: false,
         lastTestResultId: null,
+        sessionTimeLimit: null,
+        remainingTime: null,
+        isTimedOut: false,
+        challengeSentences: [],
       };
     case 'RESTORE_SESSION':
       return { ...state, ...action.payload };
+    case 'SET_SESSION_TIME_LIMIT':
+      return { ...state, sessionTimeLimit: action.payload };
+    case 'SET_REMAINING_TIME':
+      return { ...state, remainingTime: action.payload };
+    case 'DECREMENT_REMAINING_TIME':
+      if (state.remainingTime === null || state.remainingTime <= 0) {
+        return state;
+      }
+      return { ...state, remainingTime: state.remainingTime - 1 };
+    case 'SET_IS_TIMED_OUT':
+      return { ...state, isTimedOut: action.payload };
+    case 'SET_CHALLENGE_SENTENCES':
+      return { ...state, challengeSentences: action.payload };
     default:
       return state;
   }

@@ -64,6 +64,7 @@ import {
   useDictationTimer,
   useCountdown,
   useDictationAPI,
+  useSessionCountdown,
 } from '@/features/dictation/hooks';
 
 import {
@@ -75,6 +76,13 @@ import {
 } from '@/features/dictation/utils/persistence';
 
 import { categorizeErrors } from '@/features/dictation/utils/scoring';
+import { 
+  calculateSessionTimeLimit, 
+  formatTimeDisplay,
+  getTimePercentage,
+  getTimerColors,
+  getUrgencyMessage,
+} from '@/features/dictation/utils/timeCalculation';
 
 // ============================================================================
 // MAIN DICTATION PAGE COMPONENT
@@ -89,7 +97,10 @@ function DictationModeContent() {
   const { state, dispatch, actions } = useDictation();
   
   // API
-  const { fetchSentence, isFetching, saveTest, isSaving } = useDictationAPI();
+  const { fetchSentence, fetchBatchSentences, isFetching, isFetchingBatch, saveTest, isSaving } = useDictationAPI();
+  
+  // Challenge mode refs
+  const challengeSentenceIndexRef = useRef(0);
   
   // Audio with callbacks
   const audio = useDictationAudio({
@@ -112,6 +123,28 @@ function DictationModeContent() {
   const countdown = useCountdown({
     initialValue: 3,
     onComplete: () => handleNextSentence(),
+  });
+  
+  // Challenge mode session countdown
+  const isChallengeModeActive = state.practiceMode === 'challenge' && 
+    !state.showModeSelector && 
+    !state.isWaitingToStart && 
+    state.sessionTimeLimit !== null;
+  
+  const sessionCountdown = useSessionCountdown({
+    initialTime: state.sessionTimeLimit,
+    onTick: (remaining) => dispatch({ type: 'SET_REMAINING_TIME', payload: remaining }),
+    onTimeout: () => {
+      dispatch({ type: 'SET_IS_TIMED_OUT', payload: true });
+      timer.stop();
+      audio.cancel();
+      toast({
+        title: 'Time\'s Up!',
+        description: 'You ran out of time. Better luck next time!',
+        variant: 'destructive',
+      });
+    },
+    isPaused: state.testState.showResult || state.sessionComplete || !isChallengeModeActive,
   });
   
   // Local UI state
@@ -320,8 +353,48 @@ function DictationModeContent() {
   
   const handleBeginSession = useCallback(async () => {
     actions.beginSession();
-    await loadNextSentence();
-  }, [actions]);
+    
+    // For Challenge Mode, prefetch all sentences and calculate time limit
+    if (state.practiceMode === 'challenge') {
+      const sentences = await fetchBatchSentences({
+        difficulty: state.difficulty,
+        category: state.category,
+        count: state.sessionLength,
+        excludeIds: state.shownSentenceIds,
+      });
+      
+      if (!isMountedRef.current) return;
+      
+      if (sentences.length === 0) {
+        toast({
+          title: 'Not enough sentences',
+          description: 'Could not find enough sentences for the challenge. Try different settings.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      
+      // Store challenge sentences
+      dispatch({ type: 'SET_CHALLENGE_SENTENCES', payload: sentences });
+      
+      // Calculate time limit based on total content
+      const timeResult = calculateSessionTimeLimit({ sentences });
+      dispatch({ type: 'SET_SESSION_TIME_LIMIT', payload: timeResult.timeLimitSeconds });
+      dispatch({ type: 'SET_REMAINING_TIME', payload: timeResult.timeLimitSeconds });
+      
+      // Reset challenge sentence index
+      challengeSentenceIndexRef.current = 0;
+      
+      // Load first sentence from prefetched batch
+      await loadNextChallengeSentence(sentences);
+      
+      // Start the session countdown
+      sessionCountdown.start(timeResult.timeLimitSeconds);
+    } else {
+      // Standard flow for other modes
+      await loadNextSentence();
+    }
+  }, [actions, state.practiceMode, state.difficulty, state.category, state.sessionLength, state.shownSentenceIds, fetchBatchSentences, dispatch, toast, sessionCountdown, loadNextSentence]);
   
   const handleRecoverSession = useCallback(() => {
     actions.recoverSession();
@@ -375,6 +448,48 @@ function DictationModeContent() {
     dispatch,
     toast,
   ]);
+  
+  // Load next sentence from prefetched challenge sentences
+  const loadNextChallengeSentence = useCallback(async (sentences?: DictationSentence[]) => {
+    if (!isMountedRef.current) return;
+    
+    // Use provided sentences or get from state
+    const sentenceList = sentences || state.challengeSentences;
+    
+    // Check if session timed out
+    if (state.isTimedOut) {
+      return;
+    }
+    
+    // Reset states (but don't reset session countdown for challenge mode)
+    timer.reset();
+    countdown.reset();
+    dispatch({ type: 'RESET_TEST_STATE' });
+    
+    // Get next sentence from batch
+    const currentIndex = challengeSentenceIndexRef.current;
+    
+    if (currentIndex >= sentenceList.length) {
+      // All sentences completed
+      return;
+    }
+    
+    const sentence = sentenceList[currentIndex];
+    challengeSentenceIndexRef.current = currentIndex + 1;
+    
+    dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
+    dispatch({
+      type: 'SET_TEST_STATE',
+      payload: { sentence },
+    });
+    
+    // Speak the sentence after a short delay
+    setTimeout(() => {
+      if (isMountedRef.current && !state.isTimedOut) {
+        audio.speak(sentence.sentence);
+      }
+    }, 800);
+  }, [state.challengeSentences, state.isTimedOut, audio, timer, countdown, dispatch]);
   
   const handleReplay = useCallback(() => {
     if (state.testState.sentence && !audio.isSpeaking) {
@@ -452,15 +567,32 @@ function DictationModeContent() {
   const handleNextSentence = useCallback(async () => {
     countdown.stop();
     
-    // Check if session is complete
-    if (state.sessionProgress >= state.sessionLength) {
+    // Check if timed out in challenge mode
+    if (state.practiceMode === 'challenge' && state.isTimedOut) {
       dispatch({ type: 'SET_SESSION_COMPLETE', payload: true });
       clearSessionBackup();
       return;
     }
     
-    await loadNextSentence();
-  }, [state.sessionProgress, state.sessionLength, countdown, dispatch, loadNextSentence]);
+    // Check if session is complete
+    if (state.sessionProgress >= state.sessionLength) {
+      dispatch({ type: 'SET_SESSION_COMPLETE', payload: true });
+      clearSessionBackup();
+      
+      // Stop session countdown for challenge mode
+      if (state.practiceMode === 'challenge') {
+        sessionCountdown.stop();
+      }
+      return;
+    }
+    
+    // Use appropriate loading function based on mode
+    if (state.practiceMode === 'challenge') {
+      await loadNextChallengeSentence();
+    } else {
+      await loadNextSentence();
+    }
+  }, [state.sessionProgress, state.sessionLength, state.practiceMode, state.isTimedOut, countdown, dispatch, loadNextSentence, loadNextChallengeSentence, sessionCountdown]);
   
   const handleToggleBookmark = useCallback(() => {
     const { sentence, result } = state.testState;
@@ -494,12 +626,21 @@ function DictationModeContent() {
     audio.cancel();
     timer.reset();
     countdown.reset();
+    
+    // Reset challenge mode state
+    if (state.practiceMode === 'challenge') {
+      sessionCountdown.reset();
+      challengeSentenceIndexRef.current = 0;
+      dispatch({ type: 'SET_SESSION_TIME_LIMIT', payload: null });
+      dispatch({ type: 'SET_REMAINING_TIME', payload: null });
+      dispatch({ type: 'SET_IS_TIMED_OUT', payload: false });
+      dispatch({ type: 'SET_CHALLENGE_SENTENCES', payload: [] });
+    }
+    
     actions.restartCurrentSession();
     
-    setTimeout(() => {
-      loadNextSentence();
-    }, 100);
-  }, [audio, timer, countdown, actions, loadNextSentence]);
+    // Let the setup panel show again
+  }, [audio, timer, countdown, state.practiceMode, sessionCountdown, dispatch, actions]);
   
   // ============================================================================
   // CERTIFICATE FUNCTIONS
@@ -1207,6 +1348,9 @@ function DictationModeContent() {
               isSpeaking={audio.isSpeaking}
               isReady={isReady}
               disabled={isFetching || isSaving}
+              sessionTimeLimit={state.sessionTimeLimit}
+              remainingTime={state.remainingTime}
+              isTimedOut={state.isTimedOut}
             />
           </>
         )}

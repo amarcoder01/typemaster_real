@@ -9,6 +9,13 @@ interface FetchSentenceOptions {
   excludeIds: number[];
 }
 
+interface FetchBatchSentencesOptions {
+  difficulty: string;
+  category: string;
+  count: number;
+  excludeIds?: number[];
+}
+
 interface SaveTestData {
   sentenceId: number;
   speedLevel: string;
@@ -29,6 +36,10 @@ interface UseDictationAPIReturn {
   isFetching: boolean;
   fetchError: string | null;
   
+  // Fetch batch of sentences (for challenge mode)
+  fetchBatchSentences: (options: FetchBatchSentencesOptions) => Promise<DictationSentence[]>;
+  isFetchingBatch: boolean;
+  
   // Save test
   saveTest: (data: SaveTestData) => Promise<{ id: number } | null>;
   isSaving: boolean;
@@ -45,9 +56,11 @@ export function useDictationAPI(): UseDictationAPIReturn {
   const { toast } = useToast();
   
   const [isFetching, setIsFetching] = useState(false);
+  const [isFetchingBatch, setIsFetchingBatch] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   
   const abortControllerRef = useRef<AbortController | null>(null);
+  const batchAbortControllerRef = useRef<AbortController | null>(null);
   
   // Fetch a new sentence
   const fetchSentence = useCallback(async (
@@ -179,11 +192,95 @@ export function useDictationAPI(): UseDictationAPIReturn {
     }
   }, [saveTestMutation]);
   
+  // Fetch batch of sentences for challenge mode
+  const fetchBatchSentences = useCallback(async (
+    options: FetchBatchSentencesOptions
+  ): Promise<DictationSentence[]> => {
+    const { difficulty, category, count, excludeIds = [] } = options;
+    
+    // Cancel any previous batch request
+    if (batchAbortControllerRef.current) {
+      batchAbortControllerRef.current.abort();
+    }
+    
+    const controller = new AbortController();
+    batchAbortControllerRef.current = controller;
+    
+    setIsFetchingBatch(true);
+    
+    // Set timeout (longer for batch)
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 30000);
+    
+    try {
+      const params = new URLSearchParams();
+      params.set('difficulty', difficulty);
+      params.set('count', count.toString());
+      if (category !== 'all') {
+        params.set('category', category);
+      }
+      if (excludeIds.length > 0) {
+        params.set('excludeIds', excludeIds.join(','));
+      }
+      
+      const response = await fetch(`/api/dictation/sentences/batch?${params.toString()}`, {
+        signal: controller.signal,
+        credentials: 'include',
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          toast({
+            title: 'No sentences found',
+            description: 'Not enough sentences match your criteria. Try different settings.',
+            variant: 'destructive',
+          });
+          return [];
+        }
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      const data = await response.json();
+      return data.sentences as DictationSentence[];
+      
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      
+      if (error.name === 'AbortError') {
+        toast({
+          title: 'Request timeout',
+          description: 'The server took too long to respond. Please try again.',
+          variant: 'destructive',
+        });
+        return [];
+      }
+      
+      console.error('Failed to fetch batch sentences:', error);
+      toast({
+        title: 'Error',
+        description: 'Could not fetch sentences. Please try again.',
+        variant: 'destructive',
+      });
+      return [];
+      
+    } finally {
+      setIsFetchingBatch(false);
+      batchAbortControllerRef.current = null;
+    }
+  }, [toast]);
+  
   // Cancel ongoing requests
   const cancelRequests = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
+    }
+    if (batchAbortControllerRef.current) {
+      batchAbortControllerRef.current.abort();
+      batchAbortControllerRef.current = null;
     }
   }, []);
   
@@ -191,6 +288,8 @@ export function useDictationAPI(): UseDictationAPIReturn {
     fetchSentence,
     isFetching,
     fetchError,
+    fetchBatchSentences,
+    isFetchingBatch,
     saveTest,
     isSaving: saveTestMutation.isPending,
     saveError: saveTestMutation.error?.message || null,

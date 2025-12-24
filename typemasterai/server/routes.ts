@@ -3845,6 +3845,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Batch fetch sentences for Challenge Mode
+  app.get("/api/dictation/sentences/batch", async (req, res) => {
+    try {
+      const difficulty = req.query.difficulty as string | undefined;
+      const category = req.query.category as string | undefined;
+      const countParam = req.query.count as string | undefined;
+      const excludeIdsParam = req.query.excludeIds as string | undefined;
+      
+      const count = countParam ? parseInt(countParam, 10) : 5;
+      if (isNaN(count) || count < 1 || count > 100) {
+        return res.status(400).json({ message: "Count must be between 1 and 100" });
+      }
+      
+      let excludeIds: number[] | undefined;
+      if (excludeIdsParam) {
+        excludeIds = excludeIdsParam.split(',').map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+      }
+      
+      // Fetch multiple sentences
+      const sentences = [];
+      const usedIds = new Set<number>(excludeIds || []);
+      
+      for (let i = 0; i < count; i++) {
+        const sentence = await storage.getRandomDictationSentence(
+          difficulty, 
+          category, 
+          Array.from(usedIds)
+        );
+        
+        if (!sentence) {
+          break; // No more sentences available
+        }
+        
+        sentences.push(sentence);
+        usedIds.add(sentence.id);
+      }
+      
+      if (sentences.length === 0) {
+        return res.status(404).json({ message: "No sentences available" });
+      }
+      
+      res.json({ sentences });
+    } catch (error: any) {
+      console.error("Get batch dictation sentences error:", error);
+      res.status(500).json({ message: "Failed to fetch dictation sentences" });
+    }
+  });
+
   app.post("/api/dictation/test", isAuthenticated, async (req, res) => {
     try {
       const parsed = insertDictationTestSchema.safeParse({

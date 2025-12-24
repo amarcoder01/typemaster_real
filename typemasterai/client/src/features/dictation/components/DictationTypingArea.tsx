@@ -1,10 +1,15 @@
 import React, { useRef, useEffect, useMemo } from 'react';
-import { HelpCircle, RotateCcw, Eye, EyeOff, Check } from 'lucide-react';
+import { HelpCircle, RotateCcw, Eye, EyeOff, Check, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { PRACTICE_MODES, type PracticeMode } from '../types';
+import { 
+  formatTimeDisplay, 
+  getTimePercentage, 
+  getTimerColors,
+} from '../utils/timeCalculation';
 
 interface DictationTypingAreaProps {
   typedText: string;
@@ -21,6 +26,10 @@ interface DictationTypingAreaProps {
   // Optional: for real-time feedback
   targetSentence?: string;
   showRealTimeFeedback?: boolean;
+  // Challenge mode countdown timer
+  sessionTimeLimit?: number | null;  // Total time limit in seconds
+  remainingTime?: number | null;     // Remaining time in seconds
+  isTimedOut?: boolean;              // Whether session timed out
 }
 
 /**
@@ -40,49 +49,56 @@ export function DictationTypingArea({
   disabled = false,
   targetSentence,
   showRealTimeFeedback = false,
+  sessionTimeLimit,
+  remainingTime,
+  isTimedOut = false,
 }: DictationTypingAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modeConfig = PRACTICE_MODES[practiceMode];
   
+  // Challenge mode uses countdown timer
+  const isChallengeMode = practiceMode === 'challenge';
+  const hasCountdown = isChallengeMode && sessionTimeLimit != null && remainingTime != null;
+  
   // Focus input when ready
   useEffect(() => {
-    if (isReady && !isSpeaking && inputRef.current) {
+    if (isReady && !isSpeaking && inputRef.current && !isTimedOut) {
       inputRef.current.focus();
     }
-  }, [isReady, isSpeaking]);
+  }, [isReady, isSpeaking, isTimedOut]);
   
   // Handle keyboard shortcuts
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && e.ctrlKey && !isSpeaking && isReady) {
+    if (e.key === 'Enter' && e.ctrlKey && !isSpeaking && isReady && !isTimedOut) {
       e.preventDefault();
       onSubmit();
     }
   };
   
-  // Get timer color based on elapsed time (for challenge mode)
-  const getTimerColor = () => {
-    if (!modeConfig.timerPressure) return 'text-green-600';
-    if (elapsedTime > 45) return 'text-red-600';
-    if (elapsedTime > 30) return 'text-orange-500';
-    if (elapsedTime > 15) return 'text-yellow-600';
-    return 'text-green-600';
-  };
+  // Get timer colors using percentage-based thresholds for countdown mode
+  const timerStyles = useMemo(() => {
+    if (hasCountdown) {
+      const percentage = getTimePercentage(remainingTime, sessionTimeLimit);
+      return getTimerColors(percentage);
+    }
+    // Fallback for non-countdown modes
+    return {
+      textColor: 'text-green-600',
+      bgColor: 'bg-green-500/10',
+      dotColor: 'bg-green-600',
+      urgency: 'safe' as const,
+    };
+  }, [hasCountdown, remainingTime, sessionTimeLimit]);
   
-  const getTimerBgColor = () => {
-    if (!modeConfig.timerPressure) return 'bg-green-500/10';
-    if (elapsedTime > 45) return 'bg-red-500/20';
-    if (elapsedTime > 30) return 'bg-orange-500/20';
-    if (elapsedTime > 15) return 'bg-yellow-500/20';
-    return 'bg-green-500/10';
-  };
-  
-  const getDotColor = () => {
-    if (!modeConfig.timerPressure) return 'bg-green-600';
-    if (elapsedTime > 45) return 'bg-red-600';
-    if (elapsedTime > 30) return 'bg-orange-500';
-    if (elapsedTime > 15) return 'bg-yellow-600';
-    return 'bg-green-600';
-  };
+  // Format time display
+  const timeDisplay = useMemo(() => {
+    if (hasCountdown) {
+      return formatTimeDisplay(remainingTime);
+    }
+    const mins = Math.floor(elapsedTime / 60);
+    const secs = elapsedTime % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }, [hasCountdown, remainingTime, elapsedTime]);
   
   // Real-time character feedback
   const characterFeedback = useMemo(() => {
@@ -126,12 +142,6 @@ export function DictationTypingArea({
       accuracy,
     };
   }, [characterFeedback]);
-  
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
   
   return (
     <>
@@ -196,21 +206,32 @@ export function DictationTypingArea({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span
-                    className={`text-xs flex items-center gap-2 cursor-help transition-colors ${getTimerColor()}`}
+                    className={`text-xs flex items-center gap-2 cursor-help transition-colors ${timerStyles.textColor}`}
                   >
                     <span className="flex items-center gap-1">
-                      <span className={`w-2 h-2 rounded-full animate-pulse ${getDotColor()}`} />
-                      {modeConfig.timerPressure && elapsedTime > 30 ? 'Hurry up!' : 'Timer running'}
+                      <span className={`w-2 h-2 rounded-full animate-pulse ${timerStyles.dotColor}`} />
+                      {hasCountdown ? (
+                        timerStyles.urgency === 'critical' 
+                          ? 'Almost out of time!' 
+                          : timerStyles.urgency === 'danger'
+                          ? 'Hurry up!'
+                          : timerStyles.urgency === 'warning'
+                          ? 'Keep typing'
+                          : 'Time remaining'
+                      ) : (
+                        'Timer running'
+                      )}
                     </span>
-                    <span className={`font-mono px-2 py-0.5 rounded ${getTimerBgColor()}`}>
-                      {formatTime(elapsedTime)}
+                    <span className={`font-mono px-2 py-0.5 rounded flex items-center gap-1 ${timerStyles.bgColor}`}>
+                      {hasCountdown && <Clock className="w-3 h-3" />}
+                      {timeDisplay}
                     </span>
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>
-                    {modeConfig.timerPressure
-                      ? 'Challenge mode: Complete quickly for bonus points!'
+                    {hasCountdown
+                      ? 'Challenge mode: Complete all sentences before time runs out!'
                       : 'Time elapsed since audio finished. Type your answer now!'}
                   </p>
                 </TooltipContent>
@@ -232,7 +253,7 @@ export function DictationTypingArea({
                   autoCorrect="off"
                   autoCapitalize="off"
                   spellCheck="false"
-                  disabled={disabled || isSpeaking || !isReady}
+                  disabled={disabled || isSpeaking || !isReady || isTimedOut}
                   data-testid="input-typed-text"
                 />
               </div>

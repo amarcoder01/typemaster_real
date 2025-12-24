@@ -15,6 +15,12 @@ export interface PracticeModeConfig {
   timerPressure: boolean;
   defaultSpeed: string;
   defaultDifficulty: DifficultyLevel;
+  /** Whether this mode uses a countdown timer (vs elapsed timer) */
+  useCountdownTimer: boolean;
+  /** Expected WPM for time limit calculation (only used if useCountdownTimer is true) */
+  expectedWpm: number;
+  /** Buffer multiplier for time limit (e.g., 1.5 = 50% extra time) */
+  bufferMultiplier: number;
 }
 
 export const PRACTICE_MODES: Record<PracticeMode, PracticeModeConfig> = {
@@ -26,6 +32,9 @@ export const PRACTICE_MODES: Record<PracticeMode, PracticeModeConfig> = {
     timerPressure: false,
     defaultSpeed: '1.0',
     defaultDifficulty: 'easy',
+    useCountdownTimer: false,
+    expectedWpm: 40,
+    bufferMultiplier: 1.5,
   },
   focus: {
     name: 'Focus Mode',
@@ -35,15 +44,21 @@ export const PRACTICE_MODES: Record<PracticeMode, PracticeModeConfig> = {
     timerPressure: false,
     defaultSpeed: '0.8',
     defaultDifficulty: 'easy',
+    useCountdownTimer: false,
+    expectedWpm: 40,
+    bufferMultiplier: 1.5,
   },
   challenge: {
     name: 'Challenge Mode',
-    description: 'No hints, harder difficulty, prove your skills',
+    description: 'Timed challenge - complete before time runs out!',
     autoAdvance: false,
     hintsAllowed: false,
     timerPressure: true,
-    defaultSpeed: '1.3',
+    defaultSpeed: '1.0',
     defaultDifficulty: 'easy',
+    useCountdownTimer: true,
+    expectedWpm: 40,
+    bufferMultiplier: 1.5,
   },
 };
 
