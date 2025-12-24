@@ -321,11 +321,35 @@ function DictationModeContent() {
     actions.startPracticeMode(mode);
   }, [actions]);
   
+  // Track the settings used for the current prefetched sentence
+  // This allows us to detect when settings change and refetch
+  const prefetchSettingsRef = useRef<{ difficulty: string; category: string } | null>(null);
+  
   // Prefetch sentence and preload audio when entering waiting screen
-  // This eliminates the 7-10 second delay when starting a session
+  // Also handles re-fetching when difficulty/category change
   useEffect(() => {
-    // Skip if not waiting to start, or if we already have a prefetched sentence (in state or ref)
-    if (!state.isWaitingToStart || state.prefetchedSentence || prefetchedSentenceRef.current || state.isPrefetching) {
+    // Not waiting to start - nothing to do
+    if (!state.isWaitingToStart) {
+      return;
+    }
+    
+    // Check if we need to refetch due to settings change
+    const settingsChanged = prefetchSettingsRef.current !== null && 
+      (prefetchSettingsRef.current.difficulty !== state.difficulty || 
+       prefetchSettingsRef.current.category !== state.category);
+    
+    // If settings changed, clear the existing prefetched sentence and refetch
+    if (settingsChanged && (state.prefetchedSentence || prefetchedSentenceRef.current)) {
+      prefetchedSentenceRef.current = null;
+      prefetchedAudioReadyRef.current = false;
+      prefetchSettingsRef.current = null;
+      dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
+      // Return here - the dispatch will trigger this effect again with null state
+      return;
+    }
+    
+    // Already have a prefetched sentence with current settings, or currently fetching
+    if (state.prefetchedSentence || prefetchedSentenceRef.current || state.isPrefetching) {
       return;
     }
     
@@ -341,8 +365,10 @@ function DictationModeContent() {
         });
         
         if (sentence && isMountedRef.current) {
+          // Record what settings this sentence was fetched for
+          prefetchSettingsRef.current = { difficulty: state.difficulty, category: state.category };
+          
           // Atomically set both ref AND state together for consistency
-          // Ref first for immediate access, then state for React consistency
           prefetchedSentenceRef.current = sentence;
           prefetchedAudioReadyRef.current = false;
           dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: sentence });
@@ -365,18 +391,6 @@ function DictationModeContent() {
     
     prefetch();
   }, [state.isWaitingToStart, state.prefetchedSentence, state.isPrefetching, state.difficulty, state.category, state.shownSentenceIds, fetchSentence, audio, dispatch]);
-  
-  // Re-prefetch when settings change during waiting
-  useEffect(() => {
-    if (!state.isWaitingToStart || (!state.prefetchedSentence && !prefetchedSentenceRef.current)) {
-      return;
-    }
-    
-    // Settings changed, clear prefetched sentence to trigger re-fetch
-    prefetchedSentenceRef.current = null;
-    prefetchedAudioReadyRef.current = false;
-    dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
-  }, [state.difficulty, state.category]);
   
   const handleRecoverSession = useCallback(() => {
     actions.recoverSession();
@@ -478,7 +492,7 @@ function DictationModeContent() {
       // Fallback to fetching if prefetch failed
       await loadNextSentence();
     }
-  }, [actions, state.prefetchedSentence, audio, timer, countdown, dispatch, loadNextSentence]);
+  }, [actions, state.prefetchedSentence, state.practiceMode, state.difficulty, audio, timer, countdown, dispatch, loadNextSentence]);
   
   const handleReplay = useCallback(() => {
     if (state.testState.sentence && !audio.isSpeaking) {
@@ -689,7 +703,7 @@ function DictationModeContent() {
       // Fallback to fetching if prefetch failed
       await loadNextSentence();
     }
-  }, [state.sessionProgress, state.sessionLength, state.prefetchedSentence, countdown, timer, dispatch, audio, loadNextSentence]);
+  }, [state.sessionProgress, state.sessionLength, state.prefetchedSentence, state.practiceMode, state.difficulty, countdown, timer, dispatch, audio, loadNextSentence]);
   
   // Auto-submit for Challenge Mode when time expires
   useEffect(() => {
