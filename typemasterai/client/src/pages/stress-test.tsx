@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, useLayoutEffect } from 'react';
 import { Link, useLocation } from 'wouter';
-import { ArrowLeft, Zap, Skull, Trophy, Eye, Volume2, VolumeX, AlertTriangle, HelpCircle, Clock, Target, Flame, XCircle, Timer, BarChart3, RefreshCw, Home, Info, LogIn, WifiOff, Award, X, Infinity, AlertOctagon, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Zap, Skull, Trophy, Eye, Volume2, VolumeX, AlertTriangle, HelpCircle, Clock, Target, Flame, XCircle, Timer, BarChart3, RefreshCw, Home, Info, LogIn, WifiOff, Award, X, Infinity, AlertOctagon, CheckCircle2, MousePointerClick } from 'lucide-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { useSEO } from '@/lib/seo';
 import { Button } from '@/components/ui/button';
@@ -412,6 +412,10 @@ function StressTestContent() {
   const [comboExplosion, setComboExplosion] = useState(false);
   const [shakeOffset, setShakeOffset] = useState({ x: 0, y: 0 });
   const [isClarityWindow, setIsClarityWindow] = useState(false);
+  const [isFocused, setIsFocused] = useState(true);
+  const isFocusedRef = useRef(true);
+  const [lastBackspaceTime, setLastBackspaceTime] = useState(0);
+  const [screenReaderAnnouncement, setScreenReaderAnnouncement] = useState('');
   const isClarityWindowRef = useRef(false);
   const [chromaticOffset, setChromaticOffset] = useState({ r: 0, g: 0, b: 0 });
   const [realityWarp, setRealityWarp] = useState(0);
@@ -1044,6 +1048,59 @@ function StressTestContent() {
     }
   }, [isStarted, isFinished, currentText, typedText, playSound, prefersReducedMotion, selectedDifficulty, config, stressLevel, safeTimeout]);
 
+  const announce = useCallback((message: string) => {
+    setScreenReaderAnnouncement(message);
+    setTimeout(() => setScreenReaderAnnouncement(''), 1000);
+  }, []);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    e.preventDefault();
+    if (isStarted && !isFinished) {
+      playSound('error');
+      announce('Pasting is not allowed during the test');
+    }
+  }, [isStarted, isFinished, playSound, announce]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      return;
+    }
+    
+    if (e.key === 'Escape' && isStarted && !isFinished) {
+      e.preventDefault();
+      finishTestRef.current(false);
+      announce('Test cancelled');
+      return;
+    }
+    
+    if (e.key === 'Backspace') {
+      setLastBackspaceTime(Date.now());
+      if (typedText.length === 0) {
+        e.preventDefault();
+        playSound('error');
+      }
+    }
+  }, [isStarted, isFinished, typedText.length, playSound, announce]);
+
+  const handleFocus = useCallback(() => {
+    isFocusedRef.current = true;
+    setIsFocused(true);
+  }, []);
+
+  const handleBlur = useCallback(() => {
+    if (isStarted && !isFinished && isTestActiveRef.current) {
+      isFocusedRef.current = false;
+      setIsFocused(false);
+    }
+  }, [isStarted, isFinished]);
+
+  const handleFocusClick = useCallback(() => {
+    isFocusedRef.current = true;
+    setIsFocused(true);
+    inputRef.current?.focus();
+  }, []);
+
   useEffect(() => {
     if (!isStarted || isFinished) return;
     
@@ -1087,6 +1144,7 @@ function StressTestContent() {
     if (timeLeft === 10 && isStarted && !isFinished && !hasShown10SecWarning.current) {
       hasShown10SecWarning.current = true;
       playSound('warning');
+      announce('10 seconds remaining! Final push!');
       toast({
         title: "10 Seconds Left!",
         description: "Final push!",
@@ -1096,7 +1154,7 @@ function StressTestContent() {
     if (timeLeft > 10) {
       hasShown10SecWarning.current = false;
     }
-  }, [timeLeft, isStarted, isFinished, playSound, toast]);
+  }, [timeLeft, isStarted, isFinished, playSound, toast, announce]);
 
   useEffect(() => {
     if (!isStarted || isFinished) {
@@ -1106,18 +1164,20 @@ function StressTestContent() {
     
     if (combo === 50 && lastComboMilestone.current < 50) {
       lastComboMilestone.current = 50;
+      announce('50 combo! You are on fire!');
       toast({
         title: "50 Combo!",
         description: "You're on fire!",
       });
     } else if (combo === 100 && lastComboMilestone.current < 100) {
       lastComboMilestone.current = 100;
+      announce('100 combo! Incredible focus!');
       toast({
         title: "100 Combo!",
         description: "Incredible focus!",
       });
     }
-  }, [combo, isStarted, isFinished, toast]);
+  }, [combo, isStarted, isFinished, toast, announce]);
 
   useEffect(() => {
     if (!isStarted || isFinished || !currentText.length) {
@@ -1507,8 +1567,10 @@ function StressTestContent() {
 
   const displayText = textReversed ? currentText.split('').reverse().join('') : currentText;
   
+  const isBackspaceRecent = Date.now() - lastBackspaceTime < 150;
+  
   const renderedCharacters = useMemo(() => {
-    if (!currentText) return [];
+    if (!currentText) return { chars: [], isAtEnd: false };
     const textLength = currentText.length;
     const typedLength = typedText.length;
     const isAtEnd = typedLength >= textLength;
@@ -1519,6 +1581,7 @@ function StressTestContent() {
       let className = 'stress-char-pending';
       let isCurrent = false;
       let isSpace = char === ' ';
+      let isBackspaceFlash = false;
       
       if (originalIndex < typedLength) {
         const isCorrect = typedText[originalIndex] === currentText[originalIndex];
@@ -1526,15 +1589,16 @@ function StressTestContent() {
       } else if (originalIndex === typedLength) {
         className = 'stress-char-current';
         isCurrent = true;
+        isBackspaceFlash = isBackspaceRecent;
       } else if (isSpace) {
         className = 'stress-char-pending stress-char-space-pending';
       }
       
-      return { char, className, index: displayIndex, isCurrent, isSpace };
+      return { char, className, index: displayIndex, isCurrent, isSpace, isBackspaceFlash };
     });
     
     return { chars, isAtEnd };
-  }, [displayText, typedText, currentText, textReversed]);
+  }, [displayText, typedText, currentText, textReversed, isBackspaceRecent]);
 
   if (!selectedDifficulty || (!isStarted && !isFinished && countdown === 0)) {
     return (
@@ -2044,7 +2108,7 @@ function StressTestContent() {
     <TooltipProvider delayDuration={300}>
       <div
         ref={containerRef}
-        onClick={() => inputRef.current?.focus()}
+        onClick={() => { if (isFocused) inputRef.current?.focus(); }}
         className={`min-h-screen flex items-center justify-center p-4 transition-all duration-100 cursor-text ${
           backgroundFlash ? 'bg-red-500/30' : 'bg-background'
         }`}
@@ -2206,10 +2270,10 @@ function StressTestContent() {
                   } : {}),
                 }}
               >
-                {Array.isArray(renderedCharacters) ? null : renderedCharacters.chars.map(({ char, className, index, isCurrent }) => (
+                {renderedCharacters.chars.map(({ char, className, index, isCurrent, isBackspaceFlash }) => (
                   <span
                     key={index}
-                    className={`${className} transition-colors duration-75 relative inline-block`}
+                    className={`${className} ${isBackspaceFlash && !prefersReducedMotion ? 'stress-char-backspace-flash' : ''} transition-colors duration-75 relative inline-block`}
                     style={{
                       animation: glitchActive && !prefersReducedMotion ? 'glitch 0.1s infinite' : 'none',
                       transform: textScrambleActive && !prefersReducedMotion && Math.random() > 0.7 
@@ -2221,7 +2285,7 @@ function StressTestContent() {
                     {char}
                   </span>
                 ))}
-                {!Array.isArray(renderedCharacters) && renderedCharacters.isAtEnd && !prefersReducedMotion && (
+                {renderedCharacters.isAtEnd && !prefersReducedMotion && (
                   <span className="relative inline-block">
                     <span className="neon-caret" aria-hidden="true" />
                   </span>
@@ -2235,11 +2299,10 @@ function StressTestContent() {
             type="text"
             value={typedText}
             onChange={handleInputChange}
-            onBlur={() => {
-              if (isStarted && !isFinished && isTestActiveRef.current) {
-                setTimeout(() => inputRef.current?.focus(), 10);
-              }
-            }}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
             className="sr-only"
             autoComplete="off"
             autoCapitalize="off"
@@ -2249,8 +2312,29 @@ function StressTestContent() {
             data-testid="input-typing"
           />
           
+          {!isFocused && isStarted && !isFinished && (
+            <div 
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm cursor-pointer"
+              onClick={(e) => { e.stopPropagation(); handleFocusClick(); }}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); handleFocusClick(); }}}
+              aria-label="Click to continue typing"
+            >
+              <div className="glass-card p-8 rounded-2xl text-center neon-glow-cyan animate-pulse">
+                <MousePointerClick className="w-12 h-12 mx-auto mb-4 text-cyan-400" />
+                <p className="text-xl font-bold text-cyan-400 mb-2">Click to Continue</p>
+                <p className="text-sm text-muted-foreground">Input lost focus - click anywhere to resume typing</p>
+              </div>
+            </div>
+          )}
+          
+          <div className="sr-only" role="status" aria-live="assertive" aria-atomic="true">
+            {screenReaderAnnouncement}
+          </div>
+          
           <p className="text-center text-sm text-muted-foreground" aria-live="polite">
-            {isStarted ? 'Click anywhere or press ESC to quit' : 'Click to focus and start typing'}
+            {isStarted ? 'Press ESC to quit • Backspace to correct' : 'Click to focus and start typing'}
           </p>
         </div>
       </div>

@@ -1059,6 +1059,21 @@
   opacity: 0.2;
 }
 
+.stress-char-backspace-flash {
+  animation: backspace-flash 0.15s ease-out;
+}
+
+@keyframes backspace-flash {
+  0% {
+    background-color: rgba(255, 100, 100, 0.4);
+    transform: scale(1.1);
+  }
+  100% {
+    background-color: transparent;
+    transform: scale(1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .neon-pulse,
   .countdown-pulse,
