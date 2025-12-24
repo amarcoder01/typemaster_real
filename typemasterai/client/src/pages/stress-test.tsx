@@ -416,6 +416,9 @@ function StressTestContent() {
   const isFocusedRef = useRef(true);
   const [lastBackspaceTime, setLastBackspaceTime] = useState(0);
   const [screenReaderAnnouncement, setScreenReaderAnnouncement] = useState('');
+  const [isComposing, setIsComposing] = useState(false);
+  const pendingInputValueRef = useRef<string | null>(null);
+  const pendingInputRafRef = useRef<number | null>(null);
   const isClarityWindowRef = useRef(false);
   const [chromaticOffset, setChromaticOffset] = useState({ r: 0, g: 0, b: 0 });
   const [realityWarp, setRealityWarp] = useState(0);
@@ -1002,10 +1005,14 @@ function StressTestContent() {
     return progress * 100;
   }, [config, startTime]);
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const processInput = useCallback((value: string) => {
     if (!isStarted || isFinished || !isTestActiveRef.current) return;
     
-    const value = e.target.value;
+    // Cap input at text length - don't allow typing beyond
+    if (value.length > currentText.length) {
+      if (inputRef.current) inputRef.current.value = typedText;
+      return;
+    }
     
     // Handle backspace - allow deletion
     if (value.length < typedText.length) {
@@ -1078,6 +1085,36 @@ function StressTestContent() {
       finishTestRef.current(correctCount === currentText.length);
     }
   }, [isStarted, isFinished, currentText, typedText, playSound, prefersReducedMotion, selectedDifficulty, config, stressLevel, safeTimeout]);
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isComposing) return; // Don't process during IME composition
+    
+    const value = e.target.value;
+    // Coalesce rapid input changes into a single rAF tick for performance
+    pendingInputValueRef.current = value;
+    if (pendingInputRafRef.current == null) {
+      pendingInputRafRef.current = requestAnimationFrame(() => {
+        const v = pendingInputValueRef.current ?? "";
+        pendingInputValueRef.current = null;
+        pendingInputRafRef.current = null;
+        processInput(v);
+      });
+    }
+  }, [isComposing, processInput]);
+
+  const handleCompositionStart = useCallback(() => {
+    setIsComposing(true);
+  }, []);
+
+  const handleCompositionEnd = useCallback((e: React.CompositionEvent<HTMLInputElement>) => {
+    setIsComposing(false);
+    // Process the final composed value
+    setTimeout(() => {
+      if (inputRef.current) {
+        processInput(inputRef.current.value);
+      }
+    }, 0);
+  }, [processInput]);
 
   const announce = useCallback((message: string) => {
     setScreenReaderAnnouncement(message);
@@ -2334,6 +2371,8 @@ function StressTestContent() {
             onPaste={handlePaste}
             onFocus={handleFocus}
             onBlur={handleBlur}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
             className="sr-only"
             autoComplete="off"
             autoCapitalize="off"
