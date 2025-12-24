@@ -418,7 +418,7 @@ function DictationModeContent() {
       
       // Set time limit for Challenge Mode
       const timeLimitMs = state.practiceMode === 'challenge' 
-        ? calculateTimeLimit(sentence.sentence, state.difficulty)
+        ? calculateTimeLimit(sentence.sentence, state.difficulty, state.sessionLength)
         : null;
       dispatch({
         type: 'SET_TEST_STATE',
@@ -445,6 +445,7 @@ function DictationModeContent() {
     state.category,
     state.shownSentenceIds,
     state.practiceMode,
+    state.sessionLength,
     fetchSentence,
     audio,
     timer,
@@ -469,7 +470,7 @@ function DictationModeContent() {
       
       // Set time limit for Challenge Mode
       const timeLimitMs = state.practiceMode === 'challenge' 
-        ? calculateTimeLimit(sentence.sentence, state.difficulty)
+        ? calculateTimeLimit(sentence.sentence, state.difficulty, state.sessionLength)
         : null;
       dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs, timeExpired: false } });
       
@@ -492,7 +493,7 @@ function DictationModeContent() {
       // Fallback to fetching if prefetch failed
       await loadNextSentence();
     }
-  }, [actions, state.prefetchedSentence, state.practiceMode, state.difficulty, audio, timer, countdown, dispatch, loadNextSentence]);
+  }, [actions, state.prefetchedSentence, state.practiceMode, state.difficulty, state.sessionLength, audio, timer, countdown, dispatch, loadNextSentence]);
   
   const handleReplay = useCallback(() => {
     if (state.testState.sentence && !audio.isSpeaking) {
@@ -680,7 +681,7 @@ function DictationModeContent() {
       
       // Set time limit for Challenge Mode
       const timeLimitMs = state.practiceMode === 'challenge' 
-        ? calculateTimeLimit(sentence.sentence, state.difficulty)
+        ? calculateTimeLimit(sentence.sentence, state.difficulty, state.sessionLength)
         : null;
       dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs, timeExpired: false } });
       
@@ -1075,7 +1076,7 @@ function DictationModeContent() {
             isChallenge={state.practiceMode === 'challenge'}
             challengeTimeLimitMs={
               state.prefetchedSentence && state.practiceMode === 'challenge'
-                ? calculateTimeLimit(state.prefetchedSentence.sentence, state.difficulty)
+                ? calculateTimeLimit(state.prefetchedSentence.sentence, state.difficulty, state.sessionLength)
                 : null
             }
             isPreviewLoading={state.isPrefetching && state.practiceMode === 'challenge'}

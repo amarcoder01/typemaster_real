@@ -173,19 +173,40 @@ export const CHALLENGE_TIMING = {
     medium: 1.0,
     hard: 0.75,
   } as Record<DifficultyLevel, number>,
+  SESSION_LENGTH_MULTIPLIERS: [
+    { maxLength: 3, multiplier: 1.10 },   // Quick warm-up: +10% time
+    { maxLength: 10, multiplier: 1.00 },  // Standard: baseline
+    { maxLength: 20, multiplier: 0.95 },  // Extended: -5% time
+    { maxLength: 30, multiplier: 0.90 },  // Long: -10% time
+    { maxLength: 50, multiplier: 0.85 },  // Marathon: -15% time
+    { maxLength: 75, multiplier: 0.80 },  // Ultra: -20% time
+    { maxLength: 100, multiplier: 0.75 }, // Extreme: -25% time
+    { maxLength: Infinity, multiplier: 0.70 }, // Beyond: -30% time
+  ],
   OVERTIME_PENALTY: 0.1,     // 10% accuracy penalty for overtime
   STREAK_BONUS: 0.02,        // 2% bonus per streak (max 10%)
   MAX_STREAK_BONUS: 0.10,    // Cap at 10% bonus
 } as const;
 
+export function getSessionLengthMultiplier(sessionLength: number): number {
+  for (const bucket of CHALLENGE_TIMING.SESSION_LENGTH_MULTIPLIERS) {
+    if (sessionLength <= bucket.maxLength) {
+      return bucket.multiplier;
+    }
+  }
+  return 0.70; // Fallback for very long sessions
+}
+
 export function calculateTimeLimit(
   sentenceText: string,
-  difficulty: DifficultyLevel
+  difficulty: DifficultyLevel,
+  sessionLength: number = 10
 ): number {
   const wordCount = sentenceText.trim().split(/\s+/).length;
-  const multiplier = CHALLENGE_TIMING.DIFFICULTY_MULTIPLIERS[difficulty];
+  const difficultyMultiplier = CHALLENGE_TIMING.DIFFICULTY_MULTIPLIERS[difficulty];
+  const sessionMultiplier = getSessionLengthMultiplier(sessionLength);
   return Math.round(
-    (CHALLENGE_TIMING.BASE_TIME_MS + wordCount * CHALLENGE_TIMING.PER_WORD_MS) * multiplier
+    (CHALLENGE_TIMING.BASE_TIME_MS + wordCount * CHALLENGE_TIMING.PER_WORD_MS) * difficultyMultiplier * sessionMultiplier
   );
 }
 
