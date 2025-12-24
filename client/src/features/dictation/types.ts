@@ -160,59 +160,36 @@ export interface DictationTestState {
 
 // ============================================================================
 // CHALLENGE MODE TIMING
+// Industry-standard WPM-based time calculation
+// Formula: Time = (Words / TargetWPM) * BufferFactor * 60 seconds
 // ============================================================================
 
 export const CHALLENGE_TIMING = {
-  BASE_TIME_MS: 8000,        // 8 seconds base time
-  PER_WORD_MS: 2500,         // 2.5 seconds per word
   GRACE_PERIOD_MS: 3000,     // 3 second grace period after time expires
   WARNING_THRESHOLD_MS: 10000, // Yellow warning at 10 seconds remaining
   URGENT_THRESHOLD_MS: 5000,   // Red urgent at 5 seconds remaining
-  MIN_TIME_MS: 5000,         // Minimum 5 seconds (allows Hard mode to have shorter timers)
-  MAX_TIME_MS: 180000,       // Maximum 3 minutes to prevent excessively long timers
+  MIN_TIME_MS: 5000,         // Minimum 5 seconds
+  MAX_TIME_MS: 180000,       // Maximum 3 minutes
   DEFAULT_DIFFICULTY: 'medium' as DifficultyLevel,
-  MIN_SESSION_LENGTH: 1,     // Minimum session length (UI should enforce >= 1)
-  MAX_SESSION_LENGTH: 100,   // Maximum session length
-  DIFFICULTY_MULTIPLIERS: {
-    easy: 1.5,
-    medium: 1.0,
-    hard: 0.75,
-  } as Record<DifficultyLevel, number>,
-  SESSION_LENGTH_MULTIPLIERS: [
-    { maxLength: 3, multiplier: 1.10 },   // Quick warm-up: +10% time
-    { maxLength: 10, multiplier: 1.00 },  // Standard: baseline
-    { maxLength: 20, multiplier: 0.95 },  // Extended: -5% time
-    { maxLength: 30, multiplier: 0.90 },  // Long: -10% time
-    { maxLength: 50, multiplier: 0.85 },  // Marathon: -15% time
-    { maxLength: 75, multiplier: 0.80 },  // Ultra: -20% time
-    { maxLength: 100, multiplier: 0.75 }, // Extreme: -25% time
-    { maxLength: Infinity, multiplier: 0.70 }, // Beyond: -30% time
-  ],
+  
+  // WPM-based time calculation per difficulty
+  // Target WPM: Expected typing speed the user should achieve
+  // Buffer: Extra time multiplier to allow for thinking/listening
+  DIFFICULTY_CONFIG: {
+    easy: { targetWPM: 25, buffer: 2.5 },    // Beginner: generous time (2.4s per word)
+    medium: { targetWPM: 40, buffer: 1.8 },  // Standard: moderate time (1.35s per word)
+    hard: { targetWPM: 60, buffer: 1.4 },    // Advanced: challenging time (0.7s per word)
+  } as Record<DifficultyLevel, { targetWPM: number; buffer: number }>,
+  
+  // Overtime penalties
   OVERTIME_PENALTY_BASE: 0.05,    // 5% base penalty for any overtime
   OVERTIME_PENALTY_PER_SECOND: 0.01, // Additional 1% per second over time
   OVERTIME_PENALTY_MAX: 0.30,     // Maximum 30% penalty cap
+  
+  // Streak bonuses
   STREAK_BONUS: 0.02,        // 2% bonus per streak (max 10%)
   MAX_STREAK_BONUS: 0.10,    // Cap at 10% bonus
 } as const;
-
-/**
- * Get the session length multiplier based on how many sentences are in the session.
- * Longer sessions get slightly less time per sentence to increase difficulty.
- */
-export function getSessionLengthMultiplier(sessionLength: number): number {
-  // Clamp session length to valid range
-  const clampedLength = Math.max(
-    CHALLENGE_TIMING.MIN_SESSION_LENGTH,
-    Math.min(CHALLENGE_TIMING.MAX_SESSION_LENGTH, sessionLength)
-  );
-  
-  for (const bucket of CHALLENGE_TIMING.SESSION_LENGTH_MULTIPLIERS) {
-    if (clampedLength <= bucket.maxLength) {
-      return bucket.multiplier;
-    }
-  }
-  return 0.70; // Fallback for very long sessions
-}
 
 /**
  * Calculate the overtime penalty based on how many seconds over the limit.
