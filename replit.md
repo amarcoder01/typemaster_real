@@ -83,11 +83,24 @@ Preferred communication style: Simple, everyday language.
 Challenge Mode in Dictation (`/dictation-mode`) features time-based typing challenges with consequences for timeouts.
 
 ### Time Calculation
-- **Formula**: `(BASE_TIME + words × PER_WORD) × difficultyMultiplier`
+- **Formula**: `(BASE_TIME + words × PER_WORD) × difficultyMultiplier × sessionLengthMultiplier`
 - **BASE_TIME**: 8 seconds
 - **PER_WORD**: 2.5 seconds per word
 - **Difficulty Multipliers**: Easy 1.5x, Medium 1.0x, Hard 0.75x
+- **Session Length Multipliers**: Short sessions (1-3) +10% bonus, long sessions (20+) progressively reduced up to -30%
+- **Time Caps**: Minimum 5 seconds, Maximum 3 minutes
 - **Grace Period**: 3 seconds after time expires before auto-submit
+
+### Input Validation
+- Empty/invalid sentences return minimum time (5 seconds)
+- Word count minimum: 1 (uncapped, MAX_TIME_MS handles long sentences)
+- Session length clamped to 1-100 range
+- Unknown difficulty values fall back to medium
+
+### Overtime Penalty System
+- **Graduated Penalty**: 5% base + 1% per second overtime
+- **Maximum Penalty**: 30% cap
+- **Function**: `calculateOvertimePenalty(secondsOver)` returns penalty as decimal (0.05 to 0.30)
 
 ### Features
 - **Countdown Timer**: Visible in header during active typing (format M:SS)
@@ -95,9 +108,9 @@ Challenge Mode in Dictation (`/dictation-mode`) features time-based typing chall
 - **Auto-Submit**: Submits answer when grace period expires
 - **Time's Up Overlay**: Modal showing timeout status with dismiss button
 - **Streak Tracking**: Consecutive completions tracked with bonuses (2% per streak, max 10%)
-- **Overtime Penalties**: 10% accuracy reduction for submissions after time expires
+- **Prefetch Error Handling**: 3 retry attempts with user-facing toast on failure
 
 ### Key Files
-- `client/src/features/dictation/types.ts` - CHALLENGE_TIMING constants and calculateTimeLimit function
-- `client/src/pages/dictation-mode.tsx` - Timer display and Time's Up overlay
+- `client/src/features/dictation/types.ts` - CHALLENGE_TIMING constants, calculateTimeLimit, calculateOvertimePenalty
+- `client/src/pages/dictation-mode.tsx` - Timer display, Time's Up overlay, prefetch settings tracking
 - `client/src/features/dictation/context/DictationContext.tsx` - Session stats management
