@@ -23,6 +23,8 @@ interface DictationTypingAreaProps {
   showRealTimeFeedback?: boolean;
   // Optional: replay limit for Focus Mode
   replayCount?: number;
+  // Optional: time limit for Challenge Mode (in milliseconds)
+  timeLimitMs?: number | null;
 }
 
 /**
@@ -43,6 +45,7 @@ export function DictationTypingArea({
   targetSentence,
   showRealTimeFeedback = false,
   replayCount = 0,
+  timeLimitMs = null,
 }: DictationTypingAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modeConfig = PRACTICE_MODES[practiceMode];
@@ -65,9 +68,22 @@ export function DictationTypingArea({
     }
   };
   
-  // Get timer color based on elapsed time (for challenge mode)
+  // Calculate remaining time for Challenge Mode
+  const timeLimitSeconds = timeLimitMs ? Math.ceil(timeLimitMs / 1000) : null;
+  const remainingTime = timeLimitSeconds ? Math.max(0, timeLimitSeconds - elapsedTime) : null;
+  const hasTimeLimit = timeLimitSeconds !== null && modeConfig.timerPressure;
+  
+  // Get timer color based on remaining time (for challenge mode) or elapsed time (for other modes)
   const getTimerColor = () => {
     if (!modeConfig.timerPressure) return 'text-green-600';
+    if (hasTimeLimit && remainingTime !== null) {
+      // Remaining time logic - lower is more urgent
+      if (remainingTime <= 5) return 'text-red-600';
+      if (remainingTime <= 10) return 'text-orange-500';
+      if (remainingTime <= 15) return 'text-yellow-600';
+      return 'text-green-600';
+    }
+    // Fallback to elapsed time logic
     if (elapsedTime > 45) return 'text-red-600';
     if (elapsedTime > 30) return 'text-orange-500';
     if (elapsedTime > 15) return 'text-yellow-600';
@@ -76,6 +92,12 @@ export function DictationTypingArea({
   
   const getTimerBgColor = () => {
     if (!modeConfig.timerPressure) return 'bg-green-500/10';
+    if (hasTimeLimit && remainingTime !== null) {
+      if (remainingTime <= 5) return 'bg-red-500/20';
+      if (remainingTime <= 10) return 'bg-orange-500/20';
+      if (remainingTime <= 15) return 'bg-yellow-500/20';
+      return 'bg-green-500/10';
+    }
     if (elapsedTime > 45) return 'bg-red-500/20';
     if (elapsedTime > 30) return 'bg-orange-500/20';
     if (elapsedTime > 15) return 'bg-yellow-500/20';
@@ -84,10 +106,24 @@ export function DictationTypingArea({
   
   const getDotColor = () => {
     if (!modeConfig.timerPressure) return 'bg-green-600';
+    if (hasTimeLimit && remainingTime !== null) {
+      if (remainingTime <= 5) return 'bg-red-600';
+      if (remainingTime <= 10) return 'bg-orange-500';
+      if (remainingTime <= 15) return 'bg-yellow-600';
+      return 'bg-green-600';
+    }
     if (elapsedTime > 45) return 'bg-red-600';
     if (elapsedTime > 30) return 'bg-orange-500';
     if (elapsedTime > 15) return 'bg-yellow-600';
     return 'bg-green-600';
+  };
+  
+  // Get timer status message
+  const getTimerMessage = () => {
+    if (!hasTimeLimit) return 'Timer running';
+    if (remainingTime !== null && remainingTime <= 5) return 'Time almost up!';
+    if (remainingTime !== null && remainingTime <= 10) return 'Hurry up!';
+    return 'Time remaining';
   };
   
   // Real-time character feedback
@@ -203,20 +239,23 @@ export function DictationTypingArea({
                 <TooltipTrigger asChild>
                   <span
                     className={`text-xs flex items-center gap-2 cursor-help transition-colors ${getTimerColor()}`}
+                    data-testid="timer-display"
                   >
                     <span className="flex items-center gap-1">
                       <span className={`w-2 h-2 rounded-full animate-pulse ${getDotColor()}`} />
-                      {modeConfig.timerPressure && elapsedTime > 30 ? 'Hurry up!' : 'Timer running'}
+                      {getTimerMessage()}
                     </span>
-                    <span className={`font-mono px-2 py-0.5 rounded ${getTimerBgColor()}`}>
-                      {formatTime(elapsedTime)}
+                    <span className={`font-mono px-2 py-0.5 rounded ${getTimerBgColor()}`} data-testid="timer-value">
+                      {hasTimeLimit && remainingTime !== null
+                        ? formatTime(remainingTime)
+                        : formatTime(elapsedTime)}
                     </span>
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>
-                    {modeConfig.timerPressure
-                      ? 'Challenge mode: Complete quickly for bonus points!'
+                    {hasTimeLimit
+                      ? `Challenge mode: ${remainingTime}s remaining to complete!`
                       : 'Time elapsed since audio finished. Type your answer now!'}
                   </p>
                 </TooltipContent>

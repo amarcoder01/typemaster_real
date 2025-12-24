@@ -84,6 +84,9 @@ Challenge Mode in Dictation (`/dictation-mode`) offers a focused practice experi
 
 ### Features
 - **Time Limit Preview**: Shows estimated time limit on setup screen before starting (uses CHALLENGE_TIMING formula)
+- **Countdown Timer**: In-session timer displays remaining time (counting down) instead of elapsed time
+  - Color thresholds: green by default, yellow at ≤15s, orange at ≤10s, red at ≤5s remaining
+  - Status messages: "Time remaining" → "Hurry up!" (≤10s) → "Time almost up!" (≤5s)
 - **Streak Tracking**: Consecutive completions tracked with bonuses (2% per streak, max 10%)
 - **Prefetch Error Handling**: 3 retry attempts with user-facing toast on failure
 - **Difficulty Levels**: Easy, Medium, Hard affect sentence complexity and time limits:

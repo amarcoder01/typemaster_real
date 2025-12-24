@@ -46,6 +46,7 @@ import {
   getRandomEncouragement,
   INITIAL_ADAPTIVE_CONFIG,
   calculateOvertimePenalty,
+  calculateTimeLimit,
   CHALLENGE_TIMING,
 } from '@/features/dictation';
 
@@ -483,9 +484,14 @@ function DictationModeContent() {
     if (sentence) {
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
       
+      // Calculate time limit for Challenge Mode
+      const timeLimitMs = state.practiceMode === 'challenge' 
+        ? calculateTimeLimit(sentence.sentence, state.difficulty)
+        : null;
+      
       dispatch({
         type: 'SET_TEST_STATE',
-        payload: { sentence, timeLimitMs: null, timeExpired: false },
+        payload: { sentence, timeLimitMs, timeExpired: false },
       });
       
       // Use streaming TTS for ultra-low latency (~500ms vs 3-5s)
@@ -531,7 +537,12 @@ function DictationModeContent() {
       const sentence = prefetchedSentence;
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
       
-      dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs: null, timeExpired: false } });
+      // Calculate time limit for Challenge Mode
+      const timeLimitMs = state.practiceMode === 'challenge' 
+        ? calculateTimeLimit(sentence.sentence, state.difficulty)
+        : null;
+      
+      dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs, timeExpired: false } });
       
       // Clear both ref and state
       prefetchedSentenceRef.current = null;
@@ -740,7 +751,12 @@ function DictationModeContent() {
       const sentence = prefetchedSentence;
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
       
-      dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs: null, timeExpired: false } });
+      // Calculate time limit for Challenge Mode
+      const timeLimitMs = state.practiceMode === 'challenge' 
+        ? calculateTimeLimit(sentence.sentence, state.difficulty)
+        : null;
+      
+      dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs, timeExpired: false } });
       
       // Clear both ref and state
       prefetchedSentenceRef.current = null;
@@ -1279,6 +1295,7 @@ function DictationModeContent() {
                 isReady={isReady}
                 disabled={isFetching || isSaving}
                 replayCount={state.testState.replayCount}
+                timeLimitMs={state.testState.timeLimitMs}
               />
             </div>
           )}
@@ -1607,6 +1624,7 @@ function DictationModeContent() {
               isReady={isReady}
               disabled={isFetching || isSaving}
               replayCount={state.testState.replayCount}
+              timeLimitMs={state.testState.timeLimitMs}
             />
           </>
         )}
