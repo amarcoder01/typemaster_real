@@ -300,7 +300,7 @@ export function DictationSetupPanel({
               Session Summary
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3" data-testid="session-summary-content">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Sentences:</span>
               <span className="font-medium">{sessionLength}</span>
@@ -313,20 +313,19 @@ export function DictationSetupPanel({
               <span className="text-muted-foreground">Voice Speed:</span>
               <span className="font-medium">{currentRate}x</span>
             </div>
-            <Separator className="bg-primary/10" />
-            <div className="flex justify-between text-sm items-center">
+            <div className="flex justify-between text-sm items-center" data-testid="time-limit-row">
               <span className="text-muted-foreground flex items-center gap-1">
                 <Timer className="w-3 h-3" />
                 Time Limit:
               </span>
-              <Badge variant="secondary" className="font-mono">
-                {isChallenge ? (estimatedTimeLimit?.formatted || '---') : 'N/A'}
+              <Badge variant="secondary" className="font-mono" data-testid="time-limit-value">
+                {isChallenge ? (estimatedTimeLimit?.formatted || 'Calculating...') : 'N/A'}
               </Badge>
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground" data-testid="time-limit-description">
               {isChallenge 
-                ? `Based on ${sessionLength} sentences at ${difficulty} difficulty`
-                : 'Only available in Challenge Mode'
+                ? `Estimated ~${estimatedTimeLimit?.seconds || 0}s for ${sessionLength} sentences`
+                : 'Time limit only in Challenge Mode'
               }
             </p>
             <Separator className="bg-primary/10" />
