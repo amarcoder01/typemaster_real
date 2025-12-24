@@ -144,20 +144,23 @@ export function ShareCard({ wpm, accuracy, mode, language, username, freestyle =
     ctx.textAlign = "left";
     ctx.fillText("TypeMasterAI", 40, 55);
 
-    // Mode badge (if provided) - show prominently in header
+    // Mode badge (if provided) - show centered below WPM section
     if (modeLabel) {
       ctx.fillStyle = "rgba(168, 85, 247, 0.4)";
       const badgeText = modeLabel;
-      ctx.font = "bold 11px 'DM Sans', sans-serif";
-      const badgeWidth = ctx.measureText(badgeText).width + 16;
-      const badgeX = 40;
-      const badgeY = 62;
+      ctx.font = "bold 12px 'DM Sans', sans-serif";
+      const badgeWidth = ctx.measureText(badgeText).width + 20;
+      const badgeX = (canvas.width - badgeWidth) / 2;
+      const badgeY = 88;
       ctx.beginPath();
-      ctx.roundRect(badgeX, badgeY, badgeWidth, 20, 10);
+      ctx.roundRect(badgeX, badgeY, badgeWidth, 24, 12);
       ctx.fill();
+      ctx.strokeStyle = "#a855f7";
+      ctx.lineWidth = 1;
+      ctx.stroke();
       ctx.fillStyle = "#e9d5ff";
-      ctx.textAlign = "left";
-      ctx.fillText(badgeText, badgeX + 8, badgeY + 14);
+      ctx.textAlign = "center";
+      ctx.fillText(badgeText, canvas.width / 2, badgeY + 16);
     }
 
     ctx.fillStyle = rating.color;
