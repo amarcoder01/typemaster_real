@@ -218,7 +218,7 @@ export function CertificateGenerator({ username, wpm, accuracy, mode, date, free
       ctx.fillText(modeText, 800, boxY + 70);
       ctx.fillStyle = "#94a3b8";
       ctx.font = "18px 'DM Sans', sans-serif";
-      ctx.fillText(modeLabel || "Test Duration", 800, boxY + 105);
+      ctx.fillText("Duration", 800, boxY + 105);
     }
 
     // Date - Shifted up
@@ -435,7 +435,7 @@ export function CertificateGenerator({ username, wpm, accuracy, mode, date, free
       </div>
 
       <p className="text-sm text-muted-foreground text-center">
-        Use the Share button after completing a test to share your certificate on social media
+        Share your certificate on social media
       </p>
     </div>
   );
