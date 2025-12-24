@@ -29,6 +29,7 @@ import { DictationShareDialog } from '@/features/dictation/components/DictationS
 import { CertificateGenerator } from '@/components/certificate-generator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { calculateDictationAccuracy, calculateDictationWPM, getSpeedLevelName } from '@shared/dictation-utils';
+import { useSEO } from '@/lib/seo';
 
 // Feature imports
 import {
@@ -84,6 +85,28 @@ function DictationModeContent() {
   const { toast } = useToast();
   const { user } = useAuth();
   const createCertificateMutation = useCreateCertificate();
+  
+  // SEO - Dynamic meta tags for search engines
+  useSEO({
+    title: 'Dictation Typing Practice | AI-Powered Listening & Typing - TypeMasterAI',
+    description: 'Improve your listening and typing skills with AI-powered dictation practice. Multiple modes including Quick Practice, Focus Mode, and timed Challenge Mode with certificates.',
+    keywords: 'dictation typing, listening practice, transcription test, audio typing test, dictation practice, typing from audio, AI dictation, speech to text practice',
+    canonical: 'https://typemaster-ai.replit.app/dictation-mode',
+    ogUrl: 'https://typemaster-ai.replit.app/dictation-mode',
+    structuredData: {
+      '@context': 'https://schema.org',
+      '@type': 'WebApplication',
+      name: 'TypeMasterAI Dictation Mode',
+      description: 'AI-powered dictation typing practice with multiple difficulty modes',
+      applicationCategory: 'EducationalApplication',
+      operatingSystem: 'Web Browser',
+      offers: {
+        '@type': 'Offer',
+        price: '0',
+        priceCurrency: 'USD',
+      },
+    },
+  });
   
   // Context
   const { state, dispatch, actions } = useDictation();
