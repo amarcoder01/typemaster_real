@@ -1196,14 +1196,14 @@ function DictationModeContent() {
   if (state.isZenMode && state.practiceMode === 'focus') {
     return (
       <div 
-        className="fixed inset-0 z-50 flex flex-col items-center overflow-y-auto p-8"
+        className="fixed inset-0 z-50 flex flex-col items-center overflow-y-auto p-4 sm:p-6 md:p-8"
         style={{ background: zenThemeConfig.gradient }}
       >
         {/* Exit Zen Mode button */}
         <Button
           variant="ghost"
           size="icon"
-          className="absolute top-4 right-4 z-10"
+          className="absolute top-2 right-2 sm:top-4 sm:right-4 z-10"
           style={{ color: zenThemeConfig.textColor }}
           onClick={actions.exitZenMode}
           data-testid="button-exit-zen"
@@ -1212,10 +1212,10 @@ function DictationModeContent() {
         </Button>
         
         {/* Zen Mode content */}
-        <div className="w-full max-w-2xl space-y-6 my-auto py-4">
+        <div className="w-full max-w-2xl space-y-4 sm:space-y-5 md:space-y-6 my-auto py-4">
           {/* Encouragement message */}
           <p 
-            className="text-center text-lg italic opacity-80"
+            className="text-center text-base sm:text-lg italic opacity-80 px-2"
             style={{ color: zenThemeConfig.textColor }}
           >
             {getRandomEncouragement()}
@@ -1224,7 +1224,7 @@ function DictationModeContent() {
           {/* Progress indicator */}
           <div className="text-center">
             <span 
-              className="text-sm font-medium"
+              className="text-xs sm:text-sm font-medium"
               style={{ color: zenThemeConfig.accentColor }}
             >
               Sentence {state.sessionProgress + 1} of {state.sessionLength}
@@ -1232,7 +1232,7 @@ function DictationModeContent() {
           </div>
           
           {/* Audio player with play button for Zen mode */}
-          <div className="flex flex-col items-center gap-4">
+          <div className="flex flex-col items-center gap-3 sm:gap-4">
             <DictationAudioPlayer
               isSpeaking={audio.isSpeaking}
               isReady={isReady}
@@ -1284,7 +1284,7 @@ function DictationModeContent() {
           {/* Typing area */}
           {state.testState.sentence && !state.testState.isComplete && (
             <div 
-              className="rounded-lg p-4"
+              className="rounded-lg p-3 sm:p-4"
               style={{ background: zenThemeConfig.inputBg }}
             >
               <DictationTypingArea
@@ -1308,7 +1308,7 @@ function DictationModeContent() {
           {/* Results in zen mode */}
           {state.testState.isComplete && state.testState.result && (
             <div 
-              className="rounded-lg p-6"
+              className="rounded-lg p-4 sm:p-6"
               style={{ background: zenThemeConfig.inputBg }}
             >
               <DictationResults
