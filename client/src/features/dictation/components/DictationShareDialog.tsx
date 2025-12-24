@@ -23,6 +23,7 @@ interface DictationShareDialogProps {
   username?: string;
   speedLevel?: string;
   verificationId?: string;
+  modeLabel?: string; // e.g., "Dictation - Quick Practice", "Dictation - Challenge Mode"
   // Certificate functions
   onViewCertificate?: () => void;
   onCopyCertificateImage?: () => void;
@@ -56,6 +57,7 @@ export function DictationShareDialog({
   username,
   speedLevel = '1.0',
   verificationId,
+  modeLabel = 'Dictation Mode',
   onViewCertificate,
   onCopyCertificateImage,
   onShareCertificateWithImage,
@@ -611,7 +613,7 @@ export function DictationShareDialog({
             {/* Mode indicator for Visual Card */}
             <div className="text-center pb-2">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-500/20 text-purple-400 text-xs font-medium rounded-full border border-purple-500/30">
-                🎧 Dictation Mode
+                {modeLabel}
               </span>
             </div>
             <ShareCard
@@ -625,7 +627,7 @@ export function DictationShareDialog({
               words={totalWords}
               characters={totalCharacters}
               onShareTracked={trackShare}
-              modeLabel="Dictation Mode"
+              modeLabel={modeLabel}
             />
           </TabsContent>
           

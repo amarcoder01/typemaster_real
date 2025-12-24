@@ -989,6 +989,13 @@ function DictationModeContent() {
   const consistency = calculateConsistency(state.sessionHistory);
   const sessionDuration = Math.round((state.sessionStats.count * 60 * 5) / Math.max(avgWpm, 1));
   
+  // Generate practice mode label for certificates (e.g., "Dictation - Quick Practice")
+  const practiceModeLabel = useMemo(() => {
+    const modeConfig = state.practiceMode ? PRACTICE_MODES[state.practiceMode] : null;
+    const modeName = modeConfig?.name || 'Practice';
+    return `Dictation - ${modeName}`;
+  }, [state.practiceMode]);
+  
   // Generate formatted verification ID for certificates
   // Format: DM-XXXX-XXXX-XXXX (DM = Dictation Mode)
   const generateVerificationId = useCallback(() => {
@@ -1057,7 +1064,7 @@ function DictationModeContent() {
               words={totalWords}
               consistency={consistency}
               verificationId={formattedVerificationId}
-              modeLabel="Dictation Mode"
+              modeLabel={practiceModeLabel}
             />
           </div>
         )}
@@ -1091,6 +1098,7 @@ function DictationModeContent() {
           username={user?.username}
           speedLevel={state.speedLevel}
           verificationId={formattedVerificationId}
+          modeLabel={practiceModeLabel}
           onViewCertificate={() => setShowCertificate(true)}
           onCopyCertificateImage={handleCopyCertificateImage}
           onShareCertificateWithImage={handleShareCertificateWithImage}
@@ -1118,7 +1126,7 @@ function DictationModeContent() {
                 words={totalWords}
                 consistency={consistency}
                 verificationId={formattedVerificationId}
-                modeLabel="Dictation Mode"
+                modeLabel={practiceModeLabel}
               />
             )}
           </DialogContent>
