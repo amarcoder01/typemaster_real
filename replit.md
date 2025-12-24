@@ -82,19 +82,22 @@ Preferred communication style: Simple, everyday language.
 ### Overview
 Challenge Mode in Dictation (`/dictation-mode`) features time-based typing challenges with consequences for timeouts.
 
-### Time Calculation
-- **Formula**: `(BASE_TIME + words × PER_WORD) × difficultyMultiplier × sessionLengthMultiplier`
-- **BASE_TIME**: 8 seconds
-- **PER_WORD**: 2.5 seconds per word
-- **Difficulty Multipliers**: Easy 1.5x, Medium 1.0x, Hard 0.75x
-- **Session Length Multipliers**: Short sessions (1-3) +10% bonus, long sessions (20+) progressively reduced up to -30%
+### Time Calculation (Industry-Standard WPM-Based)
+- **Formula**: `Time = (WordCount / TargetWPM) × BufferFactor × 60 seconds`
+- **Difficulty Configs**:
+  - Easy: Target 25 WPM, Buffer 2.5x (generous ~2.4s per word)
+  - Medium: Target 40 WPM, Buffer 1.8x (standard ~1.35s per word)
+  - Hard: Target 60 WPM, Buffer 1.4x (challenging ~0.7s per word)
+- **Example Times (10-word sentence)**:
+  - Easy: 60 seconds
+  - Medium: 27 seconds
+  - Hard: 14 seconds
 - **Time Caps**: Minimum 5 seconds, Maximum 3 minutes
 - **Grace Period**: 3 seconds after time expires before auto-submit
 
 ### Input Validation
 - Empty/invalid sentences return minimum time (5 seconds)
 - Word count minimum: 1 (uncapped, MAX_TIME_MS handles long sentences)
-- Session length clamped to 1-100 range
 - Unknown difficulty values fall back to medium
 
 ### Overtime Penalty System

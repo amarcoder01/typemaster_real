@@ -206,17 +206,21 @@ export function calculateOvertimePenalty(secondsOvertime: number): number {
 
 /**
  * Calculate the time limit in milliseconds for a Challenge Mode sentence.
- * Includes validation, clamping, and safeguards for edge cases.
+ * Uses industry-standard WPM-based formula:
+ * Time = (WordCount / TargetWPM) * BufferFactor * 60 seconds
+ * 
+ * Example times for a 10-word sentence:
+ * - Easy:   (10/25) * 2.5 * 60 = 60 seconds
+ * - Medium: (10/40) * 1.8 * 60 = 27 seconds
+ * - Hard:   (10/60) * 1.4 * 60 = 14 seconds
  * 
  * @param sentenceText - The sentence text to calculate time for
  * @param difficulty - The difficulty level (defaults to medium if invalid)
- * @param sessionLength - Number of sentences in session (defaults to 10)
  * @returns Time limit in milliseconds, clamped to MIN_TIME_MS and MAX_TIME_MS
  */
 export function calculateTimeLimit(
   sentenceText: string,
-  difficulty: DifficultyLevel,
-  sessionLength: number = 10
+  difficulty: DifficultyLevel
 ): number {
   // Guard against empty/invalid sentences
   if (!sentenceText || typeof sentenceText !== 'string') {
@@ -228,28 +232,20 @@ export function calculateTimeLimit(
     return CHALLENGE_TIMING.MIN_TIME_MS;
   }
   
-  // Calculate word count (no upper cap - MAX_TIME_MS handles long sentences)
+  // Calculate word count
   const wordCount = Math.max(1, trimmed.split(/\s+/).filter(w => w.length > 0).length);
   
-  // Get difficulty multiplier with fallback for unknown values
-  const difficultyMultiplier = CHALLENGE_TIMING.DIFFICULTY_MULTIPLIERS[difficulty] ?? 
-    CHALLENGE_TIMING.DIFFICULTY_MULTIPLIERS[CHALLENGE_TIMING.DEFAULT_DIFFICULTY];
+  // Get difficulty config with fallback for unknown values
+  const config = CHALLENGE_TIMING.DIFFICULTY_CONFIG[difficulty] ?? 
+    CHALLENGE_TIMING.DIFFICULTY_CONFIG[CHALLENGE_TIMING.DEFAULT_DIFFICULTY];
   
-  // Validate session length
-  const validSessionLength = Math.max(
-    CHALLENGE_TIMING.MIN_SESSION_LENGTH,
-    Math.min(CHALLENGE_TIMING.MAX_SESSION_LENGTH, sessionLength || 10)
-  );
-  const sessionMultiplier = getSessionLengthMultiplier(validSessionLength);
-  
-  // Calculate raw time
-  const rawTime = (CHALLENGE_TIMING.BASE_TIME_MS + wordCount * CHALLENGE_TIMING.PER_WORD_MS) * 
-    difficultyMultiplier * sessionMultiplier;
+  // WPM-based formula: Time = (Words / TargetWPM) * Buffer * 60 seconds * 1000 (to ms)
+  const rawTimeMs = (wordCount / config.targetWPM) * config.buffer * 60 * 1000;
   
   // Clamp to min/max bounds and round
   const clampedTime = Math.max(
     CHALLENGE_TIMING.MIN_TIME_MS,
-    Math.min(CHALLENGE_TIMING.MAX_TIME_MS, rawTime)
+    Math.min(CHALLENGE_TIMING.MAX_TIME_MS, rawTimeMs)
   );
   
   return Math.round(clampedTime);

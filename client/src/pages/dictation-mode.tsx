@@ -451,7 +451,7 @@ function DictationModeContent() {
       
       // Set time limit for Challenge Mode
       const timeLimitMs = state.practiceMode === 'challenge' 
-        ? calculateTimeLimit(sentence.sentence, state.difficulty, state.sessionLength)
+        ? calculateTimeLimit(sentence.sentence, state.difficulty)
         : null;
       dispatch({
         type: 'SET_TEST_STATE',
@@ -503,7 +503,7 @@ function DictationModeContent() {
       
       // Set time limit for Challenge Mode
       const timeLimitMs = state.practiceMode === 'challenge' 
-        ? calculateTimeLimit(sentence.sentence, state.difficulty, state.sessionLength)
+        ? calculateTimeLimit(sentence.sentence, state.difficulty)
         : null;
       dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs, timeExpired: false } });
       
@@ -716,7 +716,7 @@ function DictationModeContent() {
       
       // Set time limit for Challenge Mode
       const timeLimitMs = state.practiceMode === 'challenge' 
-        ? calculateTimeLimit(sentence.sentence, state.difficulty, state.sessionLength)
+        ? calculateTimeLimit(sentence.sentence, state.difficulty)
         : null;
       dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs, timeExpired: false } });
       
@@ -1111,7 +1111,7 @@ function DictationModeContent() {
             isChallenge={state.practiceMode === 'challenge'}
             challengeTimeLimitMs={
               state.prefetchedSentence && state.practiceMode === 'challenge'
-                ? calculateTimeLimit(state.prefetchedSentence.sentence, state.difficulty, state.sessionLength)
+                ? calculateTimeLimit(state.prefetchedSentence.sentence, state.difficulty)
                 : null
             }
             isPreviewLoading={state.isPrefetching && state.practiceMode === 'challenge'}
