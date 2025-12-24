@@ -77,43 +77,17 @@ Preferred communication style: Simple, everyday language.
 ### Certificate Signing
 - **Environment Variable**: `CERTIFICATE_SECRET` (required in production, min 32 characters)
 
-## Dictation Mode - Challenge Mode Timing
+## Dictation Mode - Challenge Mode
 
 ### Overview
-Challenge Mode in Dictation (`/dictation-mode`) features time-based typing challenges with consequences for timeouts.
-
-### Time Calculation (Industry-Standard WPM-Based)
-- **Formula**: `Time = (WordCount / TargetWPM) × BufferFactor × 60 seconds`
-- **Difficulty Configs**:
-  - Easy: Target 25 WPM, Buffer 2.5x (generous ~2.4s per word)
-  - Medium: Target 40 WPM, Buffer 1.8x (standard ~1.35s per word)
-  - Hard: Target 60 WPM, Buffer 1.4x (challenging ~0.7s per word)
-- **Example Times (10-word sentence)**:
-  - Easy: 60 seconds
-  - Medium: 27 seconds
-  - Hard: 14 seconds
-- **Time Caps**: Minimum 5 seconds, Maximum 3 minutes
-- **Grace Period**: 3 seconds after time expires before auto-submit
-
-### Input Validation
-- Empty/invalid sentences return minimum time (5 seconds)
-- Word count minimum: 1 (uncapped, MAX_TIME_MS handles long sentences)
-- Unknown difficulty values fall back to medium
-
-### Overtime Penalty System
-- **Graduated Penalty**: 5% base + 1% per second overtime
-- **Maximum Penalty**: 30% cap
-- **Function**: `calculateOvertimePenalty(secondsOver)` returns penalty as decimal (0.05 to 0.30)
+Challenge Mode in Dictation (`/dictation-mode`) offers a focused practice experience without time pressure.
 
 ### Features
-- **Countdown Timer**: Visible in header during active typing (format M:SS)
-- **Visual Warnings**: Yellow at 10 seconds, Red at 5 seconds with pulsing animation
-- **Auto-Submit**: Submits answer when grace period expires
-- **Time's Up Overlay**: Modal showing timeout status with dismiss button
 - **Streak Tracking**: Consecutive completions tracked with bonuses (2% per streak, max 10%)
 - **Prefetch Error Handling**: 3 retry attempts with user-facing toast on failure
+- **Difficulty Levels**: Easy, Medium, Hard affect sentence complexity
 
 ### Key Files
-- `client/src/features/dictation/types.ts` - CHALLENGE_TIMING constants, calculateTimeLimit, calculateOvertimePenalty
-- `client/src/pages/dictation-mode.tsx` - Timer display, Time's Up overlay, prefetch settings tracking
+- `client/src/features/dictation/types.ts` - CHALLENGE_TIMING constants (streak bonuses)
+- `client/src/pages/dictation-mode.tsx` - Main dictation mode page
 - `client/src/features/dictation/context/DictationContext.tsx` - Session stats management

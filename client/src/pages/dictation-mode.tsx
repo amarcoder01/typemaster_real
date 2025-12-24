@@ -45,7 +45,6 @@ import {
   ZEN_THEMES,
   getRandomEncouragement,
   INITIAL_ADAPTIVE_CONFIG,
-  calculateTimeLimit,
   calculateOvertimePenalty,
   CHALLENGE_TIMING,
 } from '@/features/dictation';
@@ -449,13 +448,9 @@ function DictationModeContent() {
     if (sentence) {
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
       
-      // Set time limit for Challenge Mode
-      const timeLimitMs = state.practiceMode === 'challenge' 
-        ? calculateTimeLimit(sentence.sentence, state.difficulty)
-        : null;
       dispatch({
         type: 'SET_TEST_STATE',
-        payload: { sentence, timeLimitMs, timeExpired: false },
+        payload: { sentence, timeLimitMs: null, timeExpired: false },
       });
       
       // Use streaming TTS for ultra-low latency (~500ms vs 3-5s)
@@ -501,11 +496,7 @@ function DictationModeContent() {
       const sentence = prefetchedSentence;
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
       
-      // Set time limit for Challenge Mode
-      const timeLimitMs = state.practiceMode === 'challenge' 
-        ? calculateTimeLimit(sentence.sentence, state.difficulty)
-        : null;
-      dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs, timeExpired: false } });
+      dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs: null, timeExpired: false } });
       
       // Clear both ref and state
       prefetchedSentenceRef.current = null;
@@ -714,11 +705,7 @@ function DictationModeContent() {
       const sentence = prefetchedSentence;
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
       
-      // Set time limit for Challenge Mode
-      const timeLimitMs = state.practiceMode === 'challenge' 
-        ? calculateTimeLimit(sentence.sentence, state.difficulty)
-        : null;
-      dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs, timeExpired: false } });
+      dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs: null, timeExpired: false } });
       
       // Clear both ref and state
       prefetchedSentenceRef.current = null;
@@ -1109,11 +1096,7 @@ function DictationModeContent() {
             currentRate={audio.currentRate}
             adaptiveDifficulty={state.adaptiveDifficulty}
             isChallenge={state.practiceMode === 'challenge'}
-            challengeTimeLimitMs={
-              state.prefetchedSentence && state.practiceMode === 'challenge'
-                ? calculateTimeLimit(state.prefetchedSentence.sentence, state.difficulty)
-                : null
-            }
+            challengeTimeLimitMs={null}
             isPreviewLoading={state.isPrefetching && state.practiceMode === 'challenge'}
             onDifficultyChange={(diff) => dispatch({ type: 'SET_DIFFICULTY', payload: diff })}
             onSpeedLevelChange={(speed) => dispatch({ type: 'SET_SPEED_LEVEL', payload: speed })}
