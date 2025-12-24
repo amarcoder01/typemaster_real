@@ -948,6 +948,7 @@ function StressTestContent() {
     
     clearAllTimers();
     isTestActiveRef.current = false;
+    startTimeHighPrecisionRef.current = null;
     
     setTypedText('');
     setErrors(0);
@@ -1005,11 +1006,11 @@ function StressTestContent() {
   }, [isStarted, countdown, clearAllTimers, resetVisualStates, toast, playSound]);
 
   const calculateStressLevel = useCallback(() => {
-    if (!config || !startTime) return 0;
-    const elapsed = (Date.now() - startTime) / 1000;
+    if (!config || startTimeHighPrecisionRef.current === null) return 0;
+    const elapsed = (performance.now() - startTimeHighPrecisionRef.current) / 1000;
     const progress = Math.min(1, Math.max(0, elapsed / config.duration));
     return progress * 100;
-  }, [config, startTime]);
+  }, [config]);
 
   // Filter zero-width and invisible Unicode characters that could be used to cheat
   const sanitizeInput = useCallback((input: string): string => {
@@ -1172,6 +1173,12 @@ function StressTestContent() {
         e.preventDefault();
         return;
       }
+    }
+    
+    // Block Ctrl+Insert (copy) and Shift+Insert (paste) - alternative paste paths
+    if ((e.ctrlKey && e.key === 'Insert') || (e.shiftKey && e.key === 'Insert')) {
+      e.preventDefault();
+      return;
     }
     
     // Escape to cancel test
@@ -1703,6 +1710,7 @@ function StressTestContent() {
   const handleReset = useCallback(() => {
     testSessionRef.current += 1;
     isTestActiveRef.current = false;
+    startTimeHighPrecisionRef.current = null;
     clearAllTimers();
     setSelectedDifficulty(null);
     setIsStarted(false);
