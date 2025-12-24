@@ -21,6 +21,8 @@ interface DictationTypingAreaProps {
   // Optional: for real-time feedback
   targetSentence?: string;
   showRealTimeFeedback?: boolean;
+  // Optional: replay limit for Focus Mode
+  replayCount?: number;
 }
 
 /**
@@ -40,9 +42,13 @@ export function DictationTypingArea({
   disabled = false,
   targetSentence,
   showRealTimeFeedback = false,
+  replayCount = 0,
 }: DictationTypingAreaProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modeConfig = PRACTICE_MODES[practiceMode];
+  const maxReplays = modeConfig.maxReplays;
+  const replaysRemaining = maxReplays !== undefined ? maxReplays - replayCount : undefined;
+  const replayLimitReached = replaysRemaining !== undefined && replaysRemaining <= 0;
   
   // Focus input when ready
   useEffect(() => {
@@ -290,7 +296,7 @@ export function DictationTypingArea({
               <TooltipTrigger asChild>
                 <Button
                   onClick={onReplay}
-                  disabled={disabled || isSpeaking}
+                  disabled={disabled || isSpeaking || replayLimitReached}
                   variant="outline"
                   size="lg"
                   className="h-12 px-6 text-base"
@@ -298,10 +304,20 @@ export function DictationTypingArea({
                 >
                   <RotateCcw className="w-5 h-5 mr-2" />
                   Replay
+                  {replaysRemaining !== undefined && (
+                    <span className={`ml-2 text-xs ${replayLimitReached ? 'text-red-500' : 'text-muted-foreground'}`}>
+                      ({replaysRemaining} left)
+                    </span>
+                  )}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Listen to the sentence again (press R)</p>
+                <p>
+                  {replayLimitReached 
+                    ? 'No replays remaining - listen carefully!' 
+                    : `Listen to the sentence again (press R)${replaysRemaining !== undefined ? ` - ${replaysRemaining} remaining` : ''}`
+                  }
+                </p>
               </TooltipContent>
             </Tooltip>
             

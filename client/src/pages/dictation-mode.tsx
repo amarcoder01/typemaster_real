@@ -482,10 +482,15 @@ function DictationModeContent() {
   
   const handleReplay = useCallback(() => {
     if (state.testState.sentence && !audio.isSpeaking) {
+      // Check replay limit for Focus Mode
+      const modeConfig = PRACTICE_MODES[state.practiceMode];
+      if (modeConfig.maxReplays !== undefined && state.testState.replayCount >= modeConfig.maxReplays) {
+        return; // Don't replay if limit reached
+      }
       actions.incrementReplayCount();
       audio.replay(state.testState.sentence.sentence);
     }
-  }, [state.testState.sentence, audio, actions]);
+  }, [state.testState.sentence, state.testState.replayCount, state.practiceMode, audio, actions]);
   
   const handleSubmit = useCallback(async (isAutoSubmit = false) => {
     const { sentence, startTime, typedText, replayCount, hintShown, timeExpired } = state.testState;
@@ -1153,28 +1158,43 @@ function DictationModeContent() {
             />
             
             {/* Play/Replay button in Zen mode - use speakStreaming, let onSpeechEnd handle timer start */}
-            {state.testState.sentence && !audio.isSpeaking && !state.testState.isComplete && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  // Use speakStreaming - timer starts via onSpeechEnd callback in standard flow
-                  audio.speakStreaming(state.testState.sentence!.sentence);
-                  // Increment replay count if already started
-                  if (state.testState.startTime !== null) {
-                    actions.incrementReplayCount();
-                  }
-                }}
-                style={{ 
-                  background: zenThemeConfig.buttonBg,
-                  color: zenThemeConfig.textColor,
-                  borderColor: zenThemeConfig.accentColor
-                }}
-                data-testid="button-zen-play"
-              >
-                <RotateCcw className="w-4 h-4 mr-2" />
-                {state.testState.startTime === null ? 'Play Audio' : 'Replay Audio'}
-              </Button>
-            )}
+            {state.testState.sentence && !audio.isSpeaking && !state.testState.isComplete && (() => {
+              const modeConfig = PRACTICE_MODES[state.practiceMode];
+              const maxReplays = modeConfig.maxReplays;
+              const isReplayAction = state.testState.startTime !== null;
+              const replaysRemaining = maxReplays !== undefined ? maxReplays - state.testState.replayCount : undefined;
+              const replayLimitReached = isReplayAction && replaysRemaining !== undefined && replaysRemaining <= 0;
+              
+              return (
+                <Button
+                  variant="outline"
+                  disabled={replayLimitReached}
+                  onClick={() => {
+                    // Use speakStreaming - timer starts via onSpeechEnd callback in standard flow
+                    audio.speakStreaming(state.testState.sentence!.sentence);
+                    // Increment replay count if already started
+                    if (state.testState.startTime !== null) {
+                      actions.incrementReplayCount();
+                    }
+                  }}
+                  style={{ 
+                    background: zenThemeConfig.buttonBg,
+                    color: zenThemeConfig.textColor,
+                    borderColor: zenThemeConfig.accentColor,
+                    opacity: replayLimitReached ? 0.5 : 1
+                  }}
+                  data-testid="button-zen-play"
+                >
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  {!isReplayAction ? 'Play Audio' : 'Replay Audio'}
+                  {isReplayAction && replaysRemaining !== undefined && (
+                    <span className="ml-2 text-xs opacity-75">
+                      ({replaysRemaining} left)
+                    </span>
+                  )}
+                </Button>
+              );
+            })()}
           </div>
           
           {/* Typing area */}
@@ -1195,6 +1215,7 @@ function DictationModeContent() {
                 isSpeaking={audio.isSpeaking}
                 isReady={isReady}
                 disabled={isFetching || isSaving}
+                replayCount={state.testState.replayCount}
               />
             </div>
           )}
@@ -1522,6 +1543,7 @@ function DictationModeContent() {
               isSpeaking={audio.isSpeaking}
               isReady={isReady}
               disabled={isFetching || isSaving}
+              replayCount={state.testState.replayCount}
             />
           </>
         )}

@@ -15,6 +15,7 @@ export interface PracticeModeConfig {
   timerPressure: boolean;
   defaultSpeed: string;
   defaultDifficulty: DifficultyLevel;
+  maxReplays?: number;
 }
 
 export const PRACTICE_MODES: Record<PracticeMode, PracticeModeConfig> = {
@@ -29,16 +30,17 @@ export const PRACTICE_MODES: Record<PracticeMode, PracticeModeConfig> = {
   },
   focus: {
     name: 'Focus Mode',
-    description: 'Zen fullscreen with calming themes & encouragement',
+    description: 'Deep listening with limited replays - no hints',
     autoAdvance: false,
-    hintsAllowed: true,
+    hintsAllowed: false,
     timerPressure: false,
     defaultSpeed: '0.8',
     defaultDifficulty: 'easy',
+    maxReplays: 5,
   },
   challenge: {
     name: 'Challenge Mode',
-    description: 'No hints, harder difficulty, prove your skills',
+    description: 'No hints, timed pressure, prove your skills',
     autoAdvance: false,
     hintsAllowed: false,
     timerPressure: true,
