@@ -39,7 +39,6 @@ interface DictationSetupPanelProps {
   // Challenge Mode time preview
   isChallenge?: boolean;
   challengeTimeLimitMs?: number | null;
-  challengeWordCount?: number;
   isPreviewLoading?: boolean;
   
   // Callbacks
@@ -73,7 +72,6 @@ export function DictationSetupPanel({
   adaptiveDifficulty,
   isChallenge = false,
   challengeTimeLimitMs,
-  challengeWordCount,
   isPreviewLoading = false,
   onDifficultyChange,
   onSpeedLevelChange,
@@ -254,9 +252,7 @@ export function DictationSetupPanel({
         {isChallenge && (
           <ChallengeTimePreview
             timeLimitMs={challengeTimeLimitMs ?? null}
-            difficulty={difficulty}
             isLoading={isPreviewLoading}
-            wordCount={challengeWordCount}
           />
         )}
         
