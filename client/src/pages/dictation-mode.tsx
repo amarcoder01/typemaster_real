@@ -453,6 +453,7 @@ function DictationModeContent() {
     timer.reset();
     countdown.reset();
     dispatch({ type: 'RESET_TEST_STATE' });
+    dispatch({ type: 'SET_ELAPSED_TIME', payload: 0 }); // Reset elapsed time for new sentence
     
     // Fetch new sentence
     const sentence = await fetchSentence({
@@ -515,6 +516,7 @@ function DictationModeContent() {
       timer.reset();
       countdown.reset();
       dispatch({ type: 'RESET_TEST_STATE' });
+      dispatch({ type: 'SET_ELAPSED_TIME', payload: 0 }); // Reset elapsed time for new session
       
       const sentence = prefetchedSentence;
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
@@ -729,6 +731,7 @@ function DictationModeContent() {
       timer.reset();
       countdown.reset();
       dispatch({ type: 'RESET_TEST_STATE' });
+      dispatch({ type: 'SET_ELAPSED_TIME', payload: 0 }); // Reset elapsed time for new sentence
       
       const sentence = prefetchedSentence;
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
