@@ -139,9 +139,33 @@ export function CertificateGenerator({ username, wpm, accuracy, mode, date, free
     ctx.textAlign = "center";
     ctx.fillText("CERTIFICATE OF ACHIEVEMENT", canvas.width / 2, 150);
 
+    // Mode badge (top right) - Display the mode prominently
+    if (modeLabel) {
+      const badgeText = modeLabel;
+      ctx.font = "bold 16px 'DM Sans', sans-serif";
+      const badgeWidth = ctx.measureText(badgeText).width + 30;
+      const badgeX = canvas.width - 80 - badgeWidth;
+      const badgeY = 100;
+      
+      // Badge background with gradient
+      ctx.fillStyle = "rgba(168, 85, 247, 0.3)";
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeWidth, 32, 16);
+      ctx.fill();
+      ctx.strokeStyle = "#a855f7";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      
+      // Badge text
+      ctx.fillStyle = "#e9d5ff";
+      ctx.textAlign = "center";
+      ctx.fillText(badgeText, badgeX + badgeWidth / 2, badgeY + 21);
+    }
+
     // Subtitle
     ctx.fillStyle = "#94a3b8";
     ctx.font = "24px 'DM Sans', sans-serif";
+    ctx.textAlign = "center";
     ctx.fillText("This certifies that", canvas.width / 2, 220);
 
     // User name

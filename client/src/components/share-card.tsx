@@ -144,6 +144,22 @@ export function ShareCard({ wpm, accuracy, mode, language, username, freestyle =
     ctx.textAlign = "left";
     ctx.fillText("TypeMasterAI", 40, 55);
 
+    // Mode badge (if provided) - show prominently in header
+    if (modeLabel) {
+      ctx.fillStyle = "rgba(168, 85, 247, 0.4)";
+      const badgeText = modeLabel;
+      ctx.font = "bold 11px 'DM Sans', sans-serif";
+      const badgeWidth = ctx.measureText(badgeText).width + 16;
+      const badgeX = 40;
+      const badgeY = 62;
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeWidth, 20, 10);
+      ctx.fill();
+      ctx.fillStyle = "#e9d5ff";
+      ctx.textAlign = "left";
+      ctx.fillText(badgeText, badgeX + 8, badgeY + 14);
+    }
+
     ctx.fillStyle = rating.color;
     ctx.font = "12px 'DM Sans', sans-serif";
     ctx.textAlign = "right";
@@ -340,6 +356,9 @@ export function ShareCard({ wpm, accuracy, mode, language, username, freestyle =
   const copyShareText = () => {
     const rating = getPerformanceRating();
     const modeDisplay = mode >= 60 ? `${Math.floor(mode / 60)} minute` : `${mode} second`;
+    const isDictation = modeLabel?.toLowerCase().includes('dictation');
+    const modeTag = isDictation ? '#DictationMode' : '';
+    const modeDescription = modeLabel ? ` in ${modeLabel}` : '';
     const text = freestyle
       ? `${rating.emoji} I just scored ${wpm} WPM in Freestyle mode on TypeMasterAI!
 
@@ -353,9 +372,9 @@ Think you can beat my score? Try it now! 🎯
 🔗 https://typemasterai.com
 
 #TypingTest #TypeMasterAI #FreestyleTyping #WPM`
-      : `${rating.emoji} I just scored ${wpm} WPM with ${accuracy}% accuracy on TypeMasterAI!
+      : `${rating.emoji} I just scored ${wpm} WPM with ${accuracy}% accuracy${modeDescription} on TypeMasterAI!
 
-⌨️ ${wpm} WPM | ✨ ${accuracy}% Accuracy
+⌨️ ${wpm} WPM | ✨ ${accuracy}% Accuracy${isDictation ? ` | 🎧 ${modeLabel}` : ''}
 🏅 ${rating.title} - ${rating.badge} Badge
 ⏱️ ${modeDisplay} typing test
 
@@ -363,7 +382,7 @@ Think you can beat my score? Try it now! 🎯
 
 🔗 https://typemasterai.com
 
-#TypingTest #TypeMasterAI #WPM`;
+#TypingTest #TypeMasterAI ${modeTag} #WPM`;
 
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -378,22 +397,27 @@ Think you can beat my score? Try it now! 🎯
   const getShareText = () => {
     const rating = getPerformanceRating();
     const modeDisplay = mode >= 60 ? `${Math.floor(mode / 60)} minute` : `${mode} second`;
+    const isDictation = modeLabel?.toLowerCase().includes('dictation');
+    const modeTag = isDictation ? ' #DictationMode' : '';
+    const modeDescription = modeLabel ? ` in ${modeLabel}` : '';
     return freestyle
       ? `${rating.emoji} ${wpm} WPM with ${consistency}% consistency in Freestyle! ${rating.badge} Badge earned 🎯
 
 Can you beat this?
 
 #TypeMasterAI #Typing`
-      : `${rating.emoji} Just hit ${wpm} WPM with ${accuracy}% accuracy! ${rating.badge} Badge 🎯
+      : `${rating.emoji} Just hit ${wpm} WPM with ${accuracy}% accuracy${modeDescription}! ${rating.badge} Badge 🎯
 
 Can you beat this?
 
-#TypeMasterAI #Typing`;
+#TypeMasterAI #Typing${modeTag}`;
   };
 
   const getFacebookText = () => {
     const rating = getPerformanceRating();
     const modeDisplay = mode >= 60 ? `${Math.floor(mode / 60)} minute` : `${mode} second`;
+    const isDictation = modeLabel?.toLowerCase().includes('dictation');
+    const modeDescription = isDictation ? `in ${modeLabel}` : '';
     return freestyle
       ? `${rating.emoji} Just finished my typing test in Freestyle mode!
 
@@ -407,16 +431,16 @@ Scored ${wpm} WPM with ${consistency}% consistency! This feels incredible! 🎯
 Freestyle mode lets you type naturally without prompts - it's surprisingly challenging! If you've never tested your natural typing rhythm, you should try this.
 
 Think you can beat my score? 😏🚀`
-      : `${rating.emoji} Just crushed my typing test!
+      : `${rating.emoji} Just crushed my typing test${isDictation ? ` ${modeDescription}` : ''}!
 
 Hit ${wpm} WPM with ${accuracy}% accuracy! This feels amazing! 🎯
 
 ✨ What I achieved:
 • ${rating.title} performance level
 • ${rating.badge} Badge earned
-• Completed ${modeDisplay} test
+• Completed ${modeDisplay} test${isDictation ? `\n• Dictation Mode - typing from audio!` : ''}
 
-Honestly, I never thought I'd get this fast. If you've ever wondered how quick you type, this is your sign to test yourself!
+${isDictation ? 'Dictation mode is where you type what you hear - it tests both your listening and typing skills!' : 'Honestly, I never thought I\'d get this fast. If you\'ve ever wondered how quick you type, this is your sign to test yourself!'}
 
 Think you can beat my score? I dare you to try! 😏🚀`;
   };
