@@ -78,6 +78,7 @@ export function DictationTypingArea({
     if (!modeConfig.timerPressure) return 'text-green-600';
     if (hasTimeLimit && remainingTime !== null) {
       // Remaining time logic - lower is more urgent
+      if (remainingTime <= 0) return 'text-red-600';
       if (remainingTime <= 5) return 'text-red-600';
       if (remainingTime <= 10) return 'text-orange-500';
       if (remainingTime <= 15) return 'text-yellow-600';
@@ -93,6 +94,7 @@ export function DictationTypingArea({
   const getTimerBgColor = () => {
     if (!modeConfig.timerPressure) return 'bg-green-500/10';
     if (hasTimeLimit && remainingTime !== null) {
+      if (remainingTime <= 0) return 'bg-red-500/30';
       if (remainingTime <= 5) return 'bg-red-500/20';
       if (remainingTime <= 10) return 'bg-orange-500/20';
       if (remainingTime <= 15) return 'bg-yellow-500/20';
@@ -107,6 +109,7 @@ export function DictationTypingArea({
   const getDotColor = () => {
     if (!modeConfig.timerPressure) return 'bg-green-600';
     if (hasTimeLimit && remainingTime !== null) {
+      if (remainingTime <= 0) return 'bg-red-600';
       if (remainingTime <= 5) return 'bg-red-600';
       if (remainingTime <= 10) return 'bg-orange-500';
       if (remainingTime <= 15) return 'bg-yellow-600';
@@ -121,6 +124,7 @@ export function DictationTypingArea({
   // Get timer status message
   const getTimerMessage = () => {
     if (!hasTimeLimit) return 'Timer running';
+    if (remainingTime !== null && remainingTime <= 0) return 'Time expired!';
     if (remainingTime !== null && remainingTime <= 5) return 'Time almost up!';
     if (remainingTime !== null && remainingTime <= 10) return 'Hurry up!';
     return 'Time remaining';

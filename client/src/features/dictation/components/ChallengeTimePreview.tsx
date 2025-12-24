@@ -48,7 +48,7 @@ export function ChallengeTimePreview({
       <CardHeader className="pb-2">
         <CardTitle className="text-base flex items-center gap-2">
           <Clock className="w-4 h-4 text-orange-500" />
-          Time Limit
+          Time Per Sentence
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -57,12 +57,12 @@ export function ChallengeTimePreview({
             {formatTimeLimit(timeLimitMs)}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            to complete this sentence
+            estimated time for each sentence
           </p>
         </div>
         
         <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
-          Timer starts when you begin typing
+          Timer starts after audio finishes
         </p>
       </CardContent>
     </Card>
