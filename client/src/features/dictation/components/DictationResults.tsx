@@ -2,8 +2,6 @@ import React from 'react';
 import { 
   ChevronRight, 
   RotateCcw, 
-  Bookmark, 
-  BookmarkCheck,
   Lightbulb,
   Sparkles,
   Award,
@@ -26,13 +24,11 @@ interface DictationResultsProps {
   replayCount: number;
   hintUsed: boolean;
   duration: number;
-  isBookmarked: boolean;
   coachingTip: CoachingTip | null;
   autoAdvanceCountdown: number | null;
   isLastSentence?: boolean;
   onNext: () => void;
   onReplay: () => void;
-  onToggleBookmark: () => void;
 }
 
 const COACHING_ICONS: Record<CoachingTip['type'], React.ReactNode> = {
@@ -52,13 +48,11 @@ export function DictationResults({
   replayCount,
   hintUsed,
   duration,
-  isBookmarked,
   coachingTip,
   autoAdvanceCountdown,
   isLastSentence = false,
   onNext,
   onReplay,
-  onToggleBookmark,
 }: DictationResultsProps) {
   const grade = getAccuracyGrade(result.accuracy);
   
@@ -234,33 +228,6 @@ export function DictationResults({
       <Card className="bg-gradient-to-r from-muted/50 to-muted/30">
         <CardContent className="py-4">
           <div className="flex gap-3 justify-center flex-wrap items-center">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={onToggleBookmark}
-                  variant="outline"
-                  size="lg"
-                  className="h-12"
-                  data-testid="button-bookmark"
-                >
-                  {isBookmarked ? (
-                    <>
-                      <BookmarkCheck className="w-5 h-5 mr-2 text-primary" />
-                      Bookmarked
-                    </>
-                  ) : (
-                    <>
-                      <Bookmark className="w-5 h-5 mr-2" />
-                      Bookmark
-                    </>
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{isBookmarked ? 'Remove from bookmarks' : 'Save for later practice'}</p>
-              </TooltipContent>
-            </Tooltip>
-            
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

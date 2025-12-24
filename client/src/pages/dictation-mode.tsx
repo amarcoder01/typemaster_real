@@ -15,7 +15,7 @@
 
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { Link } from 'wouter';
-import { ArrowLeft, RotateCcw, Settings2, BarChart3, Bookmark, Sparkles, X, Minimize2, Clock } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Settings2, Sparkles, X, Minimize2, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -71,9 +71,6 @@ import {
 import {
   hasValidSessionBackup,
   clearSessionBackup,
-  getBookmarks,
-  removeBookmark,
-  saveBookmark,
 } from '@/features/dictation/utils/persistence';
 
 import { categorizeErrors } from '@/features/dictation/utils/scoring';
@@ -769,29 +766,6 @@ function DictationModeContent() {
     }
   }, [state.practiceMode, state.testState, state.elapsedTime, state.sessionStats, dispatch, handleSubmit]);
   
-  const handleToggleBookmark = useCallback(() => {
-    const { sentence, result } = state.testState;
-    if (!sentence) return;
-    
-    const isBookmarked = state.bookmarks.some((b) => b.id === sentence.id);
-    
-    if (isBookmarked) {
-      dispatch({ type: 'REMOVE_BOOKMARK', payload: sentence.id });
-      toast({ title: 'Bookmark removed' });
-    } else {
-      const bookmark = {
-        id: sentence.id,
-        sentence: sentence.sentence,
-        category: sentence.category || 'general',
-        difficulty: sentence.difficulty,
-        bookmarkedAt: Date.now(),
-        lastAccuracy: result?.accuracy,
-      };
-      dispatch({ type: 'TOGGLE_BOOKMARK', payload: bookmark });
-      toast({ title: 'Sentence bookmarked' });
-    }
-  }, [state.testState, state.bookmarks, dispatch, toast]);
-  
   const handleNewSession = useCallback(() => {
     setCertificateData(null);
     actions.resetSession();
@@ -1125,9 +1099,6 @@ function DictationModeContent() {
   
   // Main practice view
   const isReady = !audio.isSpeaking && state.testState.startTime !== null;
-  const isBookmarked = state.testState.sentence
-    ? state.bookmarks.some((b) => b.id === state.testState.sentence!.id)
-    : false;
   
   // Get current zen theme config
   const zenThemeConfig = ZEN_THEMES[state.zenTheme];
@@ -1241,7 +1212,6 @@ function DictationModeContent() {
                 replayCount={state.testState.replayCount}
                 hintUsed={state.testState.hintShown}
                 duration={state.testState.result.duration}
-                isBookmarked={isBookmarked}
                 coachingTip={state.currentCoachingTip}
                 autoAdvanceCountdown={countdown.countdown}
                 isLastSentence={state.sessionProgress >= state.sessionLength}
@@ -1259,7 +1229,6 @@ function DictationModeContent() {
                   });
                   timer.reset();
                 }}
-                onToggleBookmark={handleToggleBookmark}
               />
             </div>
           )}
@@ -1290,15 +1259,13 @@ function DictationModeContent() {
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold">{PRACTICE_MODES[state.practiceMode].name}</h1>
             
-            {/* Countdown Timer for Challenge Mode - only show during active typing, hide during all overlays */}
+            {/* Countdown Timer for Challenge Mode - only show during active typing, hide during overlays */}
             {PRACTICE_MODES[state.practiceMode].timerPressure && 
              state.testState.sentence && 
              !state.testState.isComplete && 
              state.testState.startTime !== null &&
              state.testState.timeLimitMs !== null &&
-             !state.showSettings && 
-             !state.showAnalytics &&
-             !state.showBookmarks && (() => {
+             !state.showSettings && (() => {
               const timeRemainingMs = Math.max(0, state.testState.timeLimitMs! - (state.elapsedTime * 1000));
               const timeRemainingSec = Math.ceil(timeRemainingMs / 1000);
               const isUrgent = timeRemainingMs <= CHALLENGE_TIMING.URGENT_THRESHOLD_MS;
@@ -1346,166 +1313,9 @@ function DictationModeContent() {
               <TooltipContent>Settings</TooltipContent>
             </Tooltip>
             
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => dispatch({ type: 'SET_SHOW_ANALYTICS', payload: !state.showAnalytics })}
-                >
-                  <BarChart3 className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Analytics</TooltipContent>
-            </Tooltip>
-            
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => dispatch({ type: 'SET_SHOW_BOOKMARKS', payload: !state.showBookmarks })}
-                >
-                  <Bookmark className="w-4 h-4" />
-                  {state.bookmarks.length > 0 && (
-                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 text-[10px]">
-                      {state.bookmarks.length}
-                    </Badge>
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Bookmarks</TooltipContent>
-            </Tooltip>
           </div>
         </div>
         
-        {/* Analytics Panel */}
-        {state.showAnalytics && (
-          <Card className="mb-6 border-primary/20">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5 text-primary" />
-                  Session Analytics
-                </CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => dispatch({ type: 'SET_SHOW_ANALYTICS', payload: false })}
-                >
-                  ✕
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-3 bg-muted/50 rounded-lg">
-                  <div className="text-2xl font-bold text-primary">{state.sessionStats.count}</div>
-                  <div className="text-xs text-muted-foreground">Sentences Completed</div>
-                </div>
-                <div className="text-center p-3 bg-muted/50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-500">
-                    {state.sessionStats.count > 0 
-                      ? Math.round(state.sessionStats.totalAccuracy / state.sessionStats.count) 
-                      : 0}%
-                  </div>
-                  <div className="text-xs text-muted-foreground">Avg Accuracy (ACC)</div>
-                </div>
-                <div className="text-center p-3 bg-muted/50 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-500">
-                    {state.sessionStats.count > 0 
-                      ? Math.round(state.sessionStats.totalWpm / state.sessionStats.count) 
-                      : 0}
-                  </div>
-                  <div className="text-xs text-muted-foreground">Avg WPM (Words/Min)</div>
-                </div>
-                <div className="text-center p-3 bg-muted/50 rounded-lg">
-                  <div className="text-2xl font-bold text-red-500">{state.sessionStats.totalErrors}</div>
-                  <div className="text-xs text-muted-foreground">Total Errors</div>
-                </div>
-              </div>
-              {state.sessionHistory.length > 0 && (
-                <div className="mt-4 pt-4 border-t">
-                  <h4 className="text-sm font-medium mb-2">Recent History</h4>
-                  <div className="space-y-2 max-h-40 overflow-y-auto">
-                    {state.sessionHistory.slice(-5).reverse().map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-sm p-2 bg-muted/30 rounded">
-                        <span className="truncate flex-1 mr-2">{item.sentence.slice(0, 40)}...</span>
-                        <div className="flex gap-3 text-xs">
-                          <span className="text-primary font-medium">{item.wpm} WPM</span>
-                          <span className="text-green-500">{item.accuracy}%</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Bookmarks Panel */}
-        {state.showBookmarks && (
-          <Card className="mb-6 border-purple-500/20">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Bookmark className="w-5 h-5 text-purple-500" />
-                  Bookmarked Sentences ({state.bookmarks.length})
-                </CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => dispatch({ type: 'SET_SHOW_BOOKMARKS', payload: false })}
-                >
-                  ✕
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {state.bookmarks.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Bookmark className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                  <p>No bookmarked sentences yet</p>
-                  <p className="text-xs mt-1">Click the bookmark button after completing a sentence to save it for later practice</p>
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {state.bookmarks.map((bookmark) => (
-                    <div key={bookmark.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg group">
-                      <div className="flex-1 mr-3">
-                        <p className="text-sm">{bookmark.sentence}</p>
-                        <div className="flex gap-2 mt-1 text-xs text-muted-foreground">
-                          <span className="capitalize">{bookmark.category}</span>
-                          <span>•</span>
-                          <span>{bookmark.difficulty}</span>
-                          {bookmark.lastAccuracy && (
-                            <>
-                              <span>•</span>
-                              <span className="text-green-500">{bookmark.lastAccuracy}% ACC</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-600 hover:bg-red-500/10"
-                        onClick={() => {
-                          dispatch({ type: 'REMOVE_BOOKMARK', payload: bookmark.id });
-                          toast({ title: 'Bookmark removed' });
-                        }}
-                      >
-                        ✕
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
         {/* Settings panel */}
         {state.showSettings && (
           <DictationSettings
@@ -1657,7 +1467,6 @@ function DictationModeContent() {
             replayCount={state.testState.replayCount}
             hintUsed={state.testState.hintShown}
             duration={state.testState.result.duration}
-            isBookmarked={isBookmarked}
             coachingTip={state.currentCoachingTip}
             autoAdvanceCountdown={countdown.countdown}
             isLastSentence={state.sessionProgress >= state.sessionLength}
@@ -1682,7 +1491,6 @@ function DictationModeContent() {
                 audio.speak(state.testState.sentence!.sentence);
               }, 500);
             }}
-            onToggleBookmark={handleToggleBookmark}
           />
         ) : (
           <>
