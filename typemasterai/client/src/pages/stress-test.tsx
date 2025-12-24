@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo, useLayoutEffec
 import { Link, useLocation } from 'wouter';
 import { ArrowLeft, Zap, Skull, Trophy, Eye, Volume2, VolumeX, AlertTriangle, HelpCircle, Clock, Target, Flame, XCircle, Timer, BarChart3, RefreshCw, Home, Info, LogIn, WifiOff, Award, X, Infinity, AlertOctagon, CheckCircle2 } from 'lucide-react';
 import { ErrorBoundary } from '@/components/error-boundary';
-import { SEOHead } from '@/lib/seo';
+import { useSEO } from '@/lib/seo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -957,7 +957,7 @@ function StressTestContent() {
     setCurrentText(generatedText);
     
     toast({
-      title: `${diffConfig.icon} ${diffConfig.name}`,
+      title: diffConfig.name,
       description: `${diffConfig.duration} seconds - ${diffConfig.difficulty}`,
     });
     
@@ -1510,17 +1510,30 @@ function StressTestContent() {
   const renderedCharacters = useMemo(() => {
     if (!currentText) return [];
     const textLength = currentText.length;
-    return displayText.split('').map((char, displayIndex) => {
+    const typedLength = typedText.length;
+    const isAtEnd = typedLength >= textLength;
+    
+    const chars = displayText.split('').map((char, displayIndex) => {
       const originalIndex = textReversed ? (textLength - 1 - displayIndex) : displayIndex;
       
-      let color = 'text-muted-foreground';
-      if (originalIndex < typedText.length) {
-        color = typedText[originalIndex] === currentText[originalIndex] ? 'text-green-500' : 'text-red-500';
-      } else if (originalIndex === typedText.length) {
-        color = 'text-primary bg-primary/20';
+      let className = 'stress-char-pending';
+      let isCurrent = false;
+      let isSpace = char === ' ';
+      
+      if (originalIndex < typedLength) {
+        const isCorrect = typedText[originalIndex] === currentText[originalIndex];
+        className = isCorrect ? 'stress-char-correct' : 'stress-char-error';
+      } else if (originalIndex === typedLength) {
+        className = 'stress-char-current';
+        isCurrent = true;
+      } else if (isSpace) {
+        className = 'stress-char-pending stress-char-space-pending';
       }
-      return { char, color, index: displayIndex };
+      
+      return { char, className, index: displayIndex, isCurrent, isSpace };
     });
+    
+    return { chars, isAtEnd };
   }, [displayText, typedText, currentText, textReversed]);
 
   if (!selectedDifficulty || (!isStarted && !isFinished && countdown === 0)) {
@@ -2047,12 +2060,15 @@ function StressTestContent() {
         ))}
 
         <div className="w-full max-w-4xl">
-          <div className="mb-8 flex items-center justify-between" role="status" aria-live="polite">
-            <div className="flex items-center gap-4">
+          <div className="mb-6 flex items-center justify-between gap-4 flex-wrap" role="status" aria-live="polite">
+            <div className="flex items-center gap-3 flex-wrap">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="text-2xl font-mono font-bold cursor-help" style={{ color: prefersReducedMotion ? undefined : currentColor }} aria-label={`${timeLeft} seconds remaining`}>
-                    {timeLeft}s
+                  <div className="hud-panel px-4 py-2 flex items-center gap-2 cursor-help neon-glow-cyan" aria-label={`${timeLeft} seconds remaining`}>
+                    <Timer className="w-4 h-4 text-cyan-400" />
+                    <span className="text-2xl font-mono font-bold text-cyan-400" style={{ textShadow: prefersReducedMotion ? 'none' : '0 0 10px rgba(0, 245, 255, 0.8)' }}>
+                      {timeLeft}s
+                    </span>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -2062,11 +2078,12 @@ function StressTestContent() {
               
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className={`text-sm text-muted-foreground transition-all cursor-help ${
-                    comboExplosion && !prefersReducedMotion ? 'scale-150 text-yellow-500' : ''
+                  <div className={`hud-panel px-4 py-2 flex items-center gap-2 cursor-help transition-all ${
+                    comboExplosion && !prefersReducedMotion ? 'scale-110 neon-glow-orange combo-burst' : ''
                   }`} aria-label={`Current combo: ${combo}`}>
-                    Combo: <span className="text-primary font-bold">{combo}</span>
-                    {comboExplosion && !prefersReducedMotion && <Flame className="ml-1 w-4 h-4 inline text-orange-500 animate-ping" aria-hidden="true" />}
+                    <Flame className={`w-4 h-4 ${combo > 0 ? 'text-orange-500' : 'text-muted-foreground'}`} />
+                    <span className="text-lg font-mono font-bold text-orange-400">{combo}</span>
+                    <span className="text-xs text-muted-foreground">combo</span>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -2076,8 +2093,10 @@ function StressTestContent() {
               
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="text-sm text-muted-foreground cursor-help" aria-label={`${errors} errors`}>
-                    Errors: <span className="text-destructive font-bold">{errors}</span>
+                  <div className="hud-panel px-4 py-2 flex items-center gap-2 cursor-help" aria-label={`${errors} errors`}>
+                    <XCircle className="w-4 h-4 text-red-400" />
+                    <span className="text-lg font-mono font-bold text-red-400">{errors}</span>
+                    <span className="text-xs text-muted-foreground">errors</span>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -2088,14 +2107,17 @@ function StressTestContent() {
             
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="flex items-center gap-2 cursor-help" aria-label={`Stress level: ${Math.round(stressLevel)} percent`}>
-                  <span className="text-sm text-muted-foreground">Stress</span>
-                  <div className="w-32 h-2 bg-muted rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round(stressLevel)} aria-valuemin={0} aria-valuemax={100}>
+                <div className="hud-panel px-4 py-2 flex items-center gap-3 cursor-help" aria-label={`Stress level: ${Math.round(stressLevel)} percent`}>
+                  <span className="text-xs uppercase tracking-wider text-muted-foreground">Stress</span>
+                  <div className="w-24 h-2.5 bg-black/40 rounded-full overflow-hidden border border-white/10" role="progressbar" aria-valuenow={Math.round(stressLevel)} aria-valuemin={0} aria-valuemax={100}>
                     <div 
-                      className="h-full bg-gradient-to-r from-green-500 via-yellow-500 to-red-500 transition-all duration-300"
+                      className="h-full stress-meter-gradient transition-all duration-300"
                       style={{ width: `${stressLevel}%` }}
                     />
                   </div>
+                  <span className={`text-sm font-mono font-bold ${stressLevel > 75 ? 'text-red-400' : stressLevel > 50 ? 'text-orange-400' : 'text-green-400'}`}>
+                    {Math.round(stressLevel)}%
+                  </span>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom">
@@ -2107,28 +2129,34 @@ function StressTestContent() {
             </Tooltip>
           </div>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="cursor-help">
-                <Progress value={progress} className="mb-8 h-3" aria-label={`Progress: ${progress.toFixed(1)} percent complete`} />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <p>Progress: {progress.toFixed(1)}% - {typedText.length}/{currentText.length} characters</p>
-            </TooltipContent>
-          </Tooltip>
+          <div className="relative mb-6">
+            <div className="h-1.5 bg-black/40 rounded-full overflow-hidden border border-white/10">
+              <div 
+                className="h-full bg-gradient-to-r from-cyan-500 via-purple-500 to-orange-500 transition-all duration-200"
+                style={{ width: `${progress}%` }}
+                role="progressbar" 
+                aria-valuenow={Math.round(progress)} 
+                aria-valuemin={0} 
+                aria-valuemax={100}
+                aria-label={`Progress: ${progress.toFixed(1)} percent complete`}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground mt-1">
+              <span>{typedText.length} typed</span>
+              <span>{currentText.length - typedText.length} remaining</span>
+            </div>
+          </div>
 
-          <Card
-            className={`mb-8 transition-all duration-200 ${multiEffectActive ? 'ring-4 ring-purple-500/50' : ''}`}
+          <div
+            className={`glass-card rounded-2xl mb-8 transition-all duration-200 border border-cyan-500/20 ${multiEffectActive ? 'ring-4 ring-purple-500/50 neon-glow-purple' : ''}`}
             style={prefersReducedMotion ? {} : {
               transform: `translateY(${gravityOffset}px) translate(${textPosition.x}px, ${textPosition.y}px)`,
               opacity: textOpacity,
               filter: `blur(${blur}px)`,
               borderColor: currentColor,
-              borderWidth: '2px',
             }}
           >
-            <CardContent className="p-8 relative overflow-hidden">
+            <div className="p-8 relative overflow-hidden">
               {(chromaticOffset.r !== 0 || chromaticOffset.g !== 0 || chromaticOffset.b !== 0) && !prefersReducedMotion && (
                 <>
                   <div 
@@ -2178,24 +2206,29 @@ function StressTestContent() {
                   } : {}),
                 }}
               >
-                {renderedCharacters.map(({ char, color, index }) => (
+                {Array.isArray(renderedCharacters) ? null : renderedCharacters.chars.map(({ char, className, index, isCurrent }) => (
                   <span
                     key={index}
-                    className={`${color} transition-colors duration-100`}
+                    className={`${className} transition-colors duration-75 relative inline-block`}
                     style={{
-                      display: 'inline-block',
                       animation: glitchActive && !prefersReducedMotion ? 'glitch 0.1s infinite' : 'none',
                       transform: textScrambleActive && !prefersReducedMotion && Math.random() > 0.7 
                         ? `translateY(${(Math.random() - 0.5) * 8}px) rotate(${(Math.random() - 0.5) * 10}deg)` 
                         : 'none',
                     }}
                   >
+                    {isCurrent && !prefersReducedMotion && <span className="neon-caret" aria-hidden="true" />}
                     {char}
                   </span>
                 ))}
+                {!Array.isArray(renderedCharacters) && renderedCharacters.isAtEnd && !prefersReducedMotion && (
+                  <span className="relative inline-block">
+                    <span className="neon-caret" aria-hidden="true" />
+                  </span>
+                )}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           <input
             ref={inputRef}
@@ -2226,13 +2259,14 @@ function StressTestContent() {
 }
 
 export default function StressTest() {
+  useSEO({
+    title: "Typing Stress Test | TypeMasterAI",
+    description: "Test your typing skills under extreme pressure with visual chaos effects. Can you maintain speed and accuracy when the screen shakes, colors shift, and text distorts?",
+    keywords: "typing test, stress test, typing challenge, focus training, typing game"
+  });
+  
   return (
     <ErrorBoundary>
-      <SEOHead 
-        title="Typing Stress Test | TypeMasterAI"
-        description="Test your typing skills under extreme pressure with visual chaos effects. Can you maintain speed and accuracy when the screen shakes, colors shift, and text distorts?"
-        keywords="typing test, stress test, typing challenge, focus training, typing game"
-      />
       <StressTestContent />
     </ErrorBoundary>
   );

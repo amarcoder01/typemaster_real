@@ -1003,11 +1003,72 @@
   transition: stroke-dashoffset 0.3s ease;
 }
 
+/* Neon caret animations for stress test */
+@keyframes neon-caret-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+@keyframes neon-caret-smooth {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.neon-caret {
+  position: absolute;
+  top: 0;
+  left: -1px;
+  width: 3px;
+  height: 1.2em;
+  background: linear-gradient(180deg, #00f5ff, #b537ff);
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(0, 245, 255, 0.8), 0 0 16px rgba(181, 55, 255, 0.5);
+  animation: neon-caret-blink 1s step-end infinite;
+  z-index: 10;
+}
+
+.neon-caret-smooth {
+  animation: neon-caret-smooth 1.2s ease-in-out infinite;
+}
+
+/* Character styling for stress test */
+.stress-char-correct {
+  color: #22c55e;
+  text-shadow: 0 0 4px rgba(34, 197, 94, 0.5);
+}
+
+.stress-char-error {
+  color: #ef4444;
+  text-decoration: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: #ef4444;
+  text-underline-offset: 3px;
+}
+
+.stress-char-current {
+  color: #00f5ff;
+  position: relative;
+}
+
+.stress-char-pending {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.stress-char-space-pending::after {
+  content: "·";
+  opacity: 0.2;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .neon-pulse,
   .countdown-pulse,
   .combo-burst,
-  .stats-shimmer {
+  .stats-shimmer,
+  .neon-caret {
     animation: none !important;
+  }
+  
+  .neon-caret {
+    opacity: 1 !important;
   }
 }
