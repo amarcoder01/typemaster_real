@@ -13,7 +13,7 @@
  * - Proper accessibility (ARIA, focus management)
  */
 
-import React, { useEffect, useCallback, useRef, useState } from 'react';
+import React, { useEffect, useCallback, useRef, useState, useMemo } from 'react';
 import { Link } from 'wouter';
 import { ArrowLeft, RotateCcw, Settings2, Sparkles, X, Minimize2, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -120,6 +120,35 @@ function DictationModeContent() {
   const [isSharingCertificate, setIsSharingCertificate] = useState(false);
   const [lastResultId, setLastResultId] = useState<number | null>(null);
   const [certificateData, setCertificateData] = useState<any>(null);
+  
+  // Estimated time limit for Challenge Mode preview
+  // Uses the same WPM-based formula as the actual Challenge Mode timer (CHALLENGE_TIMING)
+  // Note: This is an ESTIMATE since we don't have actual sentences yet
+  const estimatedTimeLimitMs = useMemo(() => {
+    if (state.practiceMode !== 'challenge') return null;
+    
+    // Average words per sentence by difficulty (based on typical sentence analysis)
+    const avgWordsPerSentence: Record<DifficultyLevel, number> = {
+      easy: 8,    // ~40 chars / 5 chars per word
+      medium: 14, // ~70 chars / 5 chars per word
+      hard: 22,   // ~110 chars / 5 chars per word
+    };
+    
+    // Use shared CHALLENGE_TIMING config to stay in sync with runtime timer
+    const config = CHALLENGE_TIMING.DIFFICULTY_CONFIG[state.difficulty];
+    const estimatedTotalWords = avgWordsPerSentence[state.difficulty] * state.sessionLength;
+    
+    // Same formula: Time = (Words / TargetWPM) * Buffer * 60 seconds * 1000 (to ms)
+    const rawTimeMs = (estimatedTotalWords / config.targetWPM) * config.buffer * 60 * 1000;
+    
+    // Use shared min/max bounds
+    const clampedTime = Math.max(
+      CHALLENGE_TIMING.MIN_TIME_MS,
+      Math.min(CHALLENGE_TIMING.MAX_TIME_MS, rawTimeMs)
+    );
+    
+    return Math.round(clampedTime);
+  }, [state.practiceMode, state.difficulty, state.sessionLength]);
   
   // Refs for cleanup and prefetch
   const isMountedRef = useRef(true);
@@ -1096,8 +1125,8 @@ function DictationModeContent() {
             currentRate={audio.currentRate}
             adaptiveDifficulty={state.adaptiveDifficulty}
             isChallenge={state.practiceMode === 'challenge'}
-            challengeTimeLimitMs={null}
-            isPreviewLoading={state.isPrefetching && state.practiceMode === 'challenge'}
+            challengeTimeLimitMs={estimatedTimeLimitMs}
+            isPreviewLoading={false}
             onDifficultyChange={(diff) => dispatch({ type: 'SET_DIFFICULTY', payload: diff })}
             onSpeedLevelChange={(speed) => dispatch({ type: 'SET_SPEED_LEVEL', payload: speed })}
             onCategoryChange={(cat) => dispatch({ type: 'SET_CATEGORY', payload: cat })}

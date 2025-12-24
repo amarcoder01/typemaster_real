@@ -80,14 +80,19 @@ Preferred communication style: Simple, everyday language.
 ## Dictation Mode - Challenge Mode
 
 ### Overview
-Challenge Mode in Dictation (`/dictation-mode`) offers a focused practice experience without time pressure.
+Challenge Mode in Dictation (`/dictation-mode`) offers a focused practice experience with timed challenges.
 
 ### Features
+- **Time Limit Preview**: Shows estimated time limit on setup screen before starting (uses CHALLENGE_TIMING formula)
 - **Streak Tracking**: Consecutive completions tracked with bonuses (2% per streak, max 10%)
 - **Prefetch Error Handling**: 3 retry attempts with user-facing toast on failure
-- **Difficulty Levels**: Easy, Medium, Hard affect sentence complexity
+- **Difficulty Levels**: Easy, Medium, Hard affect sentence complexity and time limits:
+  - Easy: 25 WPM target, 2.5x buffer (~8 words/sentence)
+  - Medium: 40 WPM target, 1.8x buffer (~14 words/sentence)
+  - Hard: 60 WPM target, 1.4x buffer (~22 words/sentence)
 
 ### Key Files
-- `client/src/features/dictation/types.ts` - CHALLENGE_TIMING constants (streak bonuses)
-- `client/src/pages/dictation-mode.tsx` - Main dictation mode page
+- `client/src/features/dictation/types.ts` - CHALLENGE_TIMING constants (timing formula, difficulty config)
+- `client/src/pages/dictation-mode.tsx` - Main dictation mode page with time preview calculation
+- `client/src/features/dictation/components/ChallengeTimePreview.tsx` - Time Limit preview card component
 - `client/src/features/dictation/context/DictationContext.tsx` - Session stats management
