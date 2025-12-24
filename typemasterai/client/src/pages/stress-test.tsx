@@ -1006,13 +1006,25 @@ function StressTestContent() {
     if (!isStarted || isFinished || !isTestActiveRef.current) return;
     
     const value = e.target.value;
-    const lastChar = value[value.length - 1];
-    const expectedChar = currentText[typedText.length];
     
-    if (lastChar === expectedChar) {
-      playSound('type');
+    // Handle backspace - allow deletion
+    if (value.length < typedText.length) {
       typedTextRef.current = value;
       setTypedText(value);
+      return;
+    }
+    
+    // Get the newly typed character
+    const lastChar = value[value.length - 1];
+    const expectedChar = currentText[typedText.length];
+    const isCorrect = lastChar === expectedChar;
+    
+    // Always advance cursor - store the actual typed character
+    typedTextRef.current = value;
+    setTypedText(value);
+    
+    if (isCorrect) {
+      playSound('type');
       setCombo((prev) => {
         const newCombo = prev + 1;
         if (newCombo > maxComboRef.current) {
@@ -1029,8 +1041,17 @@ function StressTestContent() {
         return newCombo;
       });
       
-      if (value === currentText) {
-        finishTestRef.current(true);
+      // Check if completed all characters correctly
+      if (value.length === currentText.length) {
+        // Count total errors for final check
+        let correctCount = 0;
+        for (let i = 0; i < value.length; i++) {
+          if (value[i] === currentText[i]) correctCount++;
+        }
+        // Finish if all characters match
+        if (correctCount === currentText.length) {
+          finishTestRef.current(true);
+        }
       }
     } else {
       playSound('error');
@@ -1045,6 +1066,16 @@ function StressTestContent() {
         setBackgroundFlash(true);
         safeTimeout(() => setBackgroundFlash(false), 100);
       }
+    }
+    
+    // Check if reached end of text (regardless of accuracy)
+    if (value.length >= currentText.length) {
+      let correctCount = 0;
+      for (let i = 0; i < currentText.length; i++) {
+        if (value[i] === currentText[i]) correctCount++;
+      }
+      // Finish test - success only if 100% accuracy
+      finishTestRef.current(correctCount === currentText.length);
     }
   }, [isStarted, isFinished, currentText, typedText, playSound, prefersReducedMotion, selectedDifficulty, config, stressLevel, safeTimeout]);
 
