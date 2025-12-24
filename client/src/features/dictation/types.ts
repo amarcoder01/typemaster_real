@@ -168,6 +168,11 @@ export const CHALLENGE_TIMING = {
   GRACE_PERIOD_MS: 3000,     // 3 second grace period after time expires
   WARNING_THRESHOLD_MS: 10000, // Yellow warning at 10 seconds remaining
   URGENT_THRESHOLD_MS: 5000,   // Red urgent at 5 seconds remaining
+  MIN_TIME_MS: 5000,         // Minimum 5 seconds (allows Hard mode to have shorter timers)
+  MAX_TIME_MS: 180000,       // Maximum 3 minutes to prevent excessively long timers
+  DEFAULT_DIFFICULTY: 'medium' as DifficultyLevel,
+  MIN_SESSION_LENGTH: 1,     // Minimum session length (UI should enforce >= 1)
+  MAX_SESSION_LENGTH: 100,   // Maximum session length
   DIFFICULTY_MULTIPLIERS: {
     easy: 1.5,
     medium: 1.0,
@@ -183,31 +188,94 @@ export const CHALLENGE_TIMING = {
     { maxLength: 100, multiplier: 0.75 }, // Extreme: -25% time
     { maxLength: Infinity, multiplier: 0.70 }, // Beyond: -30% time
   ],
-  OVERTIME_PENALTY: 0.1,     // 10% accuracy penalty for overtime
+  OVERTIME_PENALTY_BASE: 0.05,    // 5% base penalty for any overtime
+  OVERTIME_PENALTY_PER_SECOND: 0.01, // Additional 1% per second over time
+  OVERTIME_PENALTY_MAX: 0.30,     // Maximum 30% penalty cap
   STREAK_BONUS: 0.02,        // 2% bonus per streak (max 10%)
   MAX_STREAK_BONUS: 0.10,    // Cap at 10% bonus
 } as const;
 
+/**
+ * Get the session length multiplier based on how many sentences are in the session.
+ * Longer sessions get slightly less time per sentence to increase difficulty.
+ */
 export function getSessionLengthMultiplier(sessionLength: number): number {
+  // Clamp session length to valid range
+  const clampedLength = Math.max(
+    CHALLENGE_TIMING.MIN_SESSION_LENGTH,
+    Math.min(CHALLENGE_TIMING.MAX_SESSION_LENGTH, sessionLength)
+  );
+  
   for (const bucket of CHALLENGE_TIMING.SESSION_LENGTH_MULTIPLIERS) {
-    if (sessionLength <= bucket.maxLength) {
+    if (clampedLength <= bucket.maxLength) {
       return bucket.multiplier;
     }
   }
   return 0.70; // Fallback for very long sessions
 }
 
+/**
+ * Calculate the overtime penalty based on how many seconds over the limit.
+ * Penalty scales with lateness: 5% base + 1% per second, capped at 30%.
+ */
+export function calculateOvertimePenalty(secondsOvertime: number): number {
+  if (secondsOvertime <= 0) return 0;
+  
+  const penalty = CHALLENGE_TIMING.OVERTIME_PENALTY_BASE + 
+    (secondsOvertime * CHALLENGE_TIMING.OVERTIME_PENALTY_PER_SECOND);
+  
+  return Math.min(penalty, CHALLENGE_TIMING.OVERTIME_PENALTY_MAX);
+}
+
+/**
+ * Calculate the time limit in milliseconds for a Challenge Mode sentence.
+ * Includes validation, clamping, and safeguards for edge cases.
+ * 
+ * @param sentenceText - The sentence text to calculate time for
+ * @param difficulty - The difficulty level (defaults to medium if invalid)
+ * @param sessionLength - Number of sentences in session (defaults to 10)
+ * @returns Time limit in milliseconds, clamped to MIN_TIME_MS and MAX_TIME_MS
+ */
 export function calculateTimeLimit(
   sentenceText: string,
   difficulty: DifficultyLevel,
   sessionLength: number = 10
 ): number {
-  const wordCount = sentenceText.trim().split(/\s+/).length;
-  const difficultyMultiplier = CHALLENGE_TIMING.DIFFICULTY_MULTIPLIERS[difficulty];
-  const sessionMultiplier = getSessionLengthMultiplier(sessionLength);
-  return Math.round(
-    (CHALLENGE_TIMING.BASE_TIME_MS + wordCount * CHALLENGE_TIMING.PER_WORD_MS) * difficultyMultiplier * sessionMultiplier
+  // Guard against empty/invalid sentences
+  if (!sentenceText || typeof sentenceText !== 'string') {
+    return CHALLENGE_TIMING.MIN_TIME_MS;
+  }
+  
+  const trimmed = sentenceText.trim();
+  if (trimmed.length === 0) {
+    return CHALLENGE_TIMING.MIN_TIME_MS;
+  }
+  
+  // Calculate word count (no upper cap - MAX_TIME_MS handles long sentences)
+  const wordCount = Math.max(1, trimmed.split(/\s+/).filter(w => w.length > 0).length);
+  
+  // Get difficulty multiplier with fallback for unknown values
+  const difficultyMultiplier = CHALLENGE_TIMING.DIFFICULTY_MULTIPLIERS[difficulty] ?? 
+    CHALLENGE_TIMING.DIFFICULTY_MULTIPLIERS[CHALLENGE_TIMING.DEFAULT_DIFFICULTY];
+  
+  // Validate session length
+  const validSessionLength = Math.max(
+    CHALLENGE_TIMING.MIN_SESSION_LENGTH,
+    Math.min(CHALLENGE_TIMING.MAX_SESSION_LENGTH, sessionLength || 10)
   );
+  const sessionMultiplier = getSessionLengthMultiplier(validSessionLength);
+  
+  // Calculate raw time
+  const rawTime = (CHALLENGE_TIMING.BASE_TIME_MS + wordCount * CHALLENGE_TIMING.PER_WORD_MS) * 
+    difficultyMultiplier * sessionMultiplier;
+  
+  // Clamp to min/max bounds and round
+  const clampedTime = Math.max(
+    CHALLENGE_TIMING.MIN_TIME_MS,
+    Math.min(CHALLENGE_TIMING.MAX_TIME_MS, rawTime)
+  );
+  
+  return Math.round(clampedTime);
 }
 
 export interface SessionStats {

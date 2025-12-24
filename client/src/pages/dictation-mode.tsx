@@ -46,6 +46,7 @@ import {
   getRandomEncouragement,
   INITIAL_ADAPTIVE_CONFIG,
   calculateTimeLimit,
+  calculateOvertimePenalty,
   CHALLENGE_TIMING,
 } from '@/features/dictation';
 
@@ -323,26 +324,33 @@ function DictationModeContent() {
   
   // Track the settings used for the current prefetched sentence
   // This allows us to detect when settings change and refetch
-  const prefetchSettingsRef = useRef<{ difficulty: string; category: string } | null>(null);
+  const prefetchSettingsRef = useRef<{ difficulty: string; category: string; sessionLength: number } | null>(null);
+  
+  // Track prefetch retry count to prevent infinite retry loops
+  const prefetchRetryCount = useRef(0);
+  const MAX_PREFETCH_RETRIES = 3;
   
   // Prefetch sentence and preload audio when entering waiting screen
-  // Also handles re-fetching when difficulty/category change
+  // Also handles re-fetching when difficulty/category/sessionLength change
   useEffect(() => {
     // Not waiting to start - nothing to do
     if (!state.isWaitingToStart) {
+      prefetchRetryCount.current = 0; // Reset retry count when leaving waiting screen
       return;
     }
     
     // Check if we need to refetch due to settings change
     const settingsChanged = prefetchSettingsRef.current !== null && 
       (prefetchSettingsRef.current.difficulty !== state.difficulty || 
-       prefetchSettingsRef.current.category !== state.category);
+       prefetchSettingsRef.current.category !== state.category ||
+       prefetchSettingsRef.current.sessionLength !== state.sessionLength);
     
     // If settings changed, clear the existing prefetched sentence and refetch
     if (settingsChanged && (state.prefetchedSentence || prefetchedSentenceRef.current)) {
       prefetchedSentenceRef.current = null;
       prefetchedAudioReadyRef.current = false;
       prefetchSettingsRef.current = null;
+      prefetchRetryCount.current = 0; // Reset retry count on settings change
       dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
       // Return here - the dispatch will trigger this effect again with null state
       return;
@@ -365,8 +373,13 @@ function DictationModeContent() {
         });
         
         if (sentence && isMountedRef.current) {
-          // Record what settings this sentence was fetched for
-          prefetchSettingsRef.current = { difficulty: state.difficulty, category: state.category };
+          // Record what settings this sentence was fetched for (including sessionLength)
+          prefetchSettingsRef.current = { 
+            difficulty: state.difficulty, 
+            category: state.category,
+            sessionLength: state.sessionLength,
+          };
+          prefetchRetryCount.current = 0; // Reset retry count on success
           
           // Atomically set both ref AND state together for consistency
           prefetchedSentenceRef.current = sentence;
@@ -379,9 +392,29 @@ function DictationModeContent() {
               prefetchedAudioReadyRef.current = true;
             }
           });
+        } else if (!sentence && isMountedRef.current) {
+          // Sentence fetch returned null - show error to user
+          prefetchRetryCount.current++;
+          if (prefetchRetryCount.current >= MAX_PREFETCH_RETRIES) {
+            toast({
+              title: 'Failed to load sentence',
+              description: 'Unable to fetch a practice sentence. Please try changing settings or refreshing the page.',
+              variant: 'destructive',
+            });
+          }
         }
       } catch (error) {
         console.error('[Dictation] Failed to prefetch sentence:', error);
+        if (isMountedRef.current) {
+          prefetchRetryCount.current++;
+          if (prefetchRetryCount.current >= MAX_PREFETCH_RETRIES) {
+            toast({
+              title: 'Connection error',
+              description: 'Failed to load practice content. Please check your connection and try again.',
+              variant: 'destructive',
+            });
+          }
+        }
       } finally {
         if (isMountedRef.current) {
           dispatch({ type: 'SET_IS_PREFETCHING', payload: false });
@@ -390,7 +423,7 @@ function DictationModeContent() {
     };
     
     prefetch();
-  }, [state.isWaitingToStart, state.prefetchedSentence, state.isPrefetching, state.difficulty, state.category, state.shownSentenceIds, fetchSentence, audio, dispatch]);
+  }, [state.isWaitingToStart, state.prefetchedSentence, state.isPrefetching, state.difficulty, state.category, state.sessionLength, state.shownSentenceIds, fetchSentence, audio, dispatch, toast]);
   
   const handleRecoverSession = useCallback(() => {
     actions.recoverSession();
@@ -541,11 +574,13 @@ function DictationModeContent() {
       completedInTime = timeRemainingMs > 0;
       
       if (!completedInTime) {
-        // Apply overtime penalty (10% accuracy reduction)
-        finalAccuracy = Math.max(0, accuracyResult.accuracy - (CHALLENGE_TIMING.OVERTIME_PENALTY * 100));
+        // Apply graduated overtime penalty based on how late the submission was
+        const secondsOvertime = Math.abs(timeRemainingMs) / 1000;
+        const overtimePenalty = calculateOvertimePenalty(secondsOvertime);
+        finalAccuracy = Math.max(0, accuracyResult.accuracy - (overtimePenalty * 100));
         toast({
           title: 'Overtime!',
-          description: `Time expired! -${Math.round(CHALLENGE_TIMING.OVERTIME_PENALTY * 100)}% accuracy penalty applied.`,
+          description: `Time expired! -${Math.round(overtimePenalty * 100)}% accuracy penalty applied.`,
           variant: 'destructive',
         });
       } else {
