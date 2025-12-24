@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, useLayoutEffect } from 'react';
 import { Link, useLocation } from 'wouter';
-import { ArrowLeft, Zap, Skull, Trophy, Eye, Volume2, VolumeX, AlertTriangle, HelpCircle, Clock, Target, Flame, XCircle, Timer, BarChart3, RefreshCw, Home, Info, LogIn, WifiOff, Award, X } from 'lucide-react';
+import { ArrowLeft, Zap, Skull, Trophy, Eye, Volume2, VolumeX, AlertTriangle, HelpCircle, Clock, Target, Flame, XCircle, Timer, BarChart3, RefreshCw, Home, Info, LogIn, WifiOff, Award, X, Infinity, AlertOctagon, CheckCircle2 } from 'lucide-react';
+import { ErrorBoundary } from '@/components/error-boundary';
+import { SEOHead } from '@/lib/seo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -57,12 +59,20 @@ const EFFECT_DESCRIPTIONS: Record<keyof StressEffects, string> = {
   screenFlip: 'Screen flips upside down periodically',
 };
 
+const DIFFICULTY_ICONS: Record<Difficulty, React.ComponentType<{ className?: string }>> = {
+  beginner: Flame,
+  intermediate: Zap,
+  expert: Skull,
+  nightmare: AlertOctagon,
+  impossible: Infinity,
+};
+
 const DIFFICULTY_CONFIGS: Record<Difficulty, {
   name: string;
   description: string;
   effects: StressEffects;
   duration: number;
-  icon: string;
+  iconColorClass: string;
   color: string;
   baseShakeIntensity: number;
   particleFrequency: number;
@@ -102,7 +112,7 @@ const DIFFICULTY_CONFIGS: Record<Difficulty, {
       screenFlip: false,
     },
     duration: 30,
-    icon: '🔥',
+    iconColorClass: 'text-amber-500',
     color: 'from-amber-500/20 to-orange-500/20',
     baseShakeIntensity: 3,
     particleFrequency: 0.15,
@@ -130,7 +140,7 @@ const DIFFICULTY_CONFIGS: Record<Difficulty, {
       screenFlip: false,
     },
     duration: 45,
-    icon: '⚡',
+    iconColorClass: 'text-purple-500',
     color: 'from-purple-500/20 to-pink-500/20',
     baseShakeIntensity: 8,
     particleFrequency: 0.3,
@@ -158,7 +168,7 @@ const DIFFICULTY_CONFIGS: Record<Difficulty, {
       screenFlip: true,
     },
     duration: 60,
-    icon: '💀',
+    iconColorClass: 'text-red-500',
     color: 'from-red-500/20 to-orange-500/20',
     baseShakeIntensity: 25,
     particleFrequency: 0.7,
@@ -186,7 +196,7 @@ const DIFFICULTY_CONFIGS: Record<Difficulty, {
       screenFlip: false,
     },
     duration: 90,
-    icon: '☠️',
+    iconColorClass: 'text-red-900 dark:text-red-700',
     color: 'from-black/40 to-red-900/40',
     baseShakeIntensity: 8,
     particleFrequency: 0.3,
@@ -220,7 +230,7 @@ const DIFFICULTY_CONFIGS: Record<Difficulty, {
       screenFlip: false,
     },
     duration: 120,
-    icon: '🌀',
+    iconColorClass: 'text-purple-700 dark:text-purple-400',
     color: 'from-purple-900/60 to-black/60',
     baseShakeIntensity: 12,
     particleFrequency: 0.4,
@@ -338,7 +348,7 @@ function getSharedAudioContext(): AudioContext | null {
   }
 }
 
-export default function StressTest() {
+function StressTestContent() {
   const { toast } = useToast();
   const { user } = useAuth();
   const createCertificateMutation = useCreateCertificate();
@@ -702,12 +712,12 @@ export default function StressTest() {
       }
       if (data?.isNewPersonalBest) {
         toast({
-          title: "🏆 New Personal Best!",
+          title: "New Personal Best!",
           description: "You've set a new record for this difficulty level!",
         });
       } else if (data?.isLeaderboardEntry) {
         toast({
-          title: "📊 Leaderboard Entry!",
+          title: "Leaderboard Entry!",
           description: "Your score has been added to the leaderboard!",
         });
       }
@@ -853,7 +863,7 @@ export default function StressTest() {
       
       if (completed) {
         toast({
-          title: "🎉 Incredible!",
+          title: "Incredible!",
           description: `You completed the challenge with a Stress Score of ${stressScore}!`,
         });
       } else {
@@ -1078,7 +1088,7 @@ export default function StressTest() {
       hasShown10SecWarning.current = true;
       playSound('warning');
       toast({
-        title: "⏰ 10 Seconds Left!",
+        title: "10 Seconds Left!",
         description: "Final push!",
         variant: "destructive",
       });
@@ -1097,13 +1107,13 @@ export default function StressTest() {
     if (combo === 50 && lastComboMilestone.current < 50) {
       lastComboMilestone.current = 50;
       toast({
-        title: "🔥 50 Combo!",
+        title: "50 Combo!",
         description: "You're on fire!",
       });
     } else if (combo === 100 && lastComboMilestone.current < 100) {
       lastComboMilestone.current = 100;
       toast({
-        title: "⚡ 100 Combo!",
+        title: "100 Combo!",
         description: "Incredible focus!",
       });
     }
@@ -1121,19 +1131,19 @@ export default function StressTest() {
       if (progress >= 25 && lastProgressMilestone.current < 25) {
         lastProgressMilestone.current = 25;
         toast({
-          title: "💪 25% Complete!",
+          title: "25% Complete!",
           description: "Great start! Effects are warming up...",
         });
       } else if (progress >= 50 && lastProgressMilestone.current < 50) {
         lastProgressMilestone.current = 50;
         toast({
-          title: "⚡ Halfway There!",
+          title: "Halfway There!",
           description: "Chaos intensifying - stay focused!",
         });
       } else if (progress >= 75 && lastProgressMilestone.current < 75) {
         lastProgressMilestone.current = 75;
         toast({
-          title: "🔥 75% - Almost There!",
+          title: "75% - Almost There!",
           description: "Final stretch - you've got this!",
         });
       }
@@ -1173,7 +1183,7 @@ export default function StressTest() {
         : 1;
       
       if (currentConfig.effects.distractions && Math.random() > (1 - currentConfig.particleFrequency)) {
-        const emojis = ['💥', '⚡', '🔥', '💀', '👻', '🌟', '💫', '✨', '⭐', '💣', '🎯', '🎪', '🎨', '🎭'];
+        const symbols = ['*', '#', '@', '!', '?', '+', '~', '^', '&', '%', '$', '>', '<', '='];
         const particleCount = Math.min(3, Math.floor(1 + intensity * 2));
         
         setParticles((prev) => {
@@ -1186,7 +1196,7 @@ export default function StressTest() {
                 id: particleIdRef.current,
                 x: Math.random() * 100,
                 y: Math.random() * 100,
-                emoji: emojis[Math.floor(Math.random() * emojis.length)],
+                emoji: symbols[Math.floor(Math.random() * symbols.length)],
                 speed: 1 + Math.random() * 2,
               });
             }
@@ -1200,7 +1210,7 @@ export default function StressTest() {
               id: particleIdRef.current,
               x: Math.random() * 100,
               y: Math.random() * 100,
-              emoji: emojis[Math.floor(Math.random() * emojis.length)],
+              emoji: symbols[Math.floor(Math.random() * symbols.length)],
               speed: 1 + Math.random() * 2,
             });
           }
@@ -1625,7 +1635,10 @@ export default function StressTest() {
                         <div className={`absolute inset-0 bg-gradient-to-br ${diffConfig.color} opacity-50`} aria-hidden="true" />
                         <CardContent className="relative p-6">
                           <div className="text-center mb-4">
-                            <div className="text-6xl mb-2" aria-hidden="true">{diffConfig.icon}</div>
+                            {(() => {
+                              const IconComponent = DIFFICULTY_ICONS[difficulty];
+                              return <IconComponent className={`w-16 h-16 mx-auto mb-2 ${diffConfig.iconColorClass}`} aria-hidden="true" />;
+                            })()}
                             <h3 className="text-2xl font-bold mb-2">{diffConfig.name}</h3>
                             <p className="text-sm text-muted-foreground mb-4">{diffConfig.description}</p>
                             
@@ -1779,8 +1792,18 @@ export default function StressTest() {
                 <div className="text-center mb-8" role="status" aria-live="polite">
                   <Trophy className="w-16 h-16 mx-auto mb-4 text-primary" aria-hidden="true" />
                   
-                  <h2 className="text-4xl font-bold mb-2">
-                    {completionRate >= 100 ? '🎉 Completed!' : '💀 Survived!'}
+                  <h2 className="text-4xl font-bold mb-2 flex items-center justify-center gap-2">
+                    {completionRate >= 100 ? (
+                      <>
+                        <CheckCircle2 className="w-10 h-10 text-green-500" aria-hidden="true" />
+                        Completed!
+                      </>
+                    ) : (
+                      <>
+                        <Skull className="w-10 h-10 text-destructive" aria-hidden="true" />
+                        Survived!
+                      </>
+                    )}
                   </h2>
                   
                   <p className="text-lg text-muted-foreground mb-2">
@@ -2021,7 +2044,7 @@ export default function StressTest() {
                     comboExplosion && !prefersReducedMotion ? 'scale-150 text-yellow-500' : ''
                   }`} aria-label={`Current combo: ${combo}`}>
                     Combo: <span className="text-primary font-bold">{combo}</span>
-                    {comboExplosion && !prefersReducedMotion && <span className="ml-1 animate-ping" aria-hidden="true">🔥</span>}
+                    {comboExplosion && !prefersReducedMotion && <Flame className="ml-1 w-4 h-4 inline text-orange-500 animate-ping" aria-hidden="true" />}
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -2177,5 +2200,18 @@ export default function StressTest() {
         </div>
       </div>
     </TooltipProvider>
+  );
+}
+
+export default function StressTest() {
+  return (
+    <ErrorBoundary>
+      <SEOHead 
+        title="Typing Stress Test | TypeMasterAI"
+        description="Test your typing skills under extreme pressure with visual chaos effects. Can you maintain speed and accuracy when the screen shakes, colors shift, and text distorts?"
+        keywords="typing test, stress test, typing challenge, focus training, typing game"
+      />
+      <StressTestContent />
+    </ErrorBoundary>
   );
 }
