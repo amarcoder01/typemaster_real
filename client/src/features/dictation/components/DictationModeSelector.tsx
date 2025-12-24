@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'wouter';
-import { ArrowLeft, Zap, Target, Trophy, HelpCircle, Flame, Calendar, Clock, Lightbulb, LightbulbOff, Timer, ChevronRight, Headphones, Keyboard, CheckCircle2, Star } from 'lucide-react';
+import { ArrowLeft, Zap, Target, Trophy, HelpCircle, Flame, Calendar, Clock, Lightbulb, LightbulbOff, Timer, ChevronRight, Headphones, Keyboard, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -152,7 +152,7 @@ export function DictationModeSelector({
 
           {/* Stats Section with improved visuals */}
           <section aria-label="Your progress statistics" className="mb-8 sm:mb-10">
-            <div className="grid grid-cols-3 gap-3 sm:gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Card className="cursor-help border-transparent bg-gradient-to-br from-orange-500/5 to-orange-500/10 hover:from-orange-500/10 hover:to-orange-500/15 transition-colors">
@@ -241,31 +241,20 @@ export function DictationModeSelector({
                     ([mode, config]) => {
                       const colors = MODE_COLORS[mode];
                       const features = MODE_FEATURES[mode];
-                      const isRecommended = mode === 'focus';
                       
                       return (
                         <Tooltip key={mode}>
                           <TooltipTrigger asChild>
                             <Card
-                              className={`group relative cursor-pointer transition-all duration-200 border-2 ${colors.border} hover:shadow-lg ${colors.glow} overflow-visible`}
+                              className={`group relative cursor-pointer transition-all duration-200 border-2 ${colors.border} hover:shadow-lg ${colors.glow}`}
                               onClick={() => onSelectMode(mode)}
                               tabIndex={0}
                               role="button"
-                              aria-label={`Select ${config.name}${isRecommended ? ' (Recommended)' : ''}`}
+                              aria-label={`Select ${config.name}`}
                               onKeyDown={(e) => e.key === 'Enter' && onSelectMode(mode)}
                               data-testid={`button-mode-${mode}`}
                             >
-                              {/* Recommended badge */}
-                              {isRecommended && (
-                                <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10">
-                                  <Badge className="bg-emerald-500 text-white border-0 shadow-md px-3 py-0.5 text-xs font-semibold">
-                                    <Star className="w-3 h-3 mr-1 fill-current" />
-                                    Recommended
-                                  </Badge>
-                                </div>
-                              )}
-                              
-                              <CardContent className="pt-8 pb-5 px-4 sm:px-5">
+                              <CardContent className="pt-6 pb-5 px-4 sm:px-5">
                                 {/* Icon */}
                                 <div
                                   className={`mx-auto w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 ${colors.bg} ${colors.text} transition-transform group-hover:scale-110`}
