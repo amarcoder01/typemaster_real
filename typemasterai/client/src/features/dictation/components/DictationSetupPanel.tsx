@@ -91,8 +91,9 @@ export function DictationSetupPanel({
 }: DictationSetupPanelProps) {
   
   // Calculate estimated time limit for Challenge Mode
+  // Shows time limit preview so users know the time before starting
   const estimatedTimeLimit = useMemo(() => {
-    console.log('[DictationSetupPanel] practiceMode:', practiceMode, 'isChallenge:', practiceMode === 'challenge');
+    // Only show time limit for Challenge Mode
     if (practiceMode !== 'challenge') return null;
     
     // Estimate total characters based on difficulty and session length
@@ -100,12 +101,14 @@ export function DictationSetupPanel({
     const estimatedTotalChars = avgCharsPerSentence * sessionLength;
     
     const result = calculateTimeLimit({ totalCharacters: estimatedTotalChars });
-    console.log('[DictationSetupPanel] estimated time:', result.timeLimitSeconds, 'formatted:', formatTimeDisplay(result.timeLimitSeconds));
     return {
       formatted: formatTimeDisplay(result.timeLimitSeconds),
       seconds: result.timeLimitSeconds,
     };
   }, [practiceMode, difficulty, sessionLength]);
+  
+  // Always show time estimate for challenge mode - debug logging
+  const isChallenge = practiceMode === 'challenge';
 
   return (
     <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
@@ -310,7 +313,7 @@ export function DictationSetupPanel({
               <span className="text-muted-foreground">Voice Speed:</span>
               <span className="font-medium">{currentRate}x</span>
             </div>
-            {estimatedTimeLimit && (
+            {isChallenge && (
               <>
                 <Separator className="bg-primary/10" />
                 <div className="flex justify-between text-sm items-center">
@@ -319,7 +322,7 @@ export function DictationSetupPanel({
                     Time Limit:
                   </span>
                   <Badge variant="secondary" className="font-mono">
-                    {estimatedTimeLimit.formatted}
+                    {estimatedTimeLimit?.formatted || '---'}
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
