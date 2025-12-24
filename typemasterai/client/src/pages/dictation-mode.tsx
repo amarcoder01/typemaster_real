@@ -17,7 +17,7 @@ import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import { ArrowLeft, RotateCcw, Settings2, BarChart3, Bookmark, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
@@ -29,6 +29,7 @@ import { DictationShareDialog } from '@/features/dictation/components/DictationS
 import { CertificateGenerator } from '@/components/certificate-generator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { calculateDictationAccuracy, calculateDictationWPM, getSpeedLevelName } from '@shared/dictation-utils';
+import type { DictationSentence } from '@shared/schema';
 
 // Feature imports
 import {
@@ -144,7 +145,7 @@ function DictationModeContent() {
         variant: 'destructive',
       });
     },
-    isPaused: state.testState.showResult || state.sessionComplete || !isChallengeModeActive,
+    isPaused: state.testState.isComplete || state.sessionComplete || !isChallengeModeActive,
   });
   
   // Local UI state
@@ -394,7 +395,9 @@ function DictationModeContent() {
       // Standard flow for other modes
       await loadNextSentence();
     }
-  }, [actions, state.practiceMode, state.difficulty, state.category, state.sessionLength, state.shownSentenceIds, fetchBatchSentences, dispatch, toast, sessionCountdown, loadNextSentence]);
+  // Note: loadNextSentence is intentionally not in deps - we call the version defined below
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actions, state.practiceMode, state.difficulty, state.category, state.sessionLength, state.shownSentenceIds, fetchBatchSentences, dispatch, toast, sessionCountdown]);
   
   const handleRecoverSession = useCallback(() => {
     actions.recoverSession();
@@ -907,6 +910,7 @@ function DictationModeContent() {
             openAIVoices={audio.openAIVoices}
             currentRate={audio.currentRate}
             adaptiveDifficulty={state.adaptiveDifficulty}
+            practiceMode={state.practiceMode}
             onDifficultyChange={(diff) => dispatch({ type: 'SET_DIFFICULTY', payload: diff })}
             onSpeedLevelChange={(speed) => dispatch({ type: 'SET_SPEED_LEVEL', payload: speed })}
             onCategoryChange={(cat) => dispatch({ type: 'SET_CATEGORY', payload: cat })}

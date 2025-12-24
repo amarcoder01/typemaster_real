@@ -1,4 +1,4 @@
-import React from 'react';
+import { useMemo } from 'react';
 import { 
   Settings2, 
   Play, 
@@ -8,7 +8,8 @@ import {
   Hash, 
   RotateCcw,
   Languages,
-  Mic
+  Mic,
+  Timer
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -20,12 +21,14 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import type { 
   DifficultyLevel, 
-  AdaptiveDifficultyConfig 
+  AdaptiveDifficultyConfig,
+  PracticeMode
 } from '../types';
 import { 
   CATEGORIES, 
   getDifficultyEmoji 
 } from '../types';
+import { calculateTimeLimit, formatTimeDisplay } from '../utils/timeCalculation';
 
 interface DictationSetupPanelProps {
   // Current settings
@@ -37,6 +40,7 @@ interface DictationSetupPanelProps {
   openAIVoices: { id: string; name: string }[];
   currentRate: number;
   adaptiveDifficulty: AdaptiveDifficultyConfig;
+  practiceMode: PracticeMode;
   
   // Callbacks
   onDifficultyChange: (difficulty: DifficultyLevel) => void;
@@ -58,6 +62,13 @@ interface DictationSetupPanelProps {
  * Comprehensive setup panel shown before starting a dictation session.
  * Allows users to configure all aspects of their practice session.
  */
+// Average characters per sentence based on difficulty
+const AVG_CHARS_BY_DIFFICULTY: Record<DifficultyLevel, number> = {
+  easy: 50,
+  medium: 80,
+  hard: 120,
+};
+
 export function DictationSetupPanel({
   difficulty,
   speedLevel,
@@ -67,6 +78,7 @@ export function DictationSetupPanel({
   openAIVoices,
   currentRate,
   adaptiveDifficulty,
+  practiceMode,
   onDifficultyChange,
   onSpeedLevelChange,
   onCategoryChange,
@@ -78,12 +90,20 @@ export function DictationSetupPanel({
   isLoading = false,
 }: DictationSetupPanelProps) {
   
-  // Calculate estimated duration
-  // Assuming ~30 seconds per sentence (listening + typing + checking)
-  // const totalSeconds = sessionLength * 30;
-  // const durationDisplay = totalSeconds < 60 
-  //   ? `~${totalSeconds} sec` 
-  //   : `~${Math.ceil(totalSeconds / 60)} min`;
+  // Calculate estimated time limit for Challenge Mode
+  const estimatedTimeLimit = useMemo(() => {
+    if (practiceMode !== 'challenge') return null;
+    
+    // Estimate total characters based on difficulty and session length
+    const avgCharsPerSentence = AVG_CHARS_BY_DIFFICULTY[difficulty];
+    const estimatedTotalChars = avgCharsPerSentence * sessionLength;
+    
+    const result = calculateTimeLimit({ totalCharacters: estimatedTotalChars });
+    return {
+      formatted: formatTimeDisplay(result.timeLimitSeconds),
+      seconds: result.timeLimitSeconds,
+    };
+  }, [practiceMode, difficulty, sessionLength]);
 
   return (
     <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
@@ -288,6 +308,23 @@ export function DictationSetupPanel({
               <span className="text-muted-foreground">Voice Speed:</span>
               <span className="font-medium">{currentRate}x</span>
             </div>
+            {estimatedTimeLimit && (
+              <>
+                <Separator className="bg-primary/10" />
+                <div className="flex justify-between text-sm items-center">
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    <Timer className="w-3 h-3" />
+                    Time Limit:
+                  </span>
+                  <Badge variant="secondary" className="font-mono">
+                    {estimatedTimeLimit.formatted}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Based on {sessionLength} sentences at {difficulty} difficulty
+                </p>
+              </>
+            )}
             <Separator className="bg-primary/10" />
             <p className="text-xs text-muted-foreground leading-relaxed">
               Listen carefully to each sentence. Use <kbd className="bg-background px-1 rounded border">R</kbd> to replay audio and <kbd className="bg-background px-1 rounded border">H</kbd> for a visual hint if you get stuck.
