@@ -366,20 +366,15 @@ export function DictationProvider({ children }: DictationProviderProps) {
     dispatch({ type: 'SET_DIFFICULTY', payload: config.defaultDifficulty });
     dispatch({ type: 'SET_SPEED_LEVEL', payload: '0.8' });
     dispatch({ type: 'SET_SESSION_LENGTH', payload: 1 });
+    dispatch({ type: 'SET_SESSION_PROGRESS', payload: 0 }); // Reset progress for new session
+    dispatch({ type: 'SET_SESSION_COMPLETE', payload: false }); // Reset session complete flag
+    dispatch({ type: 'CLEAR_SESSION_HISTORY' }); // Clear previous session history
     dispatch({ type: 'CLEAR_SHOWN_SENTENCE_IDS' });
     dispatch({ type: 'RESET_TEST_STATE' });
     dispatch({ type: 'SET_SHOW_MODE_SELECTOR', payload: false });
     dispatch({ type: 'SET_IS_WAITING_TO_START', payload: true });
-    // Reset only challenge-specific counters, preserve aggregate stats for analytics
-    dispatch({
-      type: 'UPDATE_SESSION_STATS',
-      payload: {
-        challengeStreak: 0,
-        maxChallengeStreak: 0,
-        completedInTime: 0,
-        timedOut: 0,
-      },
-    });
+    // Reset session stats for fresh start
+    dispatch({ type: 'SET_SESSION_STATS', payload: { ...INITIAL_SESSION_STATS } });
   }, []);
   
   const beginSession = useCallback(() => {
