@@ -92,6 +92,7 @@ export function DictationSetupPanel({
   
   // Calculate estimated time limit for Challenge Mode
   const estimatedTimeLimit = useMemo(() => {
+    console.log('[DictationSetupPanel] practiceMode:', practiceMode, 'isChallenge:', practiceMode === 'challenge');
     if (practiceMode !== 'challenge') return null;
     
     // Estimate total characters based on difficulty and session length
@@ -99,6 +100,7 @@ export function DictationSetupPanel({
     const estimatedTotalChars = avgCharsPerSentence * sessionLength;
     
     const result = calculateTimeLimit({ totalCharacters: estimatedTotalChars });
+    console.log('[DictationSetupPanel] estimated time:', result.timeLimitSeconds, 'formatted:', formatTimeDisplay(result.timeLimitSeconds));
     return {
       formatted: formatTimeDisplay(result.timeLimitSeconds),
       seconds: result.timeLimitSeconds,
