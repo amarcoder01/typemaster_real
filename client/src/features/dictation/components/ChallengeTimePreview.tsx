@@ -23,11 +23,17 @@ function formatTimeLimit(ms: number): string {
   return `${seconds}s`;
 }
 
-function getDifficultyMultiplierLabel(difficulty: DifficultyLevel): string {
-  const multiplier = CHALLENGE_TIMING.DIFFICULTY_MULTIPLIERS[difficulty];
-  if (multiplier > 1) return '+50% time';
-  if (multiplier < 1) return '-25% time';
-  return 'Standard';
+function getDifficultyLabel(difficulty: DifficultyLevel): string {
+  switch (difficulty) {
+    case 'easy':
+      return 'Relaxed pace';
+    case 'medium':
+      return 'Standard pace';
+    case 'hard':
+      return 'Fast pace';
+    default:
+      return 'Standard pace';
+  }
 }
 
 export function ChallengeTimePreview({
@@ -57,7 +63,7 @@ export function ChallengeTimePreview({
     return null;
   }
 
-  const multiplierLabel = getDifficultyMultiplierLabel(difficulty);
+  const difficultyLabel = getDifficultyLabel(difficulty);
   const isEasy = difficulty === 'easy';
   const isHard = difficulty === 'hard';
 
@@ -91,7 +97,7 @@ export function ChallengeTimePreview({
             }`}
           >
             <Zap className="w-3 h-3 mr-1" />
-            {multiplierLabel}
+            {difficultyLabel}
           </Badge>
           {wordCount && (
             <Badge variant="secondary" className="text-xs">
