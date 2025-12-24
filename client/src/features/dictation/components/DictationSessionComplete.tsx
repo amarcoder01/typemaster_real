@@ -140,10 +140,10 @@ export function DictationSessionComplete({
           
           <div className="flex items-center gap-2">
             <Badge className="px-3 py-1 bg-purple-500/20 text-purple-400 border-purple-500/30">
-              🎧 Dictation Mode
+              Dictation Mode
             </Badge>
             <Badge variant="outline" className="px-3 py-1 bg-background/50 backdrop-blur">
-              {getSpeedLevelName(parseFloat(speedLevel))} Speed
+              Audio: {parseFloat(speedLevel).toFixed(1)}x
             </Badge>
           </div>
         </div>
