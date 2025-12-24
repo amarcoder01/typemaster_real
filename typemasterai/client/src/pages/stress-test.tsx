@@ -417,9 +417,12 @@ function StressTestContent() {
   const [lastBackspaceTime, setLastBackspaceTime] = useState(0);
   const [screenReaderAnnouncement, setScreenReaderAnnouncement] = useState('');
   const [isComposing, setIsComposing] = useState(false);
+  const [isTabHidden, setIsTabHidden] = useState(false);
+  const [corrections, setCorrections] = useState(0);
   const pendingInputValueRef = useRef<string | null>(null);
   const pendingInputRafRef = useRef<number | null>(null);
   const isClarityWindowRef = useRef(false);
+  const startTimeHighPrecisionRef = useRef<number | null>(null);
   const [chromaticOffset, setChromaticOffset] = useState({ r: 0, g: 0, b: 0 });
   const [realityWarp, setRealityWarp] = useState(0);
   const [textScrambleActive, setTextScrambleActive] = useState(false);
@@ -948,6 +951,7 @@ function StressTestContent() {
     
     setTypedText('');
     setErrors(0);
+    setCorrections(0);
     setCombo(0);
     setMaxCombo(0);
     maxComboRef.current = 0;
@@ -987,7 +991,9 @@ function StressTestContent() {
           isTestActiveRef.current = true;
           setIsStarted(true);
           setStartTime(Date.now());
+          startTimeHighPrecisionRef.current = performance.now();
           setTimeLeft(DIFFICULTY_CONFIGS[difficulty].duration);
+          setIsTabHidden(false);
           
           setTimeout(() => inputRef.current?.focus(), 50);
           return 0;
@@ -1005,30 +1011,52 @@ function StressTestContent() {
     return progress * 100;
   }, [config, startTime]);
 
+  // Filter zero-width and invisible Unicode characters that could be used to cheat
+  const sanitizeInput = useCallback((input: string): string => {
+    // Remove only true zero-width characters that could be injected to cheat:
+    // U+200B (zero-width space), U+200C (zero-width non-joiner), U+200D (zero-width joiner)
+    // U+FEFF (byte order mark), U+2060 (word joiner), U+180E (Mongolian vowel separator)
+    // Note: U+00AD (soft hyphen) is NOT removed as it could be legitimate
+    return input.replace(/[\u200B-\u200D\uFEFF\u2060\u180E]/g, '');
+  }, []);
+
   const processInput = useCallback((value: string) => {
     if (!isStarted || isFinished || !isTestActiveRef.current) return;
     
+    // Sanitize input - remove invisible characters
+    const sanitizedValue = sanitizeInput(value);
+    if (sanitizedValue !== value && inputRef.current) {
+      inputRef.current.value = sanitizedValue;
+    }
+    
     // Cap input at text length - don't allow typing beyond
-    if (value.length > currentText.length) {
+    if (sanitizedValue.length > currentText.length) {
       if (inputRef.current) inputRef.current.value = typedText;
       return;
     }
     
     // Handle backspace - allow deletion
-    if (value.length < typedText.length) {
-      typedTextRef.current = value;
-      setTypedText(value);
+    if (sanitizedValue.length < typedText.length) {
+      typedTextRef.current = sanitizedValue;
+      setTypedText(sanitizedValue);
+      return;
+    }
+    
+    // Handle case where input becomes empty (delete all)
+    if (sanitizedValue.length === 0) {
+      typedTextRef.current = '';
+      setTypedText('');
       return;
     }
     
     // Get the newly typed character
-    const lastChar = value[value.length - 1];
+    const lastChar = sanitizedValue[sanitizedValue.length - 1];
     const expectedChar = currentText[typedText.length];
     const isCorrect = lastChar === expectedChar;
     
     // Always advance cursor - store the actual typed character
-    typedTextRef.current = value;
-    setTypedText(value);
+    typedTextRef.current = sanitizedValue;
+    setTypedText(sanitizedValue);
     
     if (isCorrect) {
       playSound('type');
@@ -1049,11 +1077,11 @@ function StressTestContent() {
       });
       
       // Check if completed all characters correctly
-      if (value.length === currentText.length) {
+      if (sanitizedValue.length === currentText.length) {
         // Count total errors for final check
         let correctCount = 0;
-        for (let i = 0; i < value.length; i++) {
-          if (value[i] === currentText[i]) correctCount++;
+        for (let i = 0; i < sanitizedValue.length; i++) {
+          if (sanitizedValue[i] === currentText[i]) correctCount++;
         }
         // Finish if all characters match
         if (correctCount === currentText.length) {
@@ -1076,15 +1104,15 @@ function StressTestContent() {
     }
     
     // Check if reached end of text (regardless of accuracy)
-    if (value.length >= currentText.length) {
+    if (sanitizedValue.length >= currentText.length) {
       let correctCount = 0;
       for (let i = 0; i < currentText.length; i++) {
-        if (value[i] === currentText[i]) correctCount++;
+        if (sanitizedValue[i] === currentText[i]) correctCount++;
       }
       // Finish test - success only if 100% accuracy
       finishTestRef.current(correctCount === currentText.length);
     }
-  }, [isStarted, isFinished, currentText, typedText, playSound, prefersReducedMotion, selectedDifficulty, config, stressLevel, safeTimeout]);
+  }, [isStarted, isFinished, currentText, typedText, playSound, prefersReducedMotion, selectedDifficulty, config, stressLevel, safeTimeout, sanitizeInput]);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (isComposing) return; // Don't process during IME composition
@@ -1130,11 +1158,23 @@ function StressTestContent() {
   }, [isStarted, isFinished, playSound, announce]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Block Tab key
     if (e.key === 'Tab') {
       e.preventDefault();
       return;
     }
     
+    // Block specific Ctrl/Cmd shortcuts that could be used to cheat
+    // Only block when NOT combined with Shift or Alt (to preserve IME and navigation shortcuts)
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+      const blockedKeys = ['a', 'c', 'v', 'x', 'z', 'y']; // select all, copy, paste, cut, undo, redo
+      if (blockedKeys.includes(e.key.toLowerCase())) {
+        e.preventDefault();
+        return;
+      }
+    }
+    
+    // Escape to cancel test
     if (e.key === 'Escape' && isStarted && !isFinished) {
       e.preventDefault();
       finishTestRef.current(false);
@@ -1142,9 +1182,12 @@ function StressTestContent() {
       return;
     }
     
+    // Track backspace for visual feedback and corrections count
     if (e.key === 'Backspace') {
       setLastBackspaceTime(Date.now());
-      if (typedText.length === 0) {
+      if (typedText.length > 0) {
+        setCorrections((prev) => prev + 1);
+      } else {
         e.preventDefault();
         playSound('error');
       }
@@ -1166,8 +1209,49 @@ function StressTestContent() {
   const handleFocusClick = useCallback(() => {
     isFocusedRef.current = true;
     setIsFocused(true);
+    setIsTabHidden(false);
     inputRef.current?.focus();
   }, []);
+
+  // Prevent right-click context menu during test
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    if (isStarted && !isFinished) {
+      e.preventDefault();
+    }
+  }, [isStarted, isFinished]);
+
+  // Prevent text selection on the target text area
+  const handleSelectStart = useCallback((e: Event) => {
+    if (isStarted && !isFinished) {
+      e.preventDefault();
+    }
+  }, [isStarted, isFinished]);
+
+  // Page Visibility API - detect tab switching during test and pause
+  useEffect(() => {
+    if (!isStarted || isFinished) return;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden && isTestActiveRef.current) {
+        // Pause by showing the focus overlay - user must click to resume
+        isFocusedRef.current = false;
+        setIsFocused(false);
+        setIsTabHidden(true);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isStarted, isFinished]);
+
+  // Prevent text selection on container during test
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !isStarted || isFinished) return;
+
+    container.addEventListener('selectstart', handleSelectStart);
+    return () => container.removeEventListener('selectstart', handleSelectStart);
+  }, [isStarted, isFinished, handleSelectStart]);
 
   useEffect(() => {
     if (!isStarted || isFinished) return;
@@ -1626,6 +1710,7 @@ function StressTestContent() {
     setCountdown(0);
     setTypedText('');
     setErrors(0);
+    setCorrections(0);
     setCombo(0);
     setMaxCombo(0);
     maxComboRef.current = 0;
@@ -2177,7 +2262,8 @@ function StressTestContent() {
       <div
         ref={containerRef}
         onClick={() => { if (isFocused) inputRef.current?.focus(); }}
-        className={`min-h-screen flex items-center justify-center p-4 transition-all duration-100 cursor-text ${
+        onContextMenu={handleContextMenu}
+        className={`min-h-screen flex items-center justify-center p-4 transition-all duration-100 cursor-text select-none ${
           backgroundFlash ? 'bg-red-500/30' : 'bg-background'
         }`}
         style={{
