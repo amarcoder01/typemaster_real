@@ -122,7 +122,7 @@ function DictationModeContent() {
   const [lastResultId, setLastResultId] = useState<number | null>(null);
   const [certificateData, setCertificateData] = useState<any>(null);
   
-  // Estimated time limit for Challenge Mode preview
+  // Estimated time limit for Challenge Mode preview (PER SENTENCE)
   // Uses the same WPM-based formula as the actual Challenge Mode timer (CHALLENGE_TIMING)
   // Note: This is an ESTIMATE - actual time depends on real sentence length
   const estimatedTimeLimitMs = useMemo(() => {
@@ -139,14 +139,11 @@ function DictationModeContent() {
     
     // Use shared CHALLENGE_TIMING config to stay in sync with runtime timer
     const config = CHALLENGE_TIMING.DIFFICULTY_CONFIG[state.difficulty];
-    const estimatedTotalWords = avgWordsPerSentence[state.difficulty] * state.sessionLength;
+    // Calculate time for a SINGLE sentence (not total session)
+    const estimatedWordsPerSentence = avgWordsPerSentence[state.difficulty];
     
-    // Apply a slight challenge factor (90%) to make preview feel appropriately tight
-    // This sets user expectation that timing will be snappy
-    const challengeFactor = 0.90;
-    
-    // Formula: Time = (Words / TargetWPM) * Buffer * ChallengeMultiplier * 60s * 1000ms
-    const rawTimeMs = (estimatedTotalWords / config.targetWPM) * config.buffer * challengeFactor * 60 * 1000;
+    // Formula: Time = (Words / TargetWPM) * Buffer * 60s * 1000ms
+    const rawTimeMs = (estimatedWordsPerSentence / config.targetWPM) * config.buffer * 60 * 1000;
     
     // Use shared min/max bounds
     const clampedTime = Math.max(
@@ -155,7 +152,7 @@ function DictationModeContent() {
     );
     
     return Math.round(clampedTime);
-  }, [state.practiceMode, state.difficulty, state.sessionLength]);
+  }, [state.practiceMode, state.difficulty]);
   
   // Refs for cleanup and prefetch
   const isMountedRef = useRef(true);
