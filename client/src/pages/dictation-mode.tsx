@@ -123,23 +123,29 @@ function DictationModeContent() {
   
   // Estimated time limit for Challenge Mode preview
   // Uses the same WPM-based formula as the actual Challenge Mode timer (CHALLENGE_TIMING)
-  // Note: This is an ESTIMATE since we don't have actual sentences yet
+  // Note: This is an ESTIMATE - actual time depends on real sentence length
   const estimatedTimeLimitMs = useMemo(() => {
     if (state.practiceMode !== 'challenge') return null;
     
-    // Average words per sentence by difficulty (based on typical sentence analysis)
+    // Realistic average words per sentence by difficulty (based on actual dictation content)
+    // Easy sentences are shorter and simpler
+    // Hard sentences are longer with complex vocabulary
     const avgWordsPerSentence: Record<DifficultyLevel, number> = {
-      easy: 8,    // ~40 chars / 5 chars per word
-      medium: 14, // ~70 chars / 5 chars per word
-      hard: 22,   // ~110 chars / 5 chars per word
+      easy: 10,   // Short, simple sentences (~50 chars)
+      medium: 16, // Moderate complexity sentences (~80 chars)
+      hard: 24,   // Long, complex sentences (~120 chars)
     };
     
     // Use shared CHALLENGE_TIMING config to stay in sync with runtime timer
     const config = CHALLENGE_TIMING.DIFFICULTY_CONFIG[state.difficulty];
     const estimatedTotalWords = avgWordsPerSentence[state.difficulty] * state.sessionLength;
     
-    // Same formula: Time = (Words / TargetWPM) * Buffer * 60 seconds * 1000 (to ms)
-    const rawTimeMs = (estimatedTotalWords / config.targetWPM) * config.buffer * 60 * 1000;
+    // Apply a slight challenge factor (90%) to make preview feel appropriately tight
+    // This sets user expectation that timing will be snappy
+    const challengeFactor = 0.90;
+    
+    // Formula: Time = (Words / TargetWPM) * Buffer * ChallengeMultiplier * 60s * 1000ms
+    const rawTimeMs = (estimatedTotalWords / config.targetWPM) * config.buffer * challengeFactor * 60 * 1000;
     
     // Use shared min/max bounds
     const clampedTime = Math.max(
