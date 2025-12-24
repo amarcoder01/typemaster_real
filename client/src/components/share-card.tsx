@@ -218,22 +218,13 @@ export function ShareCard({ wpm, accuracy, mode, language, username, freestyle =
       ctx.font = "12px 'DM Sans', sans-serif";
       ctx.fillText("Accuracy", 140, statsY + 25);
 
-      // Middle stat: show mode label if provided, otherwise duration
+      // Middle stat: always show duration (mode badge is in header if present)
       ctx.font = "bold 20px 'JetBrains Mono', monospace";
       ctx.fillStyle = "#a855f7";
-      if (modeLabel) {
-        // Truncate long mode labels for the card
-        const shortLabel = modeLabel.replace(" Mode", "");
-        ctx.fillText(shortLabel, canvas.width / 2, statsY + 8);
-        ctx.fillStyle = "#64748b";
-        ctx.font = "12px 'DM Sans', sans-serif";
-        ctx.fillText("Mode", canvas.width / 2, statsY + 25);
-      } else {
-        ctx.fillText(modeDisplay, canvas.width / 2, statsY + 8);
-        ctx.fillStyle = "#64748b";
-        ctx.font = "12px 'DM Sans', sans-serif";
-        ctx.fillText("Duration", canvas.width / 2, statsY + 25);
-      }
+      ctx.fillText(modeDisplay, canvas.width / 2, statsY + 8);
+      ctx.fillStyle = "#64748b";
+      ctx.font = "12px 'DM Sans', sans-serif";
+      ctx.fillText("Duration", canvas.width / 2, statsY + 25);
 
       ctx.font = "bold 20px 'JetBrains Mono', monospace";
       ctx.fillStyle = "#f59e0b";
