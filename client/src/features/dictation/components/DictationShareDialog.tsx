@@ -365,7 +365,7 @@ export function DictationShareDialog({
                   Sign in to generate a personalized certificate with your name and achievements!
                 </p>
                 <a 
-                  href="/auth" 
+                  href="/login" 
                   className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-cyan-500 text-white font-bold rounded-xl hover:opacity-90 transition-opacity shadow-lg shadow-purple-500/25"
                   data-testid="button-login-for-certificate"
                 >

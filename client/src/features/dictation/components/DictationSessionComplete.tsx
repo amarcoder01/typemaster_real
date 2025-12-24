@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import {
   ArrowLeft,
   Award,
@@ -79,8 +79,17 @@ export function DictationSessionComplete({
   onSessionLengthChange,
   onViewCertificate,
 }: DictationSessionCompleteProps) {
+  const [, setLocation] = useLocation();
   const [showCustomLength, setShowCustomLength] = useState(false);
   const [customLengthInput, setCustomLengthInput] = useState('');
+  
+  const handleCertificateClick = () => {
+    if (!username) {
+      setLocation('/login');
+    } else if (onViewCertificate) {
+      onViewCertificate();
+    }
+  };
   
   const avgWpm = sessionStats.count > 0 ? Math.round(sessionStats.totalWpm / sessionStats.count) : 0;
   const avgAccuracy = sessionStats.count > 0 ? Math.round(sessionStats.totalAccuracy / sessionStats.count) : 0;
@@ -350,16 +359,14 @@ export function DictationSessionComplete({
 
               {/* Action Buttons */}
               <div className="flex gap-3 w-full sm:w-auto flex-wrap justify-center sm:justify-end">
-                {username && onViewCertificate && (
-                  <button
-                    onClick={onViewCertificate}
-                    className="flex-1 sm:flex-none py-3 px-5 bg-gradient-to-r from-purple-500 to-cyan-500 text-white font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
-                    data-testid="button-view-certificate"
-                  >
-                    <Award className="w-5 h-5" />
-                    Get Certificate
-                  </button>
-                )}
+                <button
+                  onClick={handleCertificateClick}
+                  className="flex-1 sm:flex-none py-3 px-5 bg-gradient-to-r from-purple-500 to-cyan-500 text-white font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                  data-testid="button-view-certificate"
+                >
+                  <Award className="w-5 h-5" />
+                  Get Certificate
+                </button>
                 <Button onClick={onNewSession} size="lg" className="flex-1 sm:flex-none shadow-lg shadow-primary/20">
                   <RotateCcw className="w-4 h-4 mr-2" />
                   New Session
