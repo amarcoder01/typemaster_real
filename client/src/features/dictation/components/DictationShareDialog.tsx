@@ -168,7 +168,7 @@ export function DictationShareDialog({
           <TabsList className="grid w-full grid-cols-4 mb-4">
             <TabsTrigger value="quick" data-testid="tab-quick-share">Quick Share</TabsTrigger>
             <TabsTrigger value="card" data-testid="tab-visual-card">Visual Card</TabsTrigger>
-            {username && <TabsTrigger value="certificate" data-testid="tab-certificate">Certificate</TabsTrigger>}
+            <TabsTrigger value="certificate" data-testid="tab-certificate">Certificate</TabsTrigger>
             <TabsTrigger value="challenge" data-testid="tab-challenge">Challenge</TabsTrigger>
           </TabsList>
           
@@ -354,17 +354,35 @@ export function DictationShareDialog({
           </TabsContent>
           
           {/* Certificate Tab */}
-          {username && (
-            <TabsContent value="certificate" className="space-y-4">
-              <div className="text-center space-y-2 mb-4">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-yellow-500/20 to-orange-500/20 border-2 border-yellow-500/30 mb-2">
-                  <Award className="w-8 h-8 text-yellow-400" />
+          <TabsContent value="certificate" className="space-y-4">
+            {!username ? (
+              <div className="text-center space-y-4 py-8">
+                <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-yellow-500/20 to-orange-500/20 border-2 border-yellow-500/30 mb-2">
+                  <Award className="w-10 h-10 text-yellow-400" />
                 </div>
-                <h3 className="text-lg font-bold">Share Your Certificate</h3>
-                <p className="text-sm text-muted-foreground">
-                  Show off your official TypeMasterAI Dictation Certificate!
+                <h3 className="text-xl font-bold">Unlock Your Certificate</h3>
+                <p className="text-muted-foreground max-w-sm mx-auto">
+                  Sign in to generate a personalized certificate with your name and achievements!
                 </p>
+                <a 
+                  href="/auth" 
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-cyan-500 text-white font-bold rounded-xl hover:opacity-90 transition-opacity shadow-lg shadow-purple-500/25"
+                  data-testid="button-login-for-certificate"
+                >
+                  Sign In to Get Certificate
+                </a>
               </div>
+            ) : (
+              <>
+                <div className="text-center space-y-2 mb-4">
+                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-yellow-500/20 to-orange-500/20 border-2 border-yellow-500/30 mb-2">
+                    <Award className="w-8 h-8 text-yellow-400" />
+                  </div>
+                  <h3 className="text-lg font-bold">Share Your Certificate</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Show off your official TypeMasterAI Dictation Certificate!
+                  </p>
+                </div>
               
               {/* Certificate Stats Preview */}
               <div className="p-4 bg-gradient-to-br from-yellow-500/10 via-orange-500/10 to-purple-500/10 rounded-xl border border-yellow-500/20">
@@ -575,17 +593,18 @@ export function DictationShareDialog({
               <div className="space-y-2">
                 <div className="p-3 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-lg border border-blue-500/20">
                   <p className="text-xs text-center text-muted-foreground">
-                    📱 <span className="font-medium text-foreground">Mobile:</span> Use "Share Certificate with Image" to attach the certificate directly!
+                    Mobile: Use "Share Certificate with Image" to attach the certificate directly!
                   </p>
                 </div>
                 <div className="p-3 bg-gradient-to-r from-green-500/10 to-emerald-500/10 rounded-lg border border-green-500/20">
                   <p className="text-xs text-center text-muted-foreground">
-                    💻 <span className="font-medium text-foreground">Desktop:</span> Use "Copy Image" then paste directly into Twitter, LinkedIn, Discord, or any social media!
+                    Desktop: Use "Copy Image" then paste directly into Twitter, LinkedIn, Discord, or any social media!
                   </p>
                 </div>
               </div>
-            </TabsContent>
-          )}
+              </>
+            )}
+          </TabsContent>
           
           {/* Visual Card Tab */}
           <TabsContent value="card" className="space-y-4">
