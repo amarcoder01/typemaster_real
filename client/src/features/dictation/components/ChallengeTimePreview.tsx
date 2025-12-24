@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface ChallengeTimePreviewProps {
-  timeLimitMs: number | null;
+  perSentenceMs: number | null;
+  totalSessionMs: number | null;
   isLoading?: boolean;
 }
 
@@ -19,7 +20,8 @@ function formatTimeLimit(ms: number): string {
 }
 
 export function ChallengeTimePreview({
-  timeLimitMs,
+  perSentenceMs,
+  totalSessionMs,
   isLoading = false,
 }: ChallengeTimePreviewProps) {
   if (isLoading) {
@@ -39,7 +41,7 @@ export function ChallengeTimePreview({
     );
   }
 
-  if (timeLimitMs === null) {
+  if (perSentenceMs === null || totalSessionMs === null) {
     return null;
   }
 
@@ -48,21 +50,31 @@ export function ChallengeTimePreview({
       <CardHeader className="pb-2">
         <CardTitle className="text-base flex items-center gap-2">
           <Clock className="w-4 h-4 text-orange-500" />
-          Time Per Sentence
+          Time Limits
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2">
-        <div className="text-center">
-          <div className="text-3xl font-bold text-orange-500">
-            {formatTimeLimit(timeLimitMs)}
+      <CardContent className="space-y-3">
+        <div className="flex justify-around gap-4">
+          <div className="text-center">
+            <div className="text-2xl font-bold text-orange-500">
+              {formatTimeLimit(perSentenceMs)}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              per sentence
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            estimated time for each sentence
-          </p>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-muted-foreground">
+              {formatTimeLimit(totalSessionMs)}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              total session
+            </p>
+          </div>
         </div>
         
         <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
-          Timer starts after audio finishes
+          Timer resets for each sentence after audio finishes
         </p>
       </CardContent>
     </Card>

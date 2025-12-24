@@ -122,11 +122,11 @@ function DictationModeContent() {
   const [lastResultId, setLastResultId] = useState<number | null>(null);
   const [certificateData, setCertificateData] = useState<any>(null);
   
-  // Estimated time limit for Challenge Mode preview (PER SENTENCE)
+  // Estimated time limits for Challenge Mode preview
   // Uses the same WPM-based formula as the actual Challenge Mode timer (CHALLENGE_TIMING)
-  // Note: This is an ESTIMATE - actual time depends on real sentence length
-  const estimatedTimeLimitMs = useMemo(() => {
-    if (state.practiceMode !== 'challenge') return null;
+  // Note: These are ESTIMATES - actual time depends on real sentence length
+  const { estimatedPerSentenceMs, estimatedTotalMs } = useMemo(() => {
+    if (state.practiceMode !== 'challenge') return { estimatedPerSentenceMs: null, estimatedTotalMs: null };
     
     // Realistic average words per sentence by difficulty (based on actual dictation content)
     // Easy sentences are shorter and simpler
@@ -139,20 +139,25 @@ function DictationModeContent() {
     
     // Use shared CHALLENGE_TIMING config to stay in sync with runtime timer
     const config = CHALLENGE_TIMING.DIFFICULTY_CONFIG[state.difficulty];
-    // Calculate time for a SINGLE sentence (not total session)
-    const estimatedWordsPerSentence = avgWordsPerSentence[state.difficulty];
+    const wordsPerSentence = avgWordsPerSentence[state.difficulty];
     
     // Formula: Time = (Words / TargetWPM) * Buffer * 60s * 1000ms
-    const rawTimeMs = (estimatedWordsPerSentence / config.targetWPM) * config.buffer * 60 * 1000;
+    const perSentenceMs = (wordsPerSentence / config.targetWPM) * config.buffer * 60 * 1000;
     
-    // Use shared min/max bounds
-    const clampedTime = Math.max(
+    // Clamp per-sentence time
+    const clampedPerSentence = Math.max(
       CHALLENGE_TIMING.MIN_TIME_MS,
-      Math.min(CHALLENGE_TIMING.MAX_TIME_MS, rawTimeMs)
+      Math.min(CHALLENGE_TIMING.MAX_TIME_MS, perSentenceMs)
     );
     
-    return Math.round(clampedTime);
-  }, [state.practiceMode, state.difficulty]);
+    // Total session time = per-sentence time * number of sentences
+    const totalMs = clampedPerSentence * state.sessionLength;
+    
+    return {
+      estimatedPerSentenceMs: Math.round(clampedPerSentence),
+      estimatedTotalMs: Math.round(totalMs),
+    };
+  }, [state.practiceMode, state.difficulty, state.sessionLength]);
   
   // Refs for cleanup and prefetch
   const isMountedRef = useRef(true);
@@ -1144,7 +1149,8 @@ function DictationModeContent() {
             currentRate={audio.currentRate}
             adaptiveDifficulty={state.adaptiveDifficulty}
             isChallenge={state.practiceMode === 'challenge'}
-            challengeTimeLimitMs={estimatedTimeLimitMs}
+            challengePerSentenceMs={estimatedPerSentenceMs}
+            challengeTotalSessionMs={estimatedTotalMs}
             isPreviewLoading={false}
             onDifficultyChange={(diff) => dispatch({ type: 'SET_DIFFICULTY', payload: diff })}
             onSpeedLevelChange={(speed) => dispatch({ type: 'SET_SPEED_LEVEL', payload: speed })}
