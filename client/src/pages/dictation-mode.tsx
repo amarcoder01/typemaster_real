@@ -1196,14 +1196,14 @@ function DictationModeContent() {
   if (state.isZenMode && state.practiceMode === 'focus') {
     return (
       <div 
-        className="fixed inset-0 z-50 flex flex-col items-center justify-center p-8"
+        className="fixed inset-0 z-50 flex flex-col items-center overflow-y-auto p-8"
         style={{ background: zenThemeConfig.gradient }}
       >
         {/* Exit Zen Mode button */}
         <Button
           variant="ghost"
           size="icon"
-          className="absolute top-4 right-4"
+          className="absolute top-4 right-4 z-10"
           style={{ color: zenThemeConfig.textColor }}
           onClick={actions.exitZenMode}
           data-testid="button-exit-zen"
@@ -1212,7 +1212,7 @@ function DictationModeContent() {
         </Button>
         
         {/* Zen Mode content */}
-        <div className="w-full max-w-2xl space-y-8">
+        <div className="w-full max-w-2xl space-y-6 my-auto py-4">
           {/* Encouragement message */}
           <p 
             className="text-center text-lg italic opacity-80"
