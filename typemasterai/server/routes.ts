@@ -2333,6 +2333,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (availableRace) {
         race = availableRace;
+        
+        // Check if the existing race has bots - if not, add them
+        console.log(`[Quick Match] Joining existing race ${race.id}...`);
+        const existingParticipants = await storage.getRaceParticipants(race.id);
+        const existingBots = existingParticipants.filter(p => p.isBot === 1);
+        console.log(`[Quick Match] Existing race ${race.id} has ${existingParticipants.length} participants, ${existingBots.length} bots`);
+        if (existingBots.length === 0) {
+          try {
+            const botCount = 3;
+            const addedBots = await botService.addBotsToRace(race.id, botCount);
+            console.log(`[Quick Match] Added ${addedBots.length} bots to existing race ${race.id}: ${addedBots.map(b => b.username).join(', ')}`);
+          } catch (botError: any) {
+            console.error(`[Quick Match] Failed to add bots to existing race ${race.id}:`, botError);
+          }
+        }
       } else {
         // For timed races, generate more content
         if (effectiveRaceType === "timed") {
@@ -2375,6 +2390,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           maxPlayers: 8, // Allow up to 8 players, bots will be replaced when humans join
           isPrivate: 0,
         });
+
+        // Add bots to the new race so player can start immediately
+        console.log(`[Quick Match] Creating new race ${race.id}, adding 3 bots...`);
+        try {
+          const botCount = 3;
+          const addedBots = await botService.addBotsToRace(race.id, botCount);
+          console.log(`[Quick Match] Added ${addedBots.length} bots to new race ${race.id}: ${addedBots.map(b => b.username).join(', ')}`);
+        } catch (botError: any) {
+          console.error(`[Quick Match] Failed to add bots to race ${race.id}:`, botError);
+        }
       }
 
       const participants = await storage.getRaceParticipants(race.id);
@@ -2420,6 +2445,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
       }
+
+      // Update race cache with all participants (including bots)
+      // This ensures handleReady sees the bots when checking if race can start
+      const { raceCache } = await import("./race-cache");
+      const allParticipants = await storage.getRaceParticipants(race.id);
+      raceCache.setRace(race, allParticipants);
+      console.log(`[Quick Match] Updated cache with ${allParticipants.length} participants for race ${race.id}`);
 
       res.json({ race, participant });
     } catch (error: any) {

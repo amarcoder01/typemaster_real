@@ -1638,12 +1638,16 @@ export default function RacePage() {
               description: message.message || "Only the host can do this",
               duration: 3000
             });
+            setIsStarting(false);
+            setIsTransitioning(false);
             break;
           case "NOT_ENOUGH_PLAYERS":
             toast.warning("Not enough players", { 
               description: message.message || "Need at least 2 players to start",
               duration: 4000
             });
+            setIsStarting(false);
+            setIsTransitioning(false);
             break;
           case "PLAYERS_NOT_READY":
             toast.warning("Players not ready", { 
