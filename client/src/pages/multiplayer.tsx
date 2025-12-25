@@ -404,10 +404,10 @@ export default function MultiplayerPage() {
                         <SelectValue placeholder="Select duration" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="30">30 seconds</SelectItem>
-                        <SelectItem value="60">1 minute</SelectItem>
-                        <SelectItem value="90">90 seconds</SelectItem>
-                        <SelectItem value="120">2 minutes</SelectItem>
+                        <SelectItem value="30">0:30 (30 sec)</SelectItem>
+                        <SelectItem value="60">1:00 (1 min)</SelectItem>
+                        <SelectItem value="90">1:30 (1 min 30 sec)</SelectItem>
+                        <SelectItem value="120">2:00 (2 min)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -519,10 +519,10 @@ export default function MultiplayerPage() {
                         <SelectValue placeholder="Select duration" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="30">30 seconds - Sprint</SelectItem>
-                        <SelectItem value="60">1 minute - Standard</SelectItem>
-                        <SelectItem value="90">90 seconds - Extended</SelectItem>
-                        <SelectItem value="120">2 minutes - Marathon</SelectItem>
+                        <SelectItem value="30">0:30 - Sprint (30 sec)</SelectItem>
+                        <SelectItem value="60">1:00 - Standard (1 min)</SelectItem>
+                        <SelectItem value="90">1:30 - Extended (1 min 30 sec)</SelectItem>
+                        <SelectItem value="120">2:00 - Marathon (2 min)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
