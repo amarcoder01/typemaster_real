@@ -733,10 +733,7 @@ class RaceWebSocketServer {
       }
     }
     
-    if (!race || race.status !== "waiting") {
-      console.log(`[WS] handleReady: Race ${raceId} is not in waiting status (current: ${race?.status})`);
-      return;
-    }
+    if (!race || race.status !== "waiting") return;
 
     // Duration is already set when room was created - no need to update here
 
@@ -745,28 +742,17 @@ class RaceWebSocketServer {
     const connectedClients = Array.from(raceRoom.clients.values());
     const connectedHumans = connectedClients.filter(c => !c.isBot);
     
-    // Check if there are bots in the race (from DB participants)
-    const botParticipants = participants.filter(p => p.isBot === 1);
-    const hasBots = botParticipants.length > 0;
+    // Minimum 2 human players required for multiplayer race (like TypeRacer)
+    const requiredPlayers = 2;
     
-    console.log(`[WS] handleReady: Race ${raceId} has ${participants.length} participants (bots: ${botParticipants.length}, connected humans: ${connectedHumans.length})`);
-    
-    // Minimum players required:
-    // - With bots: 1 human can start alone (racing against bots)
-    // - Without bots: 2 humans required (like TypeRacer)
-    const requiredHumans = hasBots ? 1 : 2;
-    
-    if (connectedHumans.length < requiredHumans) {
+    if (connectedHumans.length < requiredPlayers) {
       // Not enough connected human players
       const client = raceRoom.clients.get(participantId);
       if (client && client.ws.readyState === WebSocket.OPEN) {
-        const needed = requiredHumans - connectedHumans.length;
-        const message = hasBots 
-          ? "No human players connected. Please reconnect and try again."
-          : `Need ${needed} more player${needed > 1 ? 's' : ''} to start. Share your room code with friends!`;
+        const needed = requiredPlayers - connectedHumans.length;
         client.ws.send(JSON.stringify({
           type: "error",
-          message,
+          message: `Need ${needed} more player${needed > 1 ? 's' : ''} to start. Share your room code with friends!`,
           code: "NOT_ENOUGH_PLAYERS"
         }));
       }
