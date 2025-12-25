@@ -1008,6 +1008,29 @@ class RaceWebSocketServer {
       raceCache.setRace(race, participants);
     }
 
+    // Add bots to fill the race if it's a public race and has fewer than desired players
+    const humanCount = participants.filter(p => p.isBot !== 1).length;
+    const minBotsToAdd = 2; // Minimum bots to add for competitive racing
+    const maxBotsToAdd = Math.min(race.maxPlayers - participants.length, 4); // Max 4 bots, respecting max players
+    
+    if (race.isPrivate === 0 && maxBotsToAdd > 0) {
+      const botsToAdd = Math.max(minBotsToAdd, maxBotsToAdd);
+      const actualBotsToAdd = Math.min(botsToAdd, race.maxPlayers - participants.length);
+      
+      if (actualBotsToAdd > 0) {
+        console.log(`[WS] Adding ${actualBotsToAdd} bots to race ${raceId} (${humanCount} humans, ${participants.length} total)`);
+        try {
+          const newBots = await botService.addBotsToRace(raceId, actualBotsToAdd);
+          participants = [...participants, ...newBots];
+          // Update cache with new participants
+          raceCache.setRace(race, participants);
+          console.log(`[WS] Added ${newBots.length} bots: ${newBots.map(b => b.username).join(', ')}`);
+        } catch (error) {
+          console.error(`[WS] Failed to add bots to race ${raceId}:`, error);
+        }
+      }
+    }
+
     raceCache.updateRaceStatus(raceId, "countdown");
 
     this.broadcastToRace(raceId, {
