@@ -516,6 +516,9 @@ class RaceWebSocketServer {
       case "rematch":
         await this.handleRematch(ws, message);
         break;
+      case "add_bots":
+        await this.handleAddBots(ws, message);
+        break;
       default:
         console.warn("Unknown message type:", message.type);
     }
@@ -895,6 +898,99 @@ class RaceWebSocketServer {
     });
 
     console.log(`[WS] Room ${raceId} ${locked ? 'locked' : 'unlocked'} by host`);
+  }
+
+  private async handleAddBots(ws: WebSocket, message: any) {
+    const { raceId, participantId, botCount } = message;
+    const raceRoom = this.races.get(raceId);
+    if (!raceRoom) {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Race room not found",
+        code: "ROOM_NOT_FOUND"
+      }));
+      return;
+    }
+
+    // Only host can add bots
+    if (raceRoom.hostParticipantId !== participantId) {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Only the host can add bots",
+        code: "NOT_HOST"
+      }));
+      return;
+    }
+
+    // Get current race state
+    let cachedRace = raceCache.getRace(raceId);
+    let race;
+    let participants;
+
+    if (cachedRace) {
+      race = cachedRace.race;
+      participants = cachedRace.participants;
+    } else {
+      race = await storage.getRace(raceId);
+      if (!race) {
+        ws.send(JSON.stringify({
+          type: "error",
+          message: "Race not found",
+          code: "RACE_NOT_FOUND"
+        }));
+        return;
+      }
+      participants = await storage.getRaceParticipants(raceId);
+    }
+
+    // Can only add bots while waiting
+    if (race.status !== "waiting") {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Can only add bots while the race is waiting to start",
+        code: "RACE_NOT_WAITING"
+      }));
+      return;
+    }
+
+    // Check how many slots are available
+    const currentCount = participants.length;
+    const availableSlots = race.maxPlayers - currentCount;
+    const botsToAdd = Math.min(botCount || 1, availableSlots);
+
+    if (botsToAdd <= 0) {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Race is full, cannot add more players",
+        code: "RACE_FULL"
+      }));
+      return;
+    }
+
+    try {
+      // Add bots using the bot service
+      const newBots = await botService.addBotsToRace(raceId, botsToAdd);
+      
+      // Update the cache with new participants
+      const updatedParticipants = await storage.getRaceParticipants(raceId);
+      raceCache.updateParticipants(raceId, updatedParticipants);
+
+      // Broadcast to all clients that bots have been added
+      this.broadcastToRace(raceId, {
+        type: "bots_added",
+        bots: newBots,
+        participants: updatedParticipants,
+      });
+
+      console.log(`[WS] Added ${newBots.length} bots to race ${raceId}: ${newBots.map(b => b.username).join(', ')}`);
+    } catch (error) {
+      console.error(`[WS] Failed to add bots to race ${raceId}:`, error);
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Failed to add bots",
+        code: "BOT_ADD_FAILED"
+      }));
+    }
   }
 
   private async handleRematch(ws: WebSocket, message: any) {

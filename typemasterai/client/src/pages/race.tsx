@@ -1434,8 +1434,14 @@ export default function RacePage() {
         }
         break;
       case "bots_added":
-        fetchRaceData();
-        toast.info("More players joined!", { duration: 2000 });
+        if (message.participants) {
+          setParticipants(message.participants);
+        } else {
+          fetchRaceData();
+        }
+        if (message.bots && message.bots.length > 0) {
+          toast.info(`${message.bots.length} bot${message.bots.length > 1 ? 's' : ''} added to the race!`, { duration: 2000 });
+        }
         break;
       case "countdown_start":
         setIsStarting(false);
