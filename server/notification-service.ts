@@ -64,7 +64,7 @@ export class NotificationService {
    */
   private cleanupDedupeCache(): void {
     const now = Date.now();
-    for (const [key, timestamp] of Array.from(this.recentNotifications.entries())) {
+    for (const [key, timestamp] of this.recentNotifications.entries()) {
       if (now - timestamp > this.DEDUPE_WINDOW_MS) {
         this.recentNotifications.delete(key);
       }

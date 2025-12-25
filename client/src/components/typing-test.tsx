@@ -799,7 +799,7 @@ export default function TypingTest() {
 
   const getCertificateCanvas = (): HTMLCanvasElement | null => {
     // Try to get the canvas from the CertificateGenerator component
-    const canvasElements = Array.from(document.querySelectorAll('canvas'));
+    const canvasElements = document.querySelectorAll('canvas');
     for (const canvas of canvasElements) {
       // Check if it's the certificate canvas (it has specific dimensions)
       if (canvas.width === 1200 && canvas.height === 800) {

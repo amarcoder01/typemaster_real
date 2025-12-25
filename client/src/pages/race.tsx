@@ -447,7 +447,7 @@ function RaceChat({
 
   return (
     <TooltipProvider delayDuration={300}>
-      <Card className="h-48 md:h-64">
+      <Card className="h-64">
         <CardHeader className="py-2 px-3">
           <CardTitle className="text-sm flex items-center gap-2">
             <Tooltip>
@@ -1951,14 +1951,14 @@ export default function RacePage() {
               </Tooltip>
             </div>
             <Card>
-              <CardHeader className="p-4 md:p-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <CardHeader>
+                <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+                    <CardTitle className="flex items-center gap-2">
                       Waiting for Players
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Info className="h-3.5 w-3.5 md:h-4 md:w-4 text-muted-foreground cursor-help" />
+                          <Info className="h-4 w-4 text-muted-foreground cursor-help" />
                         </TooltipTrigger>
                         <TooltipContent side="right" className="max-w-xs">
                           <p className="font-medium">Waiting Room</p>
@@ -1966,7 +1966,7 @@ export default function RacePage() {
                         </TooltipContent>
                       </Tooltip>
                     </CardTitle>
-                    <CardDescription className="text-xs md:text-sm">Share the room code with friends</CardDescription>
+                    <CardDescription>Share the room code with friends</CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
                     <Tooltip>
@@ -1975,7 +1975,7 @@ export default function RacePage() {
                           variant="outline"
                           onClick={copyRoomCode}
                           data-testid="button-copy-code"
-                          className="font-mono text-sm md:text-base"
+                          className="font-mono"
                         >
                           {copied ? <Check className="h-4 w-4 mr-2 text-green-500" /> : <Share2 className="h-4 w-4 mr-2" />}
                           {race.roomCode}
@@ -1990,21 +1990,21 @@ export default function RacePage() {
                 </div>
                 
                 {/* Room Settings Display */}
-                <div className="flex flex-wrap items-center gap-3 md:gap-4 mt-3 pt-3 border-t">
-                  <div className="flex items-center gap-1.5 md:gap-2 text-xs md:text-sm text-muted-foreground">
-                    <Timer className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                    <span>{race.timeLimitSeconds ? `${race.timeLimitSeconds}s` : 'Untimed'}</span>
+                <div className="flex items-center gap-4 mt-3 pt-3 border-t">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Timer className="h-4 w-4" />
+                    <span>{race.timeLimitSeconds ? `${race.timeLimitSeconds}s race` : 'Untimed'}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 md:gap-2 text-xs md:text-sm text-muted-foreground">
-                    <Users className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                    <span>{race.maxPlayers} max</span>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Users className="h-4 w-4" />
+                    <span>{race.maxPlayers} players max</span>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4 md:space-y-6 p-4 md:p-6 pt-0 md:pt-0">
+              <CardContent className="space-y-6">
                 <div>
-                  <div className="flex items-center gap-2 mb-2 md:mb-3">
-                    <h3 className="text-xs md:text-sm font-medium">
+                  <div className="flex items-center gap-2 mb-3">
+                    <h3 className="text-sm font-medium">
                       Players ({participants.length}/{race.maxPlayers})
                     </h3>
                     <Tooltip>
@@ -2039,13 +2039,13 @@ export default function RacePage() {
                         return (
                           <div
                             key={p.id}
-                            className={`flex items-center gap-2 md:gap-3 p-2 md:p-3 border rounded-lg transition-colors ${
+                            className={`flex items-center gap-3 p-3 border rounded-lg transition-colors ${
                               p.id === myParticipant?.id ? 'border-primary/50 bg-primary/5' : ''
                             } ${p.id === hostParticipantId ? 'border-yellow-500/50' : ''
                             } ${playerReady ? 'bg-green-500/5' : ''}`}
                             data-testid={`participant-${p.id}`}
                           >
-                            <div className={`h-8 w-8 md:h-10 md:w-10 rounded-full ${p.avatarColor || 'bg-primary'} flex items-center justify-center text-white font-medium text-sm md:text-base relative`}>
+                            <div className={`h-10 w-10 rounded-full ${p.avatarColor || 'bg-primary'} flex items-center justify-center text-white font-medium relative`}>
                               {p.username[0].toUpperCase()}
                               {p.id === hostParticipantId && (
                                 <div className="absolute -top-1 -right-1 bg-yellow-500 rounded-full p-0.5">
@@ -2263,7 +2263,7 @@ export default function RacePage() {
         </AlertDialog>
         
         <div className="min-h-screen bg-background">
-          <div className="container max-w-6xl mx-auto px-3 py-4 md:px-4 md:py-8">
+          <div className="container max-w-6xl mx-auto px-4 py-8">
             {/* Network status banner */}
             <NetworkStatusBanner
               isConnected={wsConnected}
@@ -2273,7 +2273,7 @@ export default function RacePage() {
               onManualRetry={manualReconnect}
             />
             
-            <div className="flex items-center justify-between mb-3 md:mb-4">
+            <div className="flex items-center justify-between mb-4">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -2304,16 +2304,16 @@ export default function RacePage() {
               </Tooltip>
               
             </div>
-            <div className="space-y-4 md:space-y-6">
+            <div className="space-y-6">
               <Card>
-                <CardHeader className="p-4 md:p-6">
-                  <CardTitle className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Flag className="h-4 w-4 md:h-5 md:w-5 text-primary" />
-                      <span className="text-sm md:text-base">{race.raceType === "timed" ? "Timed Race" : "Live Race"}</span>
+                      <Flag className="h-5 w-5 text-primary" />
+                      {race.raceType === "timed" ? "Timed Race" : "Live Race Progress"}
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Info className="h-3.5 w-3.5 md:h-4 md:w-4 text-muted-foreground cursor-help" />
+                          <Info className="h-4 w-4 text-muted-foreground cursor-help" />
                         </TooltipTrigger>
                         <TooltipContent side="right" className="max-w-xs">
                           <p className="font-medium">Real-time Leaderboard</p>
@@ -2328,14 +2328,14 @@ export default function RacePage() {
                     {race.raceType === "timed" && timeRemaining !== null && (
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <div className={`flex items-center gap-1.5 md:gap-2 px-2 py-1 md:px-4 md:py-2 rounded-lg font-mono text-sm md:text-lg cursor-help ${
+                          <div className={`flex items-center gap-2 px-4 py-2 rounded-lg font-mono text-lg cursor-help ${
                             timeRemaining <= 10 
                               ? 'bg-red-500/20 text-red-400 animate-pulse' 
                               : timeRemaining <= 30 
                                 ? 'bg-yellow-500/20 text-yellow-400' 
                                 : 'bg-primary/20 text-primary'
                           }`}>
-                            <Timer className="h-4 w-4 md:h-5 md:w-5" />
+                            <Timer className="h-5 w-5" />
                             <span data-testid="time-remaining">
                               {Math.floor(timeRemaining / 60)}:{String(Math.floor(timeRemaining % 60)).padStart(2, '0')}
                             </span>
@@ -2353,15 +2353,15 @@ export default function RacePage() {
                     )}
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
-                  <div className="space-y-3 md:space-y-4">
+                <CardContent>
+                  <div className="space-y-4">
                     {participants
                       .sort((a, b) => b.progress - a.progress)
                       .map((p) => {
                         const progressPercent = (p.progress / race.paragraphContent.length) * 100;
                         return (
-                          <div key={p.id} className="space-y-1.5 md:space-y-2" data-testid={`progress-${p.id}`}>
-                            <div className="flex items-center justify-between text-xs md:text-sm">
+                          <div key={p.id} className="space-y-2" data-testid={`progress-${p.id}`}>
+                            <div className="flex items-center justify-between text-sm">
                               <div className="flex items-center gap-2">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -2457,7 +2457,7 @@ export default function RacePage() {
                 <div>
                   <div 
                     ref={textContainerRef}
-                    className="text-base md:text-xl leading-[1.8] md:leading-[2] font-mono select-none max-h-[200px] md:max-h-[280px] overflow-y-auto scroll-smooth p-4 md:p-8 bg-zinc-900 rounded-lg whitespace-pre-wrap break-words" 
+                    className="text-xl leading-[2] font-mono select-none max-h-[280px] overflow-y-auto scroll-smooth p-8 bg-zinc-900 rounded-lg whitespace-pre-wrap break-words" 
                     data-testid="text-paragraph"
                     role="textbox"
                     aria-readonly="true"

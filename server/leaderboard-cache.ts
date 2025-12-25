@@ -183,7 +183,7 @@ class LeaderboardCache {
       let lruKey: string | null = null;
       let lruTime = Infinity;
 
-      for (const [key, entry] of Array.from(this.cache.entries())) {
+      for (const [key, entry] of this.cache.entries()) {
         if (entry.lastAccessed < lruTime) {
           lruTime = entry.lastAccessed;
           lruKey = key;

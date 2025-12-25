@@ -281,7 +281,7 @@ export default function MultiplayerPage() {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="min-h-screen bg-background">
-        <div className="container max-w-6xl mx-auto px-3 py-4 md:px-4 md:py-8">
+        <div className="container max-w-6xl mx-auto px-4 py-8">
           {/* Network offline banner */}
           {!isOnline && (
             <Alert variant="destructive" className="mb-6 border-yellow-500/50 bg-yellow-500/10">
@@ -304,32 +304,31 @@ export default function MultiplayerPage() {
             </Alert>
           )}
           
-          <div className="text-center mb-8 md:mb-12">
-            <div className="flex items-center justify-center gap-2 md:gap-3 mb-3 md:mb-4">
+          <div className="text-center mb-12">
+            <div className="flex items-center justify-center gap-3 mb-4">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Trophy className="h-8 w-8 md:h-12 md:w-12 text-primary cursor-help" />
+                  <Trophy className="h-12 w-12 text-primary cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   <p className="font-medium">Multiplayer Racing Mode</p>
                   <p className="text-zinc-400">Compete with real players in real-time typing races</p>
                 </TooltipContent>
               </Tooltip>
-              <h1 className="text-2xl md:text-4xl font-bold">Multiplayer Racing</h1>
+              <h1 className="text-4xl font-bold">Multiplayer Racing</h1>
             </div>
-            <p className="text-sm md:text-lg text-muted-foreground px-4">
+            <p className="text-lg text-muted-foreground">
               Compete against others in real-time typing races
             </p>
           </div>
 
           <Tabs defaultValue="quick" className="w-full">
-            <TabsList className="grid w-full grid-cols-3 mb-6 md:mb-8 h-auto">
+            <TabsList className="grid w-full grid-cols-3 mb-8">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="quick" data-testid="tab-quick-match" className="flex-col gap-1 py-2 md:flex-row md:gap-2 md:py-1.5 text-xs md:text-sm">
-                    <Zap className="h-4 w-4" />
-                    <span className="hidden sm:inline">Quick Match</span>
-                    <span className="sm:hidden">Quick</span>
+                  <TabsTrigger value="quick" data-testid="tab-quick-match">
+                    <Zap className="h-4 w-4 mr-2" />
+                    Quick Match
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -339,10 +338,9 @@ export default function MultiplayerPage() {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="create" data-testid="tab-create-room" className="flex-col gap-1 py-2 md:flex-row md:gap-2 md:py-1.5 text-xs md:text-sm">
-                    <Users className="h-4 w-4" />
-                    <span className="hidden sm:inline">Create Room</span>
-                    <span className="sm:hidden">Create</span>
+                  <TabsTrigger value="create" data-testid="tab-create-room">
+                    <Users className="h-4 w-4 mr-2" />
+                    Create Room
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -352,10 +350,9 @@ export default function MultiplayerPage() {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="join" data-testid="tab-join-room" className="flex-col gap-1 py-2 md:flex-row md:gap-2 md:py-1.5 text-xs md:text-sm">
-                    <Lock className="h-4 w-4" />
-                    <span className="hidden sm:inline">Join Room</span>
-                    <span className="sm:hidden">Join</span>
+                  <TabsTrigger value="join" data-testid="tab-join-room">
+                    <Lock className="h-4 w-4 mr-2" />
+                    Join Room
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -407,10 +404,10 @@ export default function MultiplayerPage() {
                         <SelectValue placeholder="Select duration" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="30">0:30 (30 sec)</SelectItem>
-                        <SelectItem value="60">1:00 (1 min)</SelectItem>
-                        <SelectItem value="90">1:30 (1 min 30 sec)</SelectItem>
-                        <SelectItem value="120">2:00 (2 min)</SelectItem>
+                        <SelectItem value="30">30 seconds</SelectItem>
+                        <SelectItem value="60">1 minute</SelectItem>
+                        <SelectItem value="90">90 seconds</SelectItem>
+                        <SelectItem value="120">2 minutes</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -522,10 +519,10 @@ export default function MultiplayerPage() {
                         <SelectValue placeholder="Select duration" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="30">0:30 - Sprint (30 sec)</SelectItem>
-                        <SelectItem value="60">1:00 - Standard (1 min)</SelectItem>
-                        <SelectItem value="90">1:30 - Extended (1 min 30 sec)</SelectItem>
-                        <SelectItem value="120">2:00 - Marathon (2 min)</SelectItem>
+                        <SelectItem value="30">30 seconds - Sprint</SelectItem>
+                        <SelectItem value="60">1 minute - Standard</SelectItem>
+                        <SelectItem value="90">90 seconds - Extended</SelectItem>
+                        <SelectItem value="120">2 minutes - Marathon</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

@@ -400,7 +400,7 @@ function cleanupExpiredEntries(): void {
   const now = Date.now();
   let deleted = 0;
   
-  for (const [key, value] of Array.from(rateLimitState.entries())) {
+  for (const [key, value] of rateLimitState.entries()) {
     if (value.resetAt < now) {
       rateLimitState.delete(key);
       deleted++;
