@@ -1,0 +1,356 @@
+export function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/['']/g, "'")
+    .replace(/[""]/g, '"')
+    .replace(/[‒–—―]/g, '-');
+}
+
+export function normalizeForComparison(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/['']/g, "'")
+    .replace(/[""]/g, '"')
+    .replace(/[‒–—―]/g, '-')
+    .replace(/[.,!?;:'"()\[\]{}]/g, '');
+}
+
+export function levenshteinDistance(str1: string, str2: string): number {
+  const m = str1.length;
+  const n = str2.length;
+  
+  if (m === 0) return n;
+  if (n === 0) return m;
+  
+  const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+  
+  for (let i = 0; i <= m; i++) {
+    dp[i][0] = i;
+  }
+  
+  for (let j = 0; j <= n; j++) {
+    dp[0][j] = j;
+  }
+  
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+    }
+  }
+  
+  return dp[m][n];
+}
+
+export interface CharacterDiff {
+  char: string;
+  typedChar?: string;
+  status: 'correct' | 'incorrect' | 'missing' | 'extra';
+  position: number;
+}
+
+export interface WordDiff {
+  word: string;
+  typedWord: string;
+  status: 'correct' | 'incorrect' | 'missing' | 'extra';
+  position: number;
+}
+
+export function getCharacterDiff(typed: string, actual: string): CharacterDiff[] {
+  const normalizedTyped = normalizeText(typed);
+  const normalizedActual = normalizeText(actual);
+  const diff: CharacterDiff[] = [];
+  
+  let typedIdx = 0;
+  let actualIdx = 0;
+  let position = 0;
+  
+  while (actualIdx < normalizedActual.length || typedIdx < normalizedTyped.length) {
+    const typedChar = normalizedTyped[typedIdx] || '';
+    const actualChar = normalizedActual[actualIdx] || '';
+    
+    if (typedIdx >= normalizedTyped.length) {
+      diff.push({ char: actualChar, status: 'missing', position: position++ });
+      actualIdx++;
+    } else if (actualIdx >= normalizedActual.length) {
+      diff.push({ char: typedChar, status: 'extra', position: position++ });
+      typedIdx++;
+    } else if (typedChar === actualChar) {
+      diff.push({ char: actualChar, status: 'correct', position: position++ });
+      typedIdx++;
+      actualIdx++;
+    } else {
+      const lookAhead = 3;
+      let foundTypedAhead = -1;
+      let foundActualAhead = -1;
+      
+      for (let i = 1; i <= lookAhead && actualIdx + i < normalizedActual.length; i++) {
+        if (normalizedActual[actualIdx + i] === typedChar) {
+          foundActualAhead = i;
+          break;
+        }
+      }
+      
+      for (let i = 1; i <= lookAhead && typedIdx + i < normalizedTyped.length; i++) {
+        if (normalizedTyped[typedIdx + i] === actualChar) {
+          foundTypedAhead = i;
+          break;
+        }
+      }
+      
+      if (foundActualAhead > 0 && (foundTypedAhead < 0 || foundActualAhead <= foundTypedAhead)) {
+        for (let i = 0; i < foundActualAhead; i++) {
+          diff.push({ char: normalizedActual[actualIdx + i], status: 'missing', position: position++ });
+        }
+        actualIdx += foundActualAhead;
+      } else if (foundTypedAhead > 0) {
+        for (let i = 0; i < foundTypedAhead; i++) {
+          diff.push({ char: normalizedTyped[typedIdx + i], status: 'extra', position: position++ });
+        }
+        typedIdx += foundTypedAhead;
+      } else {
+        diff.push({ char: actualChar, typedChar: typedChar, status: 'incorrect', position: position++ });
+        typedIdx++;
+        actualIdx++;
+      }
+    }
+  }
+  
+  return diff;
+}
+
+function normalizeWord(word: string): string {
+  return word.toLowerCase().replace(/[.,!?;:'"()\[\]{}]/g, '').trim();
+}
+
+export function getWordDiff(typed: string, actual: string): WordDiff[] {
+  const typedWords = typed.trim().split(/\s+/).filter(w => w.length > 0);
+  const actualWords = actual.trim().split(/\s+/).filter(w => w.length > 0);
+  const diff: WordDiff[] = [];
+  
+  let typedIdx = 0;
+  let actualIdx = 0;
+  
+  while (actualIdx < actualWords.length || typedIdx < typedWords.length) {
+    const actualWord = actualWords[actualIdx] || '';
+    const typedWord = typedWords[typedIdx] || '';
+    const normalizedActual = normalizeWord(actualWord);
+    const normalizedTyped = normalizeWord(typedWord);
+    
+    if (actualIdx >= actualWords.length) {
+      diff.push({
+        word: typedWord,
+        typedWord: typedWord,
+        status: 'extra',
+        position: typedIdx,
+      });
+      typedIdx++;
+    } else if (typedIdx >= typedWords.length) {
+      diff.push({
+        word: actualWord,
+        typedWord: '',
+        status: 'missing',
+        position: actualIdx,
+      });
+      actualIdx++;
+    } else if (normalizedActual === normalizedTyped) {
+      diff.push({
+        word: actualWord,
+        typedWord: typedWord,
+        status: 'correct',
+        position: actualIdx,
+      });
+      typedIdx++;
+      actualIdx++;
+    } else {
+      const nextActualNormalized = actualIdx + 1 < actualWords.length 
+        ? normalizeWord(actualWords[actualIdx + 1]) 
+        : '';
+      const nextTypedNormalized = typedIdx + 1 < typedWords.length 
+        ? normalizeWord(typedWords[typedIdx + 1]) 
+        : '';
+      
+      if (normalizedTyped === nextActualNormalized) {
+        diff.push({
+          word: actualWord,
+          typedWord: '',
+          status: 'missing',
+          position: actualIdx,
+        });
+        actualIdx++;
+      } else if (normalizedActual === nextTypedNormalized) {
+        diff.push({
+          word: typedWord,
+          typedWord: typedWord,
+          status: 'extra',
+          position: typedIdx,
+        });
+        typedIdx++;
+      } else {
+        diff.push({
+          word: actualWord,
+          typedWord: typedWord,
+          status: 'incorrect',
+          position: actualIdx,
+        });
+        typedIdx++;
+        actualIdx++;
+      }
+    }
+  }
+  
+  return diff;
+}
+
+export interface DictationAccuracyResult {
+  accuracy: number;
+  errors: number;
+  normalizedTyped: string;
+  normalizedActual: string;
+  characterDiff: CharacterDiff[];
+  wordDiff: WordDiff[];
+  correctChars: number;
+  totalChars: number;
+  correctWords: number;
+  totalWords: number;
+}
+
+export function calculateDictationAccuracy(
+  typedText: string,
+  actualSentence: string
+): DictationAccuracyResult {
+  const normalizedTyped = normalizeForComparison(typedText);
+  const normalizedActual = normalizeForComparison(actualSentence);
+  
+  const characterDiff = getCharacterDiff(typedText, actualSentence);
+  const wordDiff = getWordDiff(typedText, actualSentence);
+  const correctChars = characterDiff.filter(d => d.status === 'correct').length;
+  const correctWords = wordDiff.filter(d => d.status === 'correct').length;
+  const totalWords = actualSentence.trim().split(/\s+/).filter(w => w.length > 0).length;
+  
+  const wordErrors = wordDiff.filter(d => d.status !== 'correct').length;
+  const totalWordSlots = Math.max(totalWords, wordDiff.length);
+  const accuracy = totalWordSlots === 0 ? 100 : 
+    Math.round((correctWords / totalWordSlots) * 100);
+  
+  const maxLength = Math.max(normalizedTyped.length, normalizedActual.length);
+  
+  return {
+    accuracy: Math.max(0, Math.min(100, accuracy)),
+    errors: wordErrors,
+    normalizedTyped,
+    normalizedActual,
+    characterDiff,
+    wordDiff,
+    correctChars,
+    totalChars: maxLength,
+    correctWords,
+    totalWords,
+  };
+}
+
+export function calculateDictationWPM(
+  typedCharacters: number,
+  durationSeconds: number
+): number {
+  if (durationSeconds === 0) return 0;
+  
+  const words = typedCharacters / 5;
+  const minutes = durationSeconds / 60;
+  
+  return Math.round(words / minutes);
+}
+
+export function getSpeedRate(speedLevel: string): number {
+  const rates: Record<string, number> = {
+    slow: 0.6,
+    medium: 0.85,
+    fast: 1.1,
+  };
+  
+  if (speedLevel === 'random') {
+    const levels = ['slow', 'medium', 'fast'];
+    const randomLevel = levels[Math.floor(Math.random() * levels.length)];
+    return rates[randomLevel];
+  }
+  
+  const numericRate = parseFloat(speedLevel);
+  if (!isNaN(numericRate) && numericRate >= 0.5 && numericRate <= 2.0) {
+    return numericRate;
+  }
+  
+  return rates[speedLevel] || 0.85;
+}
+
+export function getSpeedLevelName(rate: number): string {
+  if (rate <= 0.8) return 'Slow';
+  if (rate <= 1.2) return 'Medium';
+  return 'Fast';
+}
+
+export function getAccuracyGrade(accuracy: number): {
+  grade: string;
+  color: string;
+  message: string;
+} {
+  if (accuracy >= 98) {
+    return {
+      grade: 'S',
+      color: 'text-purple-600',
+      message: 'Perfect! Outstanding accuracy!',
+    };
+  } else if (accuracy >= 95) {
+    return {
+      grade: 'A+',
+      color: 'text-green-600',
+      message: 'Excellent! Nearly perfect!',
+    };
+  } else if (accuracy >= 90) {
+    return {
+      grade: 'A',
+      color: 'text-green-600',
+      message: 'Great job! Very accurate!',
+    };
+  } else if (accuracy >= 85) {
+    return {
+      grade: 'B+',
+      color: 'text-blue-600',
+      message: 'Good work! Keep it up!',
+    };
+  } else if (accuracy >= 80) {
+    return {
+      grade: 'B',
+      color: 'text-blue-600',
+      message: 'Nice! Room for improvement!',
+    };
+  } else if (accuracy >= 70) {
+    return {
+      grade: 'C',
+      color: 'text-yellow-600',
+      message: 'Keep practicing!',
+    };
+  } else {
+    return {
+      grade: 'D',
+      color: 'text-orange-600',
+      message: 'Try replaying and using hints!',
+    };
+  }
+}
+
+export function formatDuration(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}m ${secs}s`;
+}

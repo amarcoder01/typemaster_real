@@ -1,0 +1,91 @@
+10:26:36 AM [express] GET /api/badges 200 in 1396ms :: {"badgeData":{"bestWpm":226,"bestAccuracy":100…
+10:26:36 AM [express] GET /api/certificates 200 in 911ms :: [{"id":39,"userId":"de323bdb-2575-472e-84…
+10:26:36 AM [express] GET /api/stats 200 in 1692ms :: {"stats":{"totalTests":192,"bestWpm":63,"avgWpm…
+10:26:36 AM [express] GET /api/showcase-badges 200 in 1727ms :: {"showcaseBadges":["speed_rookie_30",…
+10:26:36 AM [express] GET /api/achievements 200 in 1373ms :: {"achievements":[{"id":28,"userId":"de32…
+10:26:37 AM [express] GET /api/achievements/next 200 in 2377ms :: {"nextAchievement":{"key":"speed_ex…
+10:26:41 AM [express] GET /api/auth/providers 200 in 692ms :: {"linkedProviders":[{"provider":"github…
+10:26:53 AM [express] HEAD /api/health 200 in 1563ms :: {"status":"ok","timestamp":"2025-12-23T10:26:…
+10:26:59 AM [express] HEAD /api/health 200 in 521ms :: {"status":"ok","timestamp":"2025-12-23T10:26:5…
+10:27:19 AM [express] GET /api/certificates 304 in 1843ms :: [{"id":39,"userId":"de323bdb-2575-472e-8…
+10:27:19 AM [express] GET /api/achievements/next 304 in 2362ms :: {"nextAchievement":{"key":"speed_ex…
+[AUTH AUDIT] logout de323bdb-2575-472e-84f7-137e0f0b6652
+10:27:22 AM [express] HEAD /api/health 200 in 511ms :: {"status":"ok","timestamp":"2025-12-23T10:27:2…
+10:27:22 AM [express] POST /api/auth/logout 200 in 856ms :: {"message":"Logout successful"}
+10:27:23 AM [express] GET /api/auth/providers/availability 200 in 342ms :: {"google":true,"github":tr…
+10:27:29 AM [express] HEAD /api/health 200 in 352ms :: {"status":"ok","timestamp":"2025-12-23T10:27:2…
+🔍 Looking for exact match: en/general/easy
+10:27:29 AM [express] GET /api/auth/me 401 in 0ms :: {"message":"Unauthorized"}
+10:27:29 AM [express] GET /api/typing/languages 200 in 165ms :: {"languages":["en","hi","mr","ar","bn…
+✅ Found exact match: ID 117, "Life is full of simple joys, like sharing moments ..."
+📤 Returning paragraph ID 117 for en/general/easy
+10:27:29 AM [express] GET /api/typing/paragraph 200 in 164ms :: {"paragraph":{"id":117,"language":"en…
+10:27:29 AM [express] HEAD /api/health 200 in 1ms :: {"status":"ok","timestamp":"2025-12-23T10:27:29.…
+10:27:29 AM [express] GET /api/typing/modes 200 in 324ms :: {"modes":["quotes","technical","programmi…
+📦 Batch request: 6 paragraphs for en/general/easy
+📤 Returning batch: 6 paragraphs, IDs: [151, 250, 288, 215, 245, 214]
+10:27:30 AM [express] GET /api/typing/paragraphs/batch 200 in 165ms :: {"paragraphs":[{"id":151,"lang…
+[ForgotPassword] Sending reset email to amar@vidality.com for user de323bdb-2575-472e-84f7-137e0f0b6652, timezone: Asia/Calcutta
+[EmailService] Attempting to send email: {
+  to: 'amar@vidality.com',
+  from: 'no-reply@typemasterai.com',
+  fromName: 'TypeMasterAI',
+  subject: 'Reset Your Password - TypeMasterAI',
+  domain: 'sandbox3f76c67c33064dd69234ec4b94f9895c.mailgun.org',
+  initialized: true
+}
+[EmailService] Send attempt 1 failed: {
+  code: 'EMAIL_CONFIGURATION_ERROR',
+  message: 'Mailgun API access forbidden - check sender authentication',
+  statusCode: 403,
+  retryable: false
+}
+[EmailService] All 1 attempts failed for amar@vidality.com
+[AuthSecurityService] Failed to send password reset email to amar@vidality.com: {
+  code: 'EMAIL_CONFIGURATION_ERROR',
+  message: 'Mailgun API access forbidden - check sender authentication',
+  statusCode: 403,
+  retryable: false,
+  details: { error: 'Forbidden' }
+}
+[ForgotPassword] Email sending failed for amar@vidality.com: {
+  code: 'EMAIL_CONFIGURATION_ERROR',
+  message: 'Mailgun API access forbidden - check sender authentication',
+  statusCode: 403,
+  retryable: false,
+  details: { error: 'Forbidden' }
+}
+[AUTH] {"timestamp":"2025-12-23T10:27:41.156Z","level":"info","event":"PASSWORD_RESET_REQUESTED","requestId":"55eba02972b6fe24","email":"81d9011a9fdfd9de","ipAddress":"152.59.6.38","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"}
+10:27:41 AM [express] POST /api/auth/forgot-password 200 in 1605ms :: {"message":"If an account exist…
+10:27:52 AM [express] HEAD /api/health 200 in 889ms :: {"status":"ok","timestamp":"2025-12-23T10:27:5…
+10:27:59 AM [express] HEAD /api/health 200 in 352ms :: {"status":"ok","timestamp":"2025-12-23T10:27:5…
+10:28:22 AM [express] HEAD /api/health 200 in 852ms :: {"status":"ok","timestamp":"2025-12-23T10:28:2…
+10:28:29 AM [express] HEAD /api/health 200 in 340ms :: {"status":"ok","timestamp":"2025-12-23T10:28:2…
+10:28:53 AM [express] HEAD /api/health 200 in 828ms :: {"status":"ok","timestamp":"2025-12-23T10:28:5…
+[AUTH] {"timestamp":"2025-12-23T10:28:57.730Z","level":"info","event":"FORGOT_PASSWORD_DUPLICATE_REQUEST","requestId":"1a95fd6a7e1a7381","email":"81d9011a9fdfd9de","ipAddress":"152.59.6.38","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"}
+10:28:57 AM [express] POST /api/auth/forgot-password 200 in 330ms :: {"message":"If an account exists…
+10:29:10 AM [express] HEAD /api/health 200 in 865ms :: {"status":"ok","timestamp":"2025-12-23T10:29:1…
+10:29:22 AM [express] HEAD /api/health 200 in 846ms :: {"status":"ok","timestamp":"2025-12-23T10:29:2…
+10:29:53 AM [express] HEAD /api/health 200 in 886ms :: {"status":"ok","timestamp":"2025-12-23T10:29:5…
+10:30:08 AM [express] GET /api/auth/google 302 in 1532ms
+[AUTH AUDIT] oauth_login de323bdb-2575-472e-84f7-137e0f0b6652
+[AUTH AUDIT] remember_me_created de323bdb-2575-472e-84f7-137e0f0b6652
+10:30:21 AM [express] GET /api/auth/callback/google 302 in 2693ms
+10:30:22 AM [express] HEAD /api/health 200 in 676ms :: {"status":"ok","timestamp":"2025-12-23T10:30:2…
+10:30:25 AM [express] HEAD /api/health 200 in 503ms :: {"status":"ok","timestamp":"2025-12-23T10:30:2…
+🔍 Looking for exact match: en/general/easy
+✅ Found exact match: ID 286, "Black holes are one of the universe's biggest myst..."
+📤 Returning paragraph ID 286 for en/general/easy
+10:30:26 AM [express] GET /api/typing/modes 304 in 837ms :: {"modes":["quotes","technical","programmi…
+10:30:26 AM [express] GET /api/typing/paragraph 200 in 1224ms :: {"paragraph":{"id":286,"language":"e…
+10:30:26 AM [express] GET /api/typing/languages 304 in 1188ms :: {"languages":["en","hi","mr","ar","b…
+10:30:26 AM [express] GET /api/auth/me 304 in 1007ms :: {"user":{"id":"de323bdb-2575-472e-84f7-137e0f…
+📦 Batch request: 6 paragraphs for en/general/easy
+📤 Returning batch: 6 paragraphs, IDs: [245, 268, 214, 225, 229, 217]
+10:30:27 AM [express] GET /api/typing/paragraphs/batch 200 in 1207ms :: {"paragraphs":[{"id":245,"lan…
+10:30:27 AM [express] GET /api/gamification 304 in 680ms :: {"gamification":{"id":1,"userId":"de323bd…
+10:30:28 AM [express] GET /api/notifications/vapid-public-key 304 in 522ms :: {"publicKey":"BHk7IRIcP…
+[Notifications] Refreshed subscription for user de323bdb-2575-472e-84f7-137e0f0b6652
+10:30:30 AM [express] POST /api/notifications/subscribe 200 in 1021ms :: {"success":true,"subscriptio…
+10:30:35 AM [express] GET /api/auth/providers 304 in 694ms :: {"linkedProviders":[{"provider":"github…
+10:30:58 AM [express] HEAD /api/health 200 in 1569ms :: {"stat

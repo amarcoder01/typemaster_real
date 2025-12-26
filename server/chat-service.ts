@@ -1,0 +1,1282 @@
+import OpenAI from "openai";
+import * as cheerio from "cheerio";
+import { AIProjectClient } from "@azure/ai-projects";
+import { ClientSecretCredential } from "@azure/identity";
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  baseURL: process.env.OPENAI_BASE_URL || process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+});
+
+// Error types for better error handling
+export enum ChatErrorCode {
+  NETWORK_ERROR = "NETWORK_ERROR",
+  API_KEY_INVALID = "API_KEY_INVALID",
+  RATE_LIMITED = "RATE_LIMITED",
+  CONTEXT_LENGTH_EXCEEDED = "CONTEXT_LENGTH_EXCEEDED",
+  CONTENT_FILTERED = "CONTENT_FILTERED",
+  SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE",
+  TIMEOUT = "TIMEOUT",
+  SEARCH_FAILED = "SEARCH_FAILED",
+  UNKNOWN_ERROR = "UNKNOWN_ERROR",
+}
+
+export interface ChatError {
+  code: ChatErrorCode;
+  message: string;
+  userMessage: string;
+  retryable: boolean;
+  retryAfter?: number;
+}
+
+// Parse OpenAI errors into structured format
+function parseOpenAIError(error: any): ChatError {
+  const errorMessage = error?.message || String(error);
+  const statusCode = error?.status || error?.response?.status;
+  
+  // Rate limiting
+  if (statusCode === 429 || errorMessage.includes("rate limit")) {
+    const retryAfter = error?.headers?.["retry-after"] 
+      ? parseInt(error.headers["retry-after"]) 
+      : 30;
+    return {
+      code: ChatErrorCode.RATE_LIMITED,
+      message: errorMessage,
+      userMessage: "I'm receiving too many requests right now. Please wait a moment and try again.",
+      retryable: true,
+      retryAfter,
+    };
+  }
+  
+  // Invalid API key
+  if (statusCode === 401 || errorMessage.includes("Incorrect API key") || errorMessage.includes("invalid_api_key")) {
+    return {
+      code: ChatErrorCode.API_KEY_INVALID,
+      message: errorMessage,
+      userMessage: "There's a configuration issue with the AI service. Please contact support.",
+      retryable: false,
+    };
+  }
+  
+  // Context length exceeded
+  if (errorMessage.includes("context_length_exceeded") || errorMessage.includes("maximum context length")) {
+    return {
+      code: ChatErrorCode.CONTEXT_LENGTH_EXCEEDED,
+      message: errorMessage,
+      userMessage: "This conversation has become too long. Please start a new conversation.",
+      retryable: false,
+    };
+  }
+  
+  // Content filtered
+  if (errorMessage.includes("content_filter") || errorMessage.includes("content_policy_violation")) {
+    return {
+      code: ChatErrorCode.CONTENT_FILTERED,
+      message: errorMessage,
+      userMessage: "I can't respond to that type of request. Please try asking something else.",
+      retryable: false,
+    };
+  }
+  
+  // Service unavailable
+  if (statusCode === 503 || statusCode === 502 || errorMessage.includes("overloaded")) {
+    return {
+      code: ChatErrorCode.SERVICE_UNAVAILABLE,
+      message: errorMessage,
+      userMessage: "The AI service is temporarily busy. Please try again in a moment.",
+      retryable: true,
+      retryAfter: 10,
+    };
+  }
+  
+  // Timeout
+  if (errorMessage.includes("timeout") || errorMessage.includes("ETIMEDOUT")) {
+    return {
+      code: ChatErrorCode.TIMEOUT,
+      message: errorMessage,
+      userMessage: "The request took too long. Please try again.",
+      retryable: true,
+    };
+  }
+  
+  // Network errors
+  if (errorMessage.includes("ECONNREFUSED") || errorMessage.includes("ENOTFOUND") || errorMessage.includes("network")) {
+    return {
+      code: ChatErrorCode.NETWORK_ERROR,
+      message: errorMessage,
+      userMessage: "There was a network issue. Please check your connection and try again.",
+      retryable: true,
+    };
+  }
+  
+  // Default unknown error
+  return {
+    code: ChatErrorCode.UNKNOWN_ERROR,
+    message: errorMessage,
+    userMessage: "Something went wrong. Please try again.",
+    retryable: true,
+  };
+}
+
+// Log error with context
+function logChatError(context: string, error: any, chatError: ChatError) {
+  console.error(`[Chat Error] ${context}:`, {
+    code: chatError.code,
+    message: chatError.message,
+    retryable: chatError.retryable,
+    originalError: error instanceof Error ? error.message : String(error),
+  });
+}
+
+// OpenAI Web Search using gpt-4o-search-preview model
+// This model performs live web searches when web_search_options is enabled
+async function searchWithOpenAI(query: string): Promise<SearchResult[]> {
+  try {
+    console.log(`[OpenAI Web Search] Starting search for: "${query}"`);
+    const startTime = Date.now();
+
+    // Use the search-preview model with web_search_options enabled
+    // NOTE: This model does NOT support temperature parameter
+    const response = await (openai.chat.completions.create as any)({
+      model: "gpt-4o-search-preview",
+      web_search_options: {}, // Required to enable web search
+      messages: [
+        {
+          role: "system",
+          content: `You are a web search engine. Your ONLY task is to search the web and return structured results.
+
+CRITICAL: You MUST respond with ONLY a valid JSON array. No explanations, no markdown, no text before or after.
+
+Format each result exactly like this:
+[
+  {"title": "Example Page Title", "url": "https://example.com/page", "snippet": "Brief description of content..."},
+  {"title": "Another Result", "url": "https://another.com", "snippet": "More content..."}
+]
+
+Rules:
+- Return 5-8 results maximum
+- Use REAL URLs from actual websites you find
+- Keep snippets under 200 characters
+- title: exact page title
+- url: full https:// URL
+- snippet: key information from the page
+
+START YOUR RESPONSE WITH [ AND END WITH ]`
+        },
+        {
+          role: "user",
+          content: query
+        }
+      ],
+      max_tokens: 2000,
+    });
+
+    const responseText = response.choices[0]?.message?.content || "";
+    const duration = Date.now() - startTime;
+    console.log(`[OpenAI Web Search] Response received in ${duration}ms (${responseText.length} chars)`);
+
+    // Try to extract JSON from response
+    try {
+      const jsonMatch = responseText.match(/\[[\s\S]*?\]/);
+      if (jsonMatch) {
+        const results = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(results) && results.length > 0) {
+          const validResults = results.filter((r: any) => r.title && r.url && r.snippet);
+          if (validResults.length > 0) {
+            console.log(`[OpenAI Web Search] ✅ Parsed ${validResults.length} JSON results`);
+            return validResults.slice(0, 10).map((r: any) => ({
+              title: String(r.title || "").substring(0, 200),
+              url: String(r.url || ""),
+              snippet: String(r.snippet || r.description || "").substring(0, 500),
+            }));
+          }
+        }
+      }
+    } catch (parseError) {
+      // JSON parsing failed, try to extract URLs and content from text response
+      console.log("[OpenAI Web Search] JSON parse failed, extracting from text response");
+    }
+
+    // Extract URLs and create results from markdown-style or plain text response
+    const urlPattern = /\[([^\]]+)\]\(([^)]+)\)|(?:https?:\/\/[^\s\])"]+)/g;
+    const extractedResults: SearchResult[] = [];
+    let match;
+    
+    while ((match = urlPattern.exec(responseText)) !== null && extractedResults.length < 10) {
+      const title = match[1] || match[0].split('/').pop()?.substring(0, 50) || "Web Result";
+      const url = match[2] || match[0];
+      
+      // Skip if we already have this URL
+      if (extractedResults.some(r => r.url === url)) continue;
+      
+      // Get surrounding text as snippet
+      const snippetStart = Math.max(0, match.index - 100);
+      const snippetEnd = Math.min(responseText.length, match.index + match[0].length + 200);
+      let snippet = responseText.substring(snippetStart, snippetEnd)
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/https?:\/\/[^\s]+/g, '')
+        .replace(/[\[\]]/g, '')
+        .trim();
+      
+      if (url.startsWith('http')) {
+        extractedResults.push({
+          title: title.substring(0, 100),
+          url: url,
+          snippet: snippet.substring(0, 300) || "Web search result",
+        });
+      }
+    }
+
+    if (extractedResults.length > 0) {
+      console.log(`[OpenAI Web Search] ✅ Extracted ${extractedResults.length} results from text`);
+      return extractedResults;
+    }
+
+    // Final fallback: create synthetic result from the entire response
+    if (responseText.length > 100) {
+      console.log("[OpenAI Web Search] Creating synthetic result from response content");
+      return [{
+        title: `Web Search Results: ${query.substring(0, 40)}`,
+        url: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
+        snippet: responseText.substring(0, 500).replace(/```json/g, "").replace(/```/g, "").replace(/\[|\]/g, "").trim(),
+      }];
+    }
+
+    console.log("[OpenAI Web Search] No usable results from response");
+    return [];
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`[OpenAI Web Search] ❌ Error: ${errorMessage}`);
+    
+    // Log more details for debugging
+    if (error instanceof Error && 'response' in error) {
+      console.error(`[OpenAI Web Search] Response status:`, (error as any).response?.status);
+    }
+    
+    return [];
+  }
+}
+
+// Azure AI Foundry Client Setup
+let azureClient: AIProjectClient | null = null;
+let cachedBingGroundingAgentId: string | null = null;
+
+function getAzureClient(): AIProjectClient {
+  if (!azureClient) {
+    const projectEndpoint = process.env.AZURE_PROJECT_ENDPOINT;
+    const tenantId = process.env.AZURE_TENANT_ID;
+    const clientId = process.env.AZURE_CLIENT_ID;
+    const clientSecret = process.env.AZURE_CLIENT_SECRET;
+
+    if (!projectEndpoint || !tenantId || !clientId || !clientSecret) {
+      throw new Error("Azure AI Foundry credentials not configured");
+    }
+
+    const credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+    azureClient = new AIProjectClient(projectEndpoint, credential);
+    console.log("[Azure AI Foundry] Client initialized successfully");
+  }
+  return azureClient;
+}
+
+// Get or create Bing Grounding Agent (tries env var first, then creates if permissions allow)
+async function getOrCreateBingGroundingAgent(): Promise<string> {
+  if (cachedBingGroundingAgentId) {
+    return cachedBingGroundingAgentId;
+  }
+
+  // First, try using pre-provisioned agent ID from environment
+  const preProvisionedAgentId = process.env.AZURE_BING_AGENT_ID;
+  if (preProvisionedAgentId) {
+    cachedBingGroundingAgentId = preProvisionedAgentId;
+    console.log(`[Azure Bing Grounding] ✅ Using pre-provisioned agent: ${preProvisionedAgentId}`);
+    return preProvisionedAgentId;
+  }
+
+  // If not provided, try creating agent (requires write permissions)
+  console.log("[Azure Bing Grounding] AZURE_BING_AGENT_ID not found, attempting to create agent...");
+  
+  try {
+    const client = getAzureClient();
+    const agentsClient = client.agents;
+    const modelDeployment = process.env.AZURE_MODEL_DEPLOYMENT || "gpt-4o-mini";
+    const connectionId = process.env.AZURE_BING_CONNECTION_ID;
+
+    if (!connectionId) {
+      throw new Error("AZURE_BING_CONNECTION_ID not configured");
+    }
+
+    const agent = await agentsClient.createAgent(modelDeployment, {
+      name: "bing-search-agent",
+      instructions: `You are a web search agent. Your ONLY job is to:
+1. Use Bing search to find relevant, current information
+2. Extract and return search results in a structured format
+3. Include titles, URLs, and snippets from the search
+
+Return results as a JSON array with this exact structure:
+[{"title": "...", "url": "...", "snippet": "..."}]
+
+Be concise and focus only on factual search results.`,
+      tools: [
+        {
+          type: "bing_grounding",
+          bingGrounding: {
+            searchConfigurations: [{ connectionId }],
+          },
+        },
+      ],
+    });
+
+    cachedBingGroundingAgentId = agent.id;
+    console.log(`[Azure Bing Grounding] ✅ Agent created successfully: ${agent.id}`);
+    console.log(`[Azure Bing Grounding] 💡 TIP: Set AZURE_BING_AGENT_ID=${agent.id} to reuse this agent and avoid recreating it`);
+    return agent.id;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`[Azure Bing Grounding] ❌ Failed to create agent: ${errorMessage}`);
+    
+    if (errorMessage.includes("write") || errorMessage.includes("permission") || errorMessage.includes("401")) {
+      console.error("[Azure Bing Grounding] 💡 SOLUTION: Create an agent in Azure AI Foundry portal and set AZURE_BING_AGENT_ID environment variable");
+    }
+    
+    throw new Error(`Azure Bing Grounding agent unavailable: ${errorMessage}`);
+  }
+}
+
+interface SearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+interface ScrapedData {
+  title: string;
+  content: string;
+  url: string;
+}
+
+interface SearchDecision {
+  shouldSearch: boolean;
+  searchQuery: string;
+  reason: string;
+}
+
+async function scrapeWebPage(url: string): Promise<ScrapedData | null> {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) return null;
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    $("script, style, nav, footer, iframe, noscript, header, aside, [role='navigation'], [role='banner'], .advertisement, .ads, .sidebar").remove();
+
+    const title = $("title").text() || $("h1").first().text();
+    
+    const mainContent = $("article, main, .content, .post-content, .entry-content, .article-content, .blog-post, [role='main']").first();
+    const container = mainContent.length ? mainContent : $("body");
+    
+    const headings = container.find("h1, h2, h3")
+      .map((_, el) => `### ${$(el).text().trim()}`)
+      .get()
+      .filter((text) => text.length > 4);
+    
+    const paragraphs = container.find("p, li, td, dd, blockquote")
+      .map((_, el) => $(el).text().trim())
+      .get()
+      .filter((text) => 
+        text.length > 20 && 
+        !text.toLowerCase().includes("cookie") && 
+        !text.toLowerCase().includes("privacy policy") &&
+        !text.toLowerCase().includes("terms of service") &&
+        !text.toLowerCase().includes("subscribe") &&
+        !text.toLowerCase().includes("sign up") &&
+        !text.toLowerCase().includes("newsletter") &&
+        !text.toLowerCase().includes("advertisement")
+      )
+      .slice(0, 30);
+
+    let content = "";
+    let charCount = 0;
+    const maxChars = 6000;
+    
+    for (let i = 0; i < paragraphs.length && charCount < maxChars; i++) {
+      const para = paragraphs[i];
+      if (charCount + para.length <= maxChars) {
+        content += para + "\n\n";
+        charCount += para.length + 2;
+      } else {
+        content += para.substring(0, maxChars - charCount) + "...";
+        break;
+      }
+    }
+
+    return {
+      title: title.trim(),
+      content: content.trim(),
+      url,
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+async function searchWithBing(query: string): Promise<SearchResult[]> {
+  let threadId: string | null = null;
+  
+  try {
+    console.log(`[Azure Bing Grounding] Starting search for: "${query}"`);
+    const startTime = Date.now();
+
+    // Get or create Bing Grounding agent
+    const agentId = await getOrCreateBingGroundingAgent();
+
+    const client = getAzureClient();
+    const agentsClient = client.agents;
+
+    // Create thread
+    const thread = await agentsClient.threads.create();
+    threadId = thread.id;
+    console.log(`[Azure Bing Grounding] Thread created: ${threadId}`);
+
+    // Send search message
+    await agentsClient.messages.create(
+      threadId,
+      "user",
+      `Search for: ${query}\n\nReturn the top 10 search results as a JSON array with title, url, and snippet for each result.`
+    );
+
+    // Create and poll run
+    const runResponse = await agentsClient.runs.create(threadId, agentId);
+    console.log(`[Azure Bing Grounding] Run created: ${runResponse.id}`);
+
+    // Poll for completion (max 30 seconds)
+    const maxPollTime = 30000;
+    const pollInterval = 1000;
+    let pollCount = 0;
+    let run = runResponse;
+
+    while (
+      run.status === "queued" ||
+      run.status === "in_progress" ||
+      run.status === "requires_action"
+    ) {
+      if (Date.now() - startTime > maxPollTime) {
+        console.error("[Azure Bing Grounding] Timeout waiting for run completion");
+        break;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      run = await agentsClient.runs.get(threadId, run.id);
+      pollCount++;
+
+      if (pollCount % 5 === 0) {
+        console.log(`[Azure Bing Grounding] Run status: ${run.status} (${pollCount}s)`);
+      }
+    }
+
+    console.log(`[Azure Bing Grounding] Final run status: ${run.status} after ${Date.now() - startTime}ms`);
+
+    if (run.status === "completed") {
+      // Retrieve messages
+      const messages = agentsClient.messages.list(threadId);
+      const messagesArray = [];
+      
+      for await (const msg of messages) {
+        messagesArray.push(msg);
+      }
+
+      // Find assistant's response
+      const assistantMessage = messagesArray.find((m) => m.role === "assistant");
+
+      if (assistantMessage && assistantMessage.content && assistantMessage.content.length > 0) {
+        const content = assistantMessage.content[0];
+        
+        if (content.type === "text") {
+          // Type-safe access to text content
+          const textContent = content.type === "text" && "text" in content ? content.text : null;
+          const responseText = textContent?.value || "";
+          console.log(`[Azure Bing Grounding] Response received: ${responseText.substring(0, 200)}...`);
+
+          // Try to parse JSON from the response
+          try {
+            // Extract JSON array from the response (handle markdown code blocks)
+            const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+              const results = JSON.parse(jsonMatch[0]);
+              if (Array.isArray(results)) {
+                console.log(`[Azure Bing Grounding] ✅ Parsed ${results.length} search results`);
+                
+                return results.slice(0, 10).map((r: any) => ({
+                  title: r.title || "",
+                  url: r.url || "",
+                  snippet: r.snippet || r.description || "",
+                }));
+              }
+            }
+          } catch (parseError) {
+            console.error("[Azure Bing Grounding] Failed to parse JSON from response");
+          }
+
+          // Fallback: create synthetic results from the response
+          console.log("[Azure Bing Grounding] Using fallback result extraction");
+          
+          return [{
+            title: "Search Results",
+            url: "https://www.bing.com/search?q=" + encodeURIComponent(query),
+            snippet: responseText.substring(0, 300),
+          }];
+        }
+      }
+    } else if (run.status === "failed") {
+      console.error(`[Azure Bing Grounding] Run failed: ${run.lastError?.message || "Unknown error"}`);
+    }
+
+    return [];
+  } catch (error) {
+    console.error(`[Azure Bing Grounding] Search error:`, error instanceof Error ? error.message : String(error));
+    if (error instanceof Error && error.stack) {
+      console.error(`[Azure Bing Grounding] Stack trace:`, error.stack);
+    }
+    return [];
+  } finally {
+    // Always clean up thread, even on errors (agent is cached and reused)
+    if (threadId) {
+      try {
+        const client = getAzureClient();
+        await client.agents.threads.delete(threadId);
+        console.log(`[Azure Bing Grounding] Thread ${threadId} deleted`);
+      } catch (cleanupError) {
+        // Ignore cleanup errors - thread will expire eventually
+        console.warn(`[Azure Bing Grounding] Thread cleanup warning:`, cleanupError instanceof Error ? cleanupError.message : String(cleanupError));
+      }
+    }
+  }
+}
+
+async function searchWithTavily(query: string): Promise<SearchResult[]> {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) return [];
+
+  try {
+    const response = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query,
+        search_depth: "basic",
+        include_answer: false,
+        max_results: 5,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      console.error(`[Tavily] API error: ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    return (data.results || []).map((r: any) => ({
+      title: r.title,
+      url: r.url,
+      snippet: r.content?.substring(0, 300) || "",
+    }));
+  } catch (error) {
+    console.error("[Tavily] Search error:", error);
+    return [];
+  }
+}
+
+async function searchWithDuckDuckGo(query: string): Promise<SearchResult[]> {
+  try {
+    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const response = await fetch(searchUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) return [];
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+    const results: SearchResult[] = [];
+
+    $(".result, .web-result").each((i, elem) => {
+      if (i >= 6) return false;
+
+      const titleElem = $(elem).find(".result__a, .result-link");
+      const title = titleElem.text().trim();
+      const href = titleElem.attr("href") || "";
+      const snippet = $(elem).find(".result__snippet, .result-snippet").text().trim();
+
+      let url = "";
+      if (href.includes("uddg=")) {
+        try {
+          const uddg = new URL(href, "https://duckduckgo.com").searchParams.get("uddg");
+          url = uddg ? decodeURIComponent(uddg) : "";
+        } catch {
+          url = "";
+        }
+      } else if (href.startsWith("http")) {
+        url = href;
+      } else {
+        const urlText = $(elem).find(".result__url").text().trim();
+        if (urlText) url = urlText.startsWith("http") ? urlText : `https://${urlText}`;
+      }
+
+      if (title && url && url.startsWith("http")) {
+        results.push({ title, url, snippet });
+      }
+    });
+
+    return results;
+  } catch (error) {
+    console.error("DuckDuckGo search error:", error);
+    return [];
+  }
+}
+
+async function generateSearchQueries(originalQuery: string): Promise<string[]> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are a search query optimization expert. Your job is to generate HIGHLY RELEVANT, FOCUSED search queries that stay EXACTLY on topic.
+
+CRITICAL RULES:
+1. **STAY ON TOPIC**: Every query must be 100% relevant to the user's exact question
+2. **NO TANGENTS**: Don't broaden the scope or add unrelated topics
+3. **EXTRACT CORE INTENT**: Understand what the user really wants to know
+4. **BE SPECIFIC**: Include exact entities, dates, names mentioned by user
+5. **MAINTAIN CONTEXT**: Keep all important qualifiers (e.g., "top", "best", "latest", "2024")
+6. **REMOVE FLUFF**: Strip phrases like "give me info about", "tell me about"
+7. **OPTIMIZE FOR RELEVANCE**: Each query should find highly relevant results only
+
+Query Generation Strategy:
+- Query 1: Most specific version (exact entities + qualifiers + time)
+- Query 2: Slightly broader but still focused (synonyms, alternative phrasing)
+- Query 3: Different angle but same core topic (e.g., reviews, comparisons, technical details)
+
+WRONG Examples (TOO BROAD):
+User asks: "top AI coding tools 2024"
+❌ Bad: ["AI tools", "artificial intelligence applications", "machine learning software"]
+✅ Good: ["best AI coding assistants 2024", "top AI code generation tools comparison 2024", "leading AI programming tools reviews 2024"]
+
+Respond with JSON only:
+{
+  "queries": ["highly specific query 1", "focused query 2", "relevant query 3"]
+}`,
+        },
+        {
+          role: "user",
+          content: `Generate optimized search queries for: ${originalQuery}`,
+        },
+      ],
+      temperature: 0.3,
+      max_tokens: 250,
+      response_format: { type: "json_object" },
+    });
+
+    const result = JSON.parse(response.choices[0]?.message?.content || "{}");
+    const queries = result.queries && Array.isArray(result.queries) && result.queries.length > 0 
+      ? result.queries 
+      : [originalQuery];
+    console.log(`[DeepSearch] Generated ${queries.length} search queries:`, queries);
+    return queries.slice(0, 3);
+  } catch (error) {
+    console.error("Query generation error:", error);
+    return [originalQuery];
+  }
+}
+
+export async function performWebSearch(query: string): Promise<{ results: SearchResult[]; content: string }> {
+  console.log(`[WebSearch] Searching for: "${query}"`);
+  
+  // Only use Bing Grounding
+  const results = await searchWithBing(query);
+  
+  if (results.length === 0) {
+    console.warn("[WebSearch] No results found from Bing Grounding");
+    return { results: [], content: "" };
+  }
+  
+  console.log(`[WebSearch] Found ${results.length} results via Bing Grounding`);
+
+  let extractedContent = "";
+  const scrapedUrls: string[] = [];
+
+  for (let i = 0; i < Math.min(results.length, 8); i++) {
+    const result = results[i];
+    try {
+      const scraped = await scrapeWebPage(result.url);
+      if (scraped && scraped.content && scraped.content.length > 100) {
+        extractedContent += `\n\n---\n**Source ${i + 1}: ${scraped.title}**\nURL: ${result.url}\n\n${scraped.content}\n`;
+        scrapedUrls.push(result.url);
+        console.log(`[WebSearch] Scraped ${scraped.content.length} chars from ${result.url}`);
+        if (extractedContent.length > 30000) break;
+      }
+    } catch (error) {
+      console.log(`[WebSearch] Failed to scrape ${result.url}`);
+    }
+  }
+
+  console.log(`[WebSearch] Scraped ${scrapedUrls.length} pages successfully. Total content: ${extractedContent.length} chars`);
+
+  if (extractedContent.length === 0 && results.length > 0) {
+    for (let i = 0; i < Math.min(results.length, 6); i++) {
+      const result = results[i];
+      extractedContent += `\n\n---\n**Source ${i + 1}: ${result.title}**\nURL: ${result.url}\n\n${result.snippet}\n`;
+    }
+    console.log(`[WebSearch] Using snippets as fallback. Total content: ${extractedContent.length} chars`);
+  }
+
+  return { results, content: extractedContent };
+}
+
+export async function performDeepWebSearch(query: string): Promise<{ results: SearchResult[]; content: string }> {
+  console.log(`[DeepSearch] Starting deep search for: "${query}"`);
+  
+  const startTime = Date.now();
+  const MAX_TOTAL_TIME = 60000;
+  
+  const queries = await generateSearchQueries(query);
+  
+  const allResults: SearchResult[] = [];
+  const seenUrls = new Set<string>();
+  
+  for (const searchQuery of queries) {
+    if (Date.now() - startTime > MAX_TOTAL_TIME) {
+      console.log(`[DeepSearch] Reached time limit, stopping query execution`);
+      break;
+    }
+    
+    console.log(`[DeepSearch] Executing query: "${searchQuery}"`);
+    
+    // Try OpenAI Web Search first (primary), then Azure Bing Grounding (fallback)
+    let queryResults = await searchWithOpenAI(searchQuery);
+    
+    if (queryResults.length > 0) {
+      console.log(`[DeepSearch] ✅ Found ${queryResults.length} results via OpenAI Web Search for "${searchQuery}"`);
+    } else {
+      // Fallback to Azure Bing Grounding
+      console.log(`[DeepSearch] OpenAI returned no results, trying Azure Bing Grounding...`);
+      queryResults = await searchWithBing(searchQuery);
+      
+      if (queryResults.length > 0) {
+        console.log(`[DeepSearch] ✅ Found ${queryResults.length} results via Azure Bing Grounding for "${searchQuery}"`);
+      } else {
+        console.log(`[DeepSearch] Both search providers returned no results for "${searchQuery}"`);
+      }
+    }
+    
+    for (const result of queryResults) {
+      if (!seenUrls.has(result.url)) {
+        seenUrls.add(result.url);
+        allResults.push(result);
+      }
+    }
+    
+    if (allResults.length >= 15) break;
+  }
+  
+  console.log(`[DeepSearch] Total unique results: ${allResults.length}`);
+  
+  if (allResults.length === 0) {
+    console.log("[DeepSearch] No results found");
+    return { results: [], content: "" };
+  }
+  
+  let extractedContent = "";
+  const scrapedUrls: string[] = [];
+  const maxPages = Math.min(allResults.length, 10);
+  
+  for (let i = 0; i < maxPages; i++) {
+    if (Date.now() - startTime > MAX_TOTAL_TIME) {
+      console.log(`[DeepSearch] Reached time limit, stopping scrape`);
+      break;
+    }
+    
+    const result = allResults[i];
+    try {
+      const scraped = await scrapeWebPage(result.url);
+      if (scraped && scraped.content && scraped.content.length > 100) {
+        extractedContent += `\n\n---\n**Source ${scrapedUrls.length + 1}: ${scraped.title}**\nURL: ${result.url}\n\n${scraped.content}\n`;
+        scrapedUrls.push(result.url);
+        console.log(`[DeepSearch] Scraped ${scraped.content.length} chars from ${result.url}`);
+        
+        if (extractedContent.length > 40000) {
+          console.log(`[DeepSearch] Reached content limit (40k chars), stopping scrape`);
+          break;
+        }
+      }
+    } catch (error) {
+      console.log(`[DeepSearch] Failed to scrape ${result.url}`);
+    }
+  }
+  
+  console.log(`[DeepSearch] Scraped ${scrapedUrls.length} pages successfully. Total content: ${extractedContent.length} chars. Total time: ${Date.now() - startTime}ms`);
+  
+  if (extractedContent.length === 0 && allResults.length > 0) {
+    for (let i = 0; i < Math.min(allResults.length, 10); i++) {
+      const result = allResults[i];
+      extractedContent += `\n\n---\n**Source ${i + 1}: ${result.title}**\nURL: ${result.url}\n\n${result.snippet}\n`;
+    }
+    console.log(`[DeepSearch] Using snippets as fallback. Total content: ${extractedContent.length} chars`);
+  }
+  
+  return { results: allResults.slice(0, 10), content: extractedContent };
+}
+
+export async function decideIfSearchNeeded(message: string): Promise<SearchDecision> {
+  const lowerMessage = message.toLowerCase();
+
+  const hasFileAnalysis = message.includes("[Attached file:") || message.includes("# File Analysis:");
+  
+  if (hasFileAnalysis) {
+    const explicitSearchTriggers = [
+      "search this", "search the document", "search about this", 
+      "web search", "look this up", "search online", "google this",
+      "research this", "find more online"
+    ];
+    const wantsSearch = explicitSearchTriggers.some(t => lowerMessage.includes(t));
+    
+    if (wantsSearch) {
+      const topicMatch = message.match(/## (?:Document Overview|Content Summary|Key Content)[\s\S]*?(?:topic|subject|about)[:\s]*([^\n]+)/i);
+      const searchQuery = topicMatch ? topicMatch[1].trim() : message.substring(0, 200);
+      console.log(`[AI Search] Explicit search request for document detected`);
+      return {
+        shouldSearch: true,
+        searchQuery: `${searchQuery} latest information`,
+        reason: "Explicit search request for document",
+      };
+    }
+    
+    console.log(`[AI Search] Document analysis without search request - skipping web search`);
+    return {
+      shouldSearch: false,
+      searchQuery: "",
+      reason: "Document analysis - no explicit search requested",
+    };
+  }
+
+  // Quick filter: Skip search for common greetings and casual chat
+  const greetingsAndCasual = [
+    "hi", "hello", "hey", "yo", "sup", "hola", "greetings",
+    "how are you", "how r u", "how are u", "what's up", "whats up",
+    "good morning", "good afternoon", "good evening", "good night",
+    "thanks", "thank you", "thx", "ty", "bye", "goodbye", "see you",
+    "ok", "okay", "sure", "yes", "no", "yep", "nope", "cool", "nice"
+  ];
+  
+  const isGreeting = greetingsAndCasual.some(g => {
+    const trimmed = lowerMessage.replace(/[!?.]/g, '').trim();
+    return trimmed === g || trimmed.startsWith(g + ' ') || trimmed.endsWith(' ' + g);
+  });
+  
+  if (isGreeting && lowerMessage.length < 30) {
+    console.log(`[AI Search] Greeting detected, skipping search for: "${message}"`);
+    return {
+      shouldSearch: false,
+      searchQuery: "",
+      reason: "Greeting or casual chat - no search needed",
+    };
+  }
+
+  const urlPattern = /\b(?:https?:\/\/)?(?:www\.)?[\w-]+\.(?:com|org|net|io|co|ai|dev|app|info|edu|gov)\b/i;
+  if (urlPattern.test(message)) {
+    const urlMatch = message.match(urlPattern);
+    return {
+      shouldSearch: true,
+      searchQuery: urlMatch ? urlMatch[0] : message,
+      reason: "URL detected - fetching content",
+    };
+  }
+  
+  const quickTriggers = [
+    "latest", "recent", "current", "news", "2024", "2025",
+    "what is", "who is", "where is", "when is", "how does",
+    "explain", "define", "what are", "list of", "top 5",
+    "best", "recommend", "compare", "vs", "versus",
+    "price of", "cost of", "weather", "stock", "crypto"
+  ];
+  
+  const hasQuickTrigger = quickTriggers.some(t => lowerMessage.includes(t));
+  if (hasQuickTrigger) {
+    console.log(`[AI Search] Quick trigger detected: searching for "${message}"`);
+    return {
+      shouldSearch: true,
+      searchQuery: message.replace(/perform\s+a?\s*web\s*search\s+(and\s+)?/gi, "").replace(/search\s+for\s+/gi, "").trim(),
+      reason: "Quick trigger keyword detected",
+    };
+  }
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are a search decision agent. You should be VERY AGGRESSIVE about triggering searches - when in doubt, SEARCH.
+
+ALWAYS SEARCH for (be generous):
+- ANY question asking "what is", "what are", "who is", "which are", "top X", "best X", "list of"
+- Current events, news, or information that could be recent (after 2023)
+- Real-time data: stock prices, weather, sports scores, crypto prices, market data
+- Specific products, companies, tools, libraries, frameworks, or services
+- Technical documentation, APIs, or specific implementations
+- Factual claims, statistics, or data that could be verified
+- Questions about specific websites, apps, or online platforms
+- Pricing, reviews, or comparisons
+- Information about people, organizations, or events
+- Technology topics, AI models, coding tools, programming languages
+- Anything with years 2024, 2025 or later
+- Questions that benefit from fresh/current information
+
+ONLY SKIP SEARCH for:
+- Greetings and small talk (hi, hello, how are you, what's up, thank you, etc.)
+- Pure creative writing requests (poems, stories with no factual basis)
+- Basic math calculations
+- Simple logical reasoning with no external facts needed
+- Personal advice based on subjective opinion only
+- Casual conversation without information requests
+
+When in doubt about factual questions → SEARCH. But for casual chat → DON'T SEARCH.
+
+Respond with JSON only:
+{
+  "search": true/false,
+  "query": "optimized search query (remove phrases like 'perform a web search', 'search for')",
+  "reason": "brief reason"
+}`,
+        },
+        {
+          role: "user",
+          content: message,
+        },
+      ],
+      temperature: 0,
+      max_tokens: 150,
+      response_format: { type: "json_object" },
+    });
+
+    const result = JSON.parse(response.choices[0]?.message?.content || "{}");
+    
+    return {
+      shouldSearch: result.search === true,
+      searchQuery: result.query || message,
+      reason: result.reason || "",
+    };
+  } catch (error) {
+    console.error("Search decision error:", error);
+    
+    return {
+      shouldSearch: true,
+      searchQuery: message,
+      reason: "Fallback - default to search on error",
+    };
+  }
+}
+
+export function shouldPerformWebSearch(message: string): boolean {
+  const lowerMessage = message.toLowerCase();
+
+  const urlPattern = /\b(?:https?:\/\/)?(?:www\.)?[\w-]+\.(?:com|org|net|io|co|ai|dev|app|info|edu|gov)\b/i;
+  if (urlPattern.test(message)) {
+    return true;
+  }
+
+  const explicitSearchTriggers = [
+    "search for", "search about", "google", "look up", "lookup",
+    "find online", "find on the web", "web search", "search the web",
+    "search the internet", "what is the latest", "current news",
+  ];
+
+  const freshnessTriggers = [
+    "current", "latest", "recent", "news", "today", "this week",
+    "this month", "this year", "2024", "2025", "update on",
+    "updates on", "what's new", "breaking", "price of", "stock price",
+    "weather in", "who won", "score of",
+  ];
+
+  const hasExplicitSearch = explicitSearchTriggers.some((trigger) => lowerMessage.includes(trigger));
+  const hasFreshnessTrigger = freshnessTriggers.some((trigger) => lowerMessage.includes(trigger));
+
+  return hasExplicitSearch || hasFreshnessTrigger;
+}
+
+export interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface StreamEvent {
+  type: "searching" | "search_complete" | "content" | "sources" | "done" | "error";
+  data?: any;
+}
+
+export async function* streamChatCompletionWithSearch(
+  messages: ChatMessage[],
+  useAISearch: boolean = true
+): AsyncGenerator<StreamEvent, void, unknown> {
+  let searchData: { results: SearchResult[]; content: string } = { results: [], content: "" };
+  let searchQuery = "";
+
+  if (messages.length > 0) {
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage.role === "user") {
+      if (useAISearch) {
+        yield { type: "searching", data: { status: "deciding" } };
+        
+        const decision = await decideIfSearchNeeded(lastMessage.content);
+        console.log(`[AI Search] Decision: ${decision.shouldSearch ? "SEARCH" : "NO SEARCH"} - ${decision.reason}`);
+        
+        if (decision.shouldSearch) {
+          searchQuery = decision.searchQuery;
+          yield { type: "searching", data: { status: "searching", query: searchQuery } };
+          
+          searchData = await performDeepWebSearch(searchQuery);
+          
+          if (searchData.results.length > 0) {
+            yield { 
+              type: "search_complete", 
+              data: { 
+                results: searchData.results.slice(0, 10),
+                query: searchQuery 
+              } 
+            };
+          }
+        }
+      } else {
+        const quickCheck = shouldPerformWebSearch(lastMessage.content);
+        if (quickCheck) {
+          yield { type: "searching", data: { status: "searching", query: lastMessage.content } };
+          searchData = await performDeepWebSearch(lastMessage.content);
+          
+          if (searchData.results.length > 0) {
+            yield { 
+              type: "search_complete", 
+              data: { 
+                results: searchData.results.slice(0, 10),
+                query: lastMessage.content 
+              } 
+            };
+          }
+        }
+      }
+    }
+  }
+
+  const hasSearchResults = searchData.content.length > 0;
+  
+  const systemMessage: ChatMessage = {
+    role: "system",
+    content: `You are TypeMasterAI, an expert AI assistant specializing in typing improvement and general knowledge.
+
+# Core Identity
+- Primary role: Advanced typing coach helping users improve speed, accuracy, and technique
+- Secondary role: General-purpose assistant for any topic or question
+- Personality: Encouraging, direct, and practical with actionable advice
+
+# Expertise Areas
+
+## Typing & Productivity
+- Speed training: Techniques from beginner (20-40 WPM) to expert (100+ WPM)
+- Touch typing: Finger placement, home row, muscle memory
+- Accuracy: Error reduction, consistency building (98%+ accuracy)
+- Layouts: QWERTY, Dvorak, Colemak comparison and switching
+- Ergonomics: RSI prevention, posture, keyboard setup
+- Practice methods: Deliberate practice, weakness identification, progress tracking
+
+## General Knowledge
+- Answer any question across all domains
+- Coding, writing, math, research, problem-solving
+- Creative brainstorming and analysis
+- Current events and up-to-date information (when web search is available)
+
+# Response Approach
+
+1. **Direct & Clear**: Start with the answer, then provide details
+2. **Structured**: Use headings (##) and lists for organization
+3. **Actionable**: Give specific steps users can implement immediately
+4. **Examples**: Include code blocks or specific examples when helpful
+5. **Concise**: Avoid unnecessary explanations or meta-commentary
+
+# Special Handling
+
+## File Analysis Context
+When file content is in the conversation:
+- Focus on answering the user's specific question
+- Provide insights and interpretation, not content repetition
+- Give actionable recommendations based on the content
+
+## Formatting Style
+- Use markdown: headings, lists, code blocks, tables
+- Write naturally without excessive bold/italics
+- Use blockquotes (>) for important notes or tips
+${hasSearchResults ? `
+
+# CURRENT WEB SEARCH RESULTS
+
+Fresh information retrieved for this query:
+
+${searchData.content}
+
+INSTRUCTIONS:
+- Prioritize this current data over your training knowledge
+- Include specific facts, dates, and details from these sources
+- Cite sources naturally in your response
+- Present information confidently as current
+- If results don't fully answer the question, acknowledge gaps` : ""}`,
+  };
+
+  const allMessages = [systemMessage, ...messages];
+
+  try {
+    const stream = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: allMessages,
+      stream: true,
+      temperature: hasSearchResults ? 0.3 : 0.7,
+      max_tokens: 4000,
+    });
+
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content;
+      if (content) {
+        yield { type: "content", data: content };
+      }
+    }
+
+    if (searchData.results.length > 0) {
+      yield { 
+        type: "sources", 
+        data: searchData.results.slice(0, 10).map(r => ({
+          title: r.title,
+          url: r.url,
+          snippet: r.snippet?.substring(0, 150) || "",
+        }))
+      };
+    }
+
+    yield { type: "done" };
+  } catch (error: any) {
+    const chatError = parseOpenAIError(error);
+    logChatError("streamChatCompletionWithSearch", error, chatError);
+    
+    yield { 
+      type: "error", 
+      data: {
+        code: chatError.code,
+        message: chatError.userMessage,
+        retryable: chatError.retryable,
+        retryAfter: chatError.retryAfter,
+      }
+    };
+  }
+}
+
+export async function* streamChatCompletion(
+  messages: ChatMessage[],
+  performSearch: boolean = false
+): AsyncGenerator<string, void, unknown> {
+  const generator = streamChatCompletionWithSearch(messages, performSearch);
+  
+  for await (const event of generator) {
+    if (event.type === "content") {
+      yield event.data;
+    }
+  }
+}
+
+/**
+ * Generate a concise, meaningful title for a conversation based on the first user message.
+ * This mimics ChatGPT's auto-naming behavior.
+ */
+export async function generateConversationTitle(userMessage: string): Promise<string> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are a conversation title generator. Generate a short, concise title (3-6 words max) that captures the essence of the user's message.
+
+Rules:
+- Title should be 3-6 words maximum
+- Be descriptive and specific to the topic
+- Use title case (capitalize first letter of major words)
+- No punctuation at the end
+- No quotes around the title
+- If it's a question, summarize the topic rather than using the question format
+- If it's about coding, include the language/technology if mentioned
+- Be creative but accurate
+
+Examples:
+- "How do I center a div in CSS?" → "CSS Div Centering Guide"
+- "What's the best way to learn Python?" → "Python Learning Path"
+- "Can you help me write a poem about rain?" → "Rain Poetry Creation"
+- "I need to improve my typing speed" → "Typing Speed Improvement"
+- "Explain quantum computing to me" → "Quantum Computing Basics"`,
+        },
+        {
+          role: "user",
+          content: userMessage,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 20,
+    });
+
+    const title = response.choices[0]?.message?.content?.trim();
+    
+    // Fallback if empty or too long
+    if (!title || title.length > 50) {
+      return generateFallbackTitle(userMessage);
+    }
+    
+    // Remove any quotes that might be in the response
+    return title.replace(/^["']|["']$/g, '').trim();
+  } catch (error) {
+    console.error("Title generation error:", error);
+    return generateFallbackTitle(userMessage);
+  }
+}
+
+/**
+ * Generate a simple fallback title from the message content
+ */
+function generateFallbackTitle(message: string): string {
+  // Remove special characters and extra whitespace
+  const cleaned = message
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  // Take first few words
+  const words = cleaned.split(' ').slice(0, 5);
+  
+  // Capitalize first letter of each word
+  const title = words
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+  
+  return title.length > 40 ? title.substring(0, 40) + '...' : title;
+}
