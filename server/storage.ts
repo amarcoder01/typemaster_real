@@ -200,7 +200,7 @@ const pool = new Pool({
 
 // Handle pool-level errors gracefully to prevent server crashes
 // Neon serverless can terminate connections unexpectedly due to scaling/idle timeouts
-pool.on('error', (err) => {
+pool.on('error', (err: any) => {
   console.error('[Database Pool] Unexpected connection error (will auto-reconnect):', err.message);
   // Don't crash - the pool will create new connections on next query
 });
@@ -1515,113 +1515,69 @@ export class DatabaseStorage implements IStorage {
     rank: number;
     isVerified: boolean;
   }>> {
-    const dateFilter = this.getTimeframeDateFilter(timeframe);
+    // Use materialized views for much faster queries
+    const viewName = this.getMaterializedViewName(timeframe);
     
-    const leaderboard = await db.execute(sql`
-      WITH ranked_results AS (
+    const leaderboard = await db.execute(sql.raw(`
         SELECT 
-          tr.user_id,
-          tr.wpm,
-          tr.accuracy,
-          tr.created_at,
-          tr.mode,
-          ROW_NUMBER() OVER (
-            PARTITION BY tr.user_id 
-            ORDER BY tr.wpm DESC, tr.created_at DESC
-          ) as user_rank
-        FROM test_results tr
-        WHERE tr.created_at >= ${dateFilter}
-          AND (tr.freestyle = false OR tr.freestyle IS NULL)
-          AND tr.language = ${language}
-      ),
-      test_counts AS (
-        SELECT 
-          user_id,
-          COUNT(*)::int as total_tests
-        FROM test_results
-        WHERE created_at >= ${dateFilter}
-          AND (freestyle = false OR freestyle IS NULL)
-          AND language = ${language}
-        GROUP BY user_id
-      ),
-      final_ranking AS (
-        SELECT 
-          rr.user_id,
-          rr.wpm,
-          rr.accuracy,
-          rr.created_at,
-          rr.mode,
-          tc.total_tests,
-          DENSE_RANK() OVER (ORDER BY rr.wpm DESC, rr.created_at ASC) as rank
-        FROM ranked_results rr
-        LEFT JOIN test_counts tc ON rr.user_id = tc.user_id
-        WHERE rr.user_rank = 1
-      )
-      SELECT 
-        fr.user_id as "userId",
-        u.username,
-        fr.wpm,
-        fr.accuracy,
-        fr.created_at as "createdAt",
-        fr.mode,
-        u.avatar_color as "avatarColor",
-        COALESCE(fr.total_tests, 1) as "totalTests",
-        fr.rank,
-        COALESCE(acc.certified_wpm IS NOT NULL, false) as "isVerified"
-      FROM final_ranking fr
-      INNER JOIN users u ON fr.user_id = u.id
-      LEFT JOIN anti_cheat_challenges acc ON fr.user_id = acc.user_id AND acc.passed = true
-      ORDER BY fr.rank ASC, fr.wpm DESC
+        user_id as "userId",
+        username,
+        wpm,
+        accuracy,
+        created_at as "createdAt",
+        mode,
+        avatar_color as "avatarColor",
+        total_tests as "totalTests",
+        rank,
+        is_verified as "isVerified"
+      FROM ${viewName}
+      WHERE language = '${language}'
+      ORDER BY rank ASC
       LIMIT ${limit}
       OFFSET ${offset}
-    `);
+    `));
 
     return leaderboard.rows as any[];
   }
+  
+  /**
+   * Get the appropriate materialized view name based on timeframe
+   */
+  private getMaterializedViewName(timeframe?: string): string {
+    switch (timeframe) {
+      case 'daily':
+        return 'mv_leaderboard_daily';
+      case 'weekly':
+        return 'mv_leaderboard_weekly';
+      case 'monthly':
+        return 'mv_leaderboard_monthly';
+      default:
+        return 'mv_leaderboard_global';
+    }
+  }
 
   async getLeaderboardCount(timeframe?: string, language: string = "en"): Promise<number> {
-    const dateFilter = this.getTimeframeDateFilter(timeframe);
+    // Use materialized views for much faster count queries
+    const viewName = this.getMaterializedViewName(timeframe);
     
-    const result = await db.execute(sql`
-      SELECT COUNT(DISTINCT user_id)::int as count
-      FROM test_results
-      WHERE created_at >= ${dateFilter}
-        AND (freestyle = false OR freestyle IS NULL)
-        AND language = ${language}
-    `);
+    const result = await db.execute(sql.raw(`
+      SELECT COUNT(*)::int as count
+      FROM ${viewName}
+      WHERE language = '${language}'
+    `));
     
     return (result.rows[0] as any)?.count || 0;
   }
 
   async getLeaderboardAroundUser(userId: string, range: number = 5, timeframe?: string, language: string = "en"): Promise<{ userRank: number; entries: any[] }> {
-    const dateFilter = this.getTimeframeDateFilter(timeframe);
+    // Use materialized views for much faster lookups
+    const viewName = this.getMaterializedViewName(timeframe);
     
-    const rankResult = await db.execute(sql`
-      WITH ranked_results AS (
-        SELECT 
-          tr.user_id,
-          tr.wpm,
-          ROW_NUMBER() OVER (
-            PARTITION BY tr.user_id 
-            ORDER BY tr.wpm DESC
-          ) as user_rank
-        FROM test_results tr
-        WHERE tr.created_at >= ${dateFilter}
-          AND (tr.freestyle = false OR tr.freestyle IS NULL)
-          AND tr.language = ${language}
-      ),
-      user_best AS (
-        SELECT user_id, wpm FROM ranked_results WHERE user_rank = 1
-      ),
-      final_ranking AS (
-        SELECT 
-          user_id,
-          wpm,
-          DENSE_RANK() OVER (ORDER BY wpm DESC) as rank
-        FROM user_best
-      )
-      SELECT rank FROM final_ranking WHERE user_id = ${userId}
-    `);
+    const rankResult = await db.execute(sql.raw(`
+      SELECT rank
+      FROM ${viewName}
+      WHERE user_id = '${userId}' AND language = '${language}'
+    `));
 
     const userRank = (rankResult.rows[0] as any)?.rank || -1;
     
@@ -1632,59 +1588,23 @@ export class DatabaseStorage implements IStorage {
     const startRank = Math.max(1, userRank - range);
     const endRank = userRank + range;
 
-    const entries = await db.execute(sql`
-      WITH ranked_results AS (
+    const entries = await db.execute(sql.raw(`
         SELECT 
-          tr.user_id,
-          tr.wpm,
-          tr.accuracy,
-          tr.created_at,
-          tr.mode,
-          ROW_NUMBER() OVER (
-            PARTITION BY tr.user_id 
-            ORDER BY tr.wpm DESC, tr.created_at DESC
-          ) as user_rank
-        FROM test_results tr
-        WHERE tr.created_at >= ${dateFilter}
-          AND (tr.freestyle = false OR tr.freestyle IS NULL)
-          AND tr.language = ${language}
-      ),
-      test_counts AS (
-        SELECT user_id, COUNT(*)::int as total_tests 
-        FROM test_results 
-        WHERE created_at >= ${dateFilter}
-          AND (freestyle = false OR freestyle IS NULL)
-          AND language = ${language}
-        GROUP BY user_id
-      ),
-      final_ranking AS (
-        SELECT 
-          rr.user_id,
-          rr.wpm,
-          rr.accuracy,
-          rr.created_at,
-          rr.mode,
-          tc.total_tests,
-          DENSE_RANK() OVER (ORDER BY rr.wpm DESC) as rank
-        FROM ranked_results rr
-        LEFT JOIN test_counts tc ON rr.user_id = tc.user_id
-        WHERE rr.user_rank = 1
-      )
-      SELECT 
-        fr.user_id as "userId",
-        u.username,
-        fr.wpm,
-        fr.accuracy,
-        fr.created_at as "createdAt",
-        fr.mode,
-        u.avatar_color as "avatarColor",
-        COALESCE(fr.total_tests, 1) as "totalTests",
-        fr.rank
-      FROM final_ranking fr
-      INNER JOIN users u ON fr.user_id = u.id
-      WHERE fr.rank >= ${startRank} AND fr.rank <= ${endRank}
-      ORDER BY fr.rank ASC
-    `);
+        user_id as "userId",
+        username,
+        wpm,
+        accuracy,
+        created_at as "createdAt",
+        mode,
+        avatar_color as "avatarColor",
+        total_tests as "totalTests",
+        rank
+      FROM ${viewName}
+      WHERE language = '${language}'
+        AND rank >= ${startRank} 
+        AND rank <= ${endRank}
+      ORDER BY rank ASC
+    `));
 
     return { userRank, entries: entries.rows as any[] };
   }
@@ -1704,6 +1624,12 @@ export class DatabaseStorage implements IStorage {
   }>> {
     const difficultyFilter = difficulty ? sql`AND st.difficulty = ${difficulty}` : sql``;
     
+    // When difficulty is specified, partition by user_id AND difficulty (one best per difficulty)
+    // When showing all difficulties, partition by user_id only (one best overall)
+    const partitionClause = difficulty 
+      ? sql`PARTITION BY st.user_id, st.difficulty`
+      : sql`PARTITION BY st.user_id`;
+    
     const leaderboard = await db.execute(sql`
       WITH ranked_scores AS (
         SELECT 
@@ -1715,7 +1641,7 @@ export class DatabaseStorage implements IStorage {
           st.completion_rate,
           st.created_at,
           ROW_NUMBER() OVER (
-            PARTITION BY st.user_id, st.difficulty
+            ${partitionClause}
             ORDER BY st.stress_score DESC, st.wpm DESC, st.created_at DESC
           ) as user_rank
         FROM stress_tests st
@@ -2029,30 +1955,47 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRatingLeaderboardPaginated(tier: string | undefined, limit: number, offset: number): Promise<any[]> {
-    let query = db.select().from(userRatings);
+    // Optimized single-query approach using SQL with JOIN and proper ranking
+    // Eliminates N+1 query problem (was fetching each user separately)
+    const tierFilter = tier ? sql`WHERE ur.tier = ${tier}` : sql``;
     
-    if (tier) {
-      query = query.where(eq(userRatings.tier, tier)) as typeof query;
-    }
-    
-    const ratings = await query
-      .orderBy(desc(userRatings.rating))
-      .limit(limit)
-      .offset(offset);
-    
-    const enrichedRatings = await Promise.all(
-      ratings.map(async (rating, index) => {
-        const user = await this.getUser(rating.userId);
-        return {
-          ...rating,
-          username: user?.username || "Unknown",
-          avatarColor: user?.avatarColor,
-          rank: offset + index + 1,
-        };
-      })
-    );
+    const leaderboard = await db.execute(sql`
+      WITH ranked_ratings AS (
+        SELECT 
+          ur.user_id,
+          ur.rating,
+          ur.tier,
+          ur.total_races,
+          ur.wins,
+          ur.losses,
+          ur.created_at,
+          ur.updated_at,
+          DENSE_RANK() OVER (ORDER BY ur.rating DESC, ur.updated_at ASC) as rank
+        FROM user_ratings ur
+        ${tierFilter}
+      )
+      SELECT 
+        rr.user_id as "userId",
+        u.username,
+        rr.rating,
+        rr.tier,
+        rr.total_races as "totalRaces",
+        rr.wins,
+        rr.losses,
+        rr.created_at as "createdAt",
+        rr.updated_at as "updatedAt",
+        u.avatar_color as "avatarColor",
+        rr.rank,
+        COALESCE(acc.certified_wpm IS NOT NULL, false) as "isVerified"
+      FROM ranked_ratings rr
+      INNER JOIN users u ON rr.user_id = u.id
+      LEFT JOIN anti_cheat_challenges acc ON rr.user_id = acc.user_id AND acc.passed = true
+      ORDER BY rr.rank ASC
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `);
 
-    return enrichedRatings;
+    return leaderboard.rows as any[];
   }
 
   async getRatingLeaderboardCount(tier?: string): Promise<number> {
@@ -2832,6 +2775,7 @@ export class DatabaseStorage implements IStorage {
     };
     commonMistakes: Array<{ expectedKey: string; typedKey: string; count: number }>;
   }> {
+    
     // Validate and clamp days to safe range to prevent SQL injection
     const safeDays = Math.max(1, Math.min(365, Math.floor(days)));
     
@@ -4033,8 +3977,12 @@ export class DatabaseStorage implements IStorage {
     rank: number;
   }>> {
     // Production-ready leaderboard query using ROW_NUMBER() to guarantee exactly
-    // one entry per user per difficulty, with proper tiebreaking by WPM and date
+    // one entry per user. When difficulty is specified, partition by user_id AND difficulty.
+    // When showing all difficulties, partition by user_id only (one best overall).
     const difficultyFilter = difficulty ? sql`AND st.difficulty = ${difficulty}` : sql``;
+    const partitionClause = difficulty 
+      ? sql`PARTITION BY st.user_id, st.difficulty`
+      : sql`PARTITION BY st.user_id`;
     
     const leaderboard = await db.execute(sql`
       WITH ranked_scores AS (
@@ -4047,7 +3995,7 @@ export class DatabaseStorage implements IStorage {
           st.completion_rate,
           st.created_at,
           ROW_NUMBER() OVER (
-            PARTITION BY st.user_id, st.difficulty
+            ${partitionClause}
             ORDER BY st.stress_score DESC, st.wpm DESC, st.created_at DESC
           ) as user_rank
         FROM stress_tests st
@@ -4409,6 +4357,7 @@ export class DatabaseStorage implements IStorage {
       u_password: string;
       u_email_verified: boolean;
       u_is_active: boolean;
+      u_is_test_data: boolean;
       u_avatar_color: string | null;
       u_bio: string | null;
       u_country: string | null;
@@ -4430,7 +4379,7 @@ export class DatabaseStorage implements IStorage {
       SELECT DISTINCT ON (u.id)
         u.id as u_id, u.username as u_username, u.email as u_email, 
         u.password as u_password, u.email_verified as u_email_verified, 
-        u.is_active as u_is_active, u.avatar_color as u_avatar_color,
+        u.is_active as u_is_active, u.is_test_data as u_is_test_data, u.avatar_color as u_avatar_color,
         u.bio as u_bio, u.country as u_country, u.keyboard_layout as u_keyboard_layout,
         u.timezone as u_timezone, u.current_streak as u_current_streak,
         u.best_streak as u_best_streak, u.last_test_date as u_last_test_date,
@@ -4457,6 +4406,7 @@ export class DatabaseStorage implements IStorage {
         password: r.u_password,
         emailVerified: r.u_email_verified,
         isActive: r.u_is_active,
+        isTestData: r.u_is_test_data || false,
         avatarColor: r.u_avatar_color,
         bio: r.u_bio,
         country: r.u_country,

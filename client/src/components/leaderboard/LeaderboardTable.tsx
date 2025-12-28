@@ -20,6 +20,7 @@ import {
   WifiOff,
   Ban,
   Zap,
+  Crosshair,
 } from "lucide-react";
 import { 
   type LeaderboardMode, 
@@ -44,6 +45,7 @@ interface LeaderboardTableProps {
   isError: boolean;
   error?: Error | null;
   currentUserId?: string;
+  userRank?: number;
   onPageChange: (offset: number) => void;
   onRetry: () => void;
 }
@@ -73,11 +75,10 @@ function CellContent({
       return (
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex items-center justify-center gap-1 cursor-help">
-              <Zap className="w-3.5 h-3.5 text-primary/60" />
-              <span className="font-mono font-bold text-primary text-lg tabular-nums">
+            <div className="flex flex-col items-center cursor-help">
+              <div className="font-mono font-bold text-primary text-xl tabular-nums">
                 {entry.wpm}
-              </span>
+              </div>
             </div>
           </TooltipTrigger>
           <TooltipContent>
@@ -89,44 +90,40 @@ function CellContent({
 
     case "accuracy":
       const accuracyValue = typeof entry.accuracy === "number" ? entry.accuracy : parseFloat(entry.accuracy);
-      const accuracyColor = accuracyValue >= 98 ? "text-green-500" : accuracyValue >= 95 ? "text-yellow-500" : "text-muted-foreground";
+      const accuracyColor = accuracyValue >= 98 ? "text-green-400" : accuracyValue >= 95 ? "text-blue-400" : accuracyValue >= 90 ? "text-yellow-400" : "text-red-400";
       return (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className={cn("font-mono cursor-help tabular-nums", accuracyColor)}>
-              {accuracyValue.toFixed(1)}%
-            </span>
+            <div className="flex flex-col items-center cursor-help">
+              <div className={cn("font-mono font-semibold text-base tabular-nums", accuracyColor)}>
+                {accuracyValue.toFixed(1)}%
+              </div>
+            </div>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Typing accuracy</p>
-            {accuracyValue >= 98 && <p className="text-xs text-green-500">Outstanding precision!</p>}
+            <p>Typing accuracy: {accuracyValue.toFixed(2)}%</p>
+            {accuracyValue >= 98 && <p className="text-xs text-green-400">Outstanding precision!</p>}
           </TooltipContent>
         </Tooltip>
       );
 
     case "mode":
       return (
-        <Badge variant="outline" className="gap-1 font-mono">
-          <Clock className="w-3 h-3" />
-          {formatTestMode(entry.mode)}
-        </Badge>
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800/40 rounded-md">
+          <Clock className="w-3.5 h-3.5 text-muted-foreground/80" />
+          <span className="text-sm font-medium tabular-nums">
+            {formatTestMode(entry.mode)}
+          </span>
+        </div>
       );
 
     case "tests":
     case "totalTests":
       const testCount = entry.totalTests || entry.tests || 1;
       return (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge variant="secondary" className="gap-1 cursor-help">
-              <Target className="w-3 h-3" />
-              {testCount}
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>{testCount} test{testCount !== 1 ? 's' : ''} completed</p>
-          </TooltipContent>
-        </Tooltip>
+        <span className="text-sm font-medium text-muted-foreground/80 tabular-nums">
+          {testCount}
+        </span>
       );
 
     case "stressScore":
@@ -223,12 +220,20 @@ export function LeaderboardTable({
   isError,
   error,
   currentUserId,
+  userRank,
   onPageChange,
   onRetry,
 }: LeaderboardTableProps) {
   const config = getModeConfig(mode);
   const currentPage = Math.floor(pagination.offset / pagination.limit) + 1;
   const totalPages = Math.max(1, Math.ceil(pagination.total / pagination.limit));
+
+  // Calculate if user's rank is visible on current page
+  const userRankPage = userRank ? Math.ceil(userRank / pagination.limit) : 0;
+  const isUserOnCurrentPage = userRank 
+    ? userRank > pagination.offset && userRank <= pagination.offset + pagination.limit
+    : false;
+  const showJumpToRank = currentUserId && userRank && userRank > 0 && !isUserOnCurrentPage;
 
   const handlePrevPage = () => {
     onPageChange(Math.max(0, pagination.offset - pagination.limit));
@@ -237,6 +242,14 @@ export function LeaderboardTable({
   const handleNextPage = () => {
     if (pagination.hasMore && pagination.offset + pagination.limit < pagination.total) {
       onPageChange(pagination.offset + pagination.limit);
+    }
+  };
+
+  const handleJumpToMyRank = () => {
+    if (userRank) {
+      // Calculate the offset that would show the user's rank
+      const targetOffset = Math.floor((userRank - 1) / pagination.limit) * pagination.limit;
+      onPageChange(targetOffset);
     }
   };
 
@@ -278,23 +291,23 @@ export function LeaderboardTable({
   if (entries.length === 0) {
     const ModeIcon = config.icon;
     return (
-      <Card className="border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
+      <Card className="border-border/50 bg-card/40 backdrop-blur-xl overflow-hidden shadow-lg">
         <CardContent className="p-0">
-          <div className="relative text-center py-16 text-muted-foreground">
+          <div className="relative text-center py-24 text-muted-foreground">
             {/* Background decoration */}
             <div className="absolute inset-0 flex items-center justify-center opacity-5">
-              <ModeIcon className="w-48 h-48" />
+              <ModeIcon className="w-64 h-64" />
             </div>
             
             <div className="relative z-10">
               <div className={cn(
-                "inline-flex items-center justify-center w-20 h-20 rounded-full mb-6",
+                "inline-flex items-center justify-center w-20 h-20 rounded-full mb-6 ring-4 ring-background shadow-xl",
                 config.bgColor
               )}>
                 <ModeIcon className={cn("w-10 h-10", config.color)} />
               </div>
-              <p className="text-xl font-semibold mb-2">No results yet</p>
-              <p className="text-sm max-w-sm mx-auto">
+              <p className="text-2xl font-bold mb-2 text-foreground">No results yet</p>
+              <p className="text-base max-w-sm mx-auto">
                 Be the first to set a record in {config.label}!
               </p>
             </div>
@@ -305,15 +318,22 @@ export function LeaderboardTable({
   }
 
   return (
-    <Card className="border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
+    <Card className="border-border/50 bg-card/40 backdrop-blur-xl overflow-hidden shadow-xl ring-1 ring-white/5">
       <CardContent className="p-0">
         {/* Table Header */}
         <div 
-          className="hidden md:grid gap-4 p-4 bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wider border-b border-border/50"
+          className="hidden md:grid gap-4 p-4 bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-white/5"
           style={{ 
-            gridTemplateColumns: config.columns.map(col => 
-              col.width === "flex-1" ? "1fr" : "auto"
-            ).join(" ") 
+            gridTemplateColumns: config.columns.map(col => {
+              if (col.width === "flex-1") return "1fr";
+              if (col.width === "w-12") return "3rem";
+              if (col.width === "w-16") return "4rem";
+              if (col.width === "w-20") return "minmax(5rem, auto)";
+              if (col.width === "w-24") return "6rem";
+              if (col.width === "w-28") return "7rem";
+              if (col.width === "w-32") return "8rem";
+              return "auto";
+            }).join(" ") 
           }}
           role="row"
         >
@@ -356,16 +376,23 @@ export function LeaderboardTable({
               <div
                 key={`${entry.userId}-${rank}`}
                 className={cn(
-                  "grid gap-4 p-4 items-center transition-all duration-200",
-                  "hover:bg-muted/40",
-                  isCurrentUser && "bg-primary/10 hover:bg-primary/15 border-l-2 border-l-primary",
+                  "grid gap-4 p-4 items-center transition-all duration-200 border-b border-white/5 last:border-0",
+                  "hover:bg-muted/50",
+                  isCurrentUser && "bg-primary/5 hover:bg-primary/10 border-l-2 border-l-primary shadow-[inset_0_0_20px_rgba(var(--primary),0.05)]",
                   // Staggered animation on mount
                   "animate-in fade-in-0 slide-in-from-bottom-2",
                 )}
                 style={{ 
-                  gridTemplateColumns: config.columns.map(col => 
-                    col.width === "flex-1" ? "1fr" : "auto"
-                  ).join(" "),
+                  gridTemplateColumns: config.columns.map(col => {
+                    if (col.width === "flex-1") return "1fr";
+                    if (col.width === "w-12") return "3rem";
+                    if (col.width === "w-16") return "4rem";
+                    if (col.width === "w-20") return "minmax(5rem, auto)";
+                    if (col.width === "w-24") return "6rem";
+                    if (col.width === "w-28") return "7rem";
+                    if (col.width === "w-32") return "8rem";
+                    return "auto";
+                  }).join(" "),
                   animationDelay: `${index * 30}ms`,
                   animationFillMode: "backwards",
                 }}
@@ -435,8 +462,10 @@ export function LeaderboardTable({
                     <div 
                       key={column.key} 
                       className={cn(
-                        column.align === "center" && "text-center",
-                        column.align === "right" && "text-right"
+                        "flex items-center",
+                        column.align === "center" && "justify-center",
+                        column.align === "right" && "justify-end",
+                        column.align === "left" && "justify-start"
                       )}
                       role="cell"
                     >
@@ -451,31 +480,56 @@ export function LeaderboardTable({
 
         {/* Pagination */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 border-t border-border/50 bg-muted/20">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="text-sm text-muted-foreground cursor-help flex items-center gap-2">
-                <span>
-                  Showing{" "}
-                  <span className="font-medium text-foreground">
-                    {Math.min(pagination.offset + 1, pagination.total)}
+          <div className="flex items-center gap-3">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="text-sm text-muted-foreground cursor-help flex items-center gap-2">
+                  <span>
+                    Showing{" "}
+                    <span className="font-medium text-foreground">
+                      {Math.min(pagination.offset + 1, pagination.total)}
+                    </span>
+                    {" - "}
+                    <span className="font-medium text-foreground">
+                      {Math.min(pagination.offset + entries.length, pagination.total)}
+                    </span>
+                    {" of "}
+                    <span className="font-medium text-foreground">
+                      {pagination.total.toLocaleString()}
+                    </span>
+                    {" results"}
                   </span>
-                  {" - "}
-                  <span className="font-medium text-foreground">
-                    {Math.min(pagination.offset + entries.length, pagination.total)}
-                  </span>
-                  {" of "}
-                  <span className="font-medium text-foreground">
-                    {pagination.total.toLocaleString()}
-                  </span>
-                  {" results"}
-                </span>
-                {isFetching && <Loader2 className="w-4 h-4 animate-spin" />}
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{pagination.limit} entries per page</p>
-            </TooltipContent>
-          </Tooltip>
+                  {isFetching && <Loader2 className="w-4 h-4 animate-spin" />}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{pagination.limit} entries per page</p>
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Jump to my rank button */}
+            {showJumpToRank && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleJumpToMyRank}
+                    disabled={isFetching}
+                    className="gap-1.5 text-primary"
+                    data-testid="jump-to-rank"
+                  >
+                    <Crosshair className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Jump to #{userRank}</span>
+                    <span className="sm:hidden">#{userRank}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Jump to your position (Rank #{userRank}, Page {userRankPage})</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
           
           <div className="flex items-center gap-3">
             <Tooltip>

@@ -31,6 +31,8 @@ export interface LeaderboardModeConfig {
   columns: LeaderboardColumn[];
   color: string;
   bgColor: string;
+  activeBgColor: string;  // Solid background for active tab
+  activeTextColor: string; // Text color for active tab (needs contrast)
   sortMetric: string;
   sortMetricLabel: string;
 }
@@ -45,6 +47,7 @@ export const TIMEFRAME_OPTIONS: { value: TimeFrame; label: string; tooltip: stri
 
 // Language options for various filters
 export const LANGUAGE_OPTIONS = [
+  { value: "all", label: "All Languages" },
   { value: "en", label: "English" },
   { value: "es", label: "Spanish" },
   { value: "fr", label: "French" },
@@ -77,9 +80,56 @@ export const PROGRAMMING_LANGUAGE_OPTIONS = [
   { value: "typescript", label: "TypeScript" },
   { value: "python", label: "Python" },
   { value: "java", label: "Java" },
+  { value: "cpp", label: "C++" },
+  { value: "csharp", label: "C#" },
   { value: "go", label: "Go" },
   { value: "rust", label: "Rust" },
-  { value: "csharp", label: "C#" },
+  { value: "swift", label: "Swift" },
+  { value: "ruby", label: "Ruby" },
+  { value: "php", label: "PHP" },
+  { value: "html", label: "HTML" },
+  { value: "css", label: "CSS" },
+  { value: "scss", label: "SCSS" },
+  { value: "sass", label: "Sass" },
+  { value: "less", label: "Less" },
+  { value: "jsx", label: "JSX" },
+  { value: "tsx", label: "TSX" },
+  { value: "kotlin", label: "Kotlin" },
+  { value: "dart", label: "Dart" },
+  { value: "scala", label: "Scala" },
+  { value: "groovy", label: "Groovy" },
+  { value: "objectivec", label: "Objective-C" },
+  { value: "c", label: "C" },
+  { value: "zig", label: "Zig" },
+  { value: "vhdl", label: "VHDL" },
+  { value: "r", label: "R" },
+  { value: "julia", label: "Julia" },
+  { value: "matlab", label: "MATLAB" },
+  { value: "bash", label: "Bash/Shell" },
+  { value: "powershell", label: "PowerShell" },
+  { value: "perl", label: "Perl" },
+  { value: "lua", label: "Lua" },
+  { value: "elixir", label: "Elixir" },
+  { value: "haskell", label: "Haskell" },
+  { value: "clojure", label: "Clojure" },
+  { value: "fsharp", label: "F#" },
+  { value: "ocaml", label: "OCaml" },
+  { value: "erlang", label: "Erlang" },
+  { value: "scheme", label: "Scheme" },
+  { value: "racket", label: "Racket" },
+  { value: "lisp", label: "Lisp" },
+  { value: "sql", label: "SQL" },
+  { value: "json", label: "JSON" },
+  { value: "yaml", label: "YAML" },
+  { value: "toml", label: "TOML" },
+  { value: "xml", label: "XML" },
+  { value: "markdown", label: "Markdown" },
+  { value: "fortran", label: "Fortran" },
+  { value: "nim", label: "Nim" },
+  { value: "crystal", label: "Crystal" },
+  { value: "d", label: "D" },
+  { value: "solidity", label: "Solidity" },
+  { value: "pascal", label: "Pascal" },
 ];
 
 // Stress test difficulty options
@@ -139,7 +189,7 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
         type: "select",
         label: "Language",
         options: LANGUAGE_OPTIONS,
-        defaultValue: "en",
+        defaultValue: "all",
       },
     ],
     columns: [
@@ -147,11 +197,13 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
       { key: "user", label: "User", width: "flex-1", align: "left" },
       { key: "wpm", label: "WPM", width: "w-20", align: "center", tooltip: "Words Per Minute" },
       { key: "accuracy", label: "Accuracy", width: "w-20", align: "center", tooltip: "Typing accuracy percentage" },
-      { key: "mode", label: "Mode", width: "w-20", align: "center", tooltip: "Test duration" },
+      { key: "mode", label: "Time", width: "w-20", align: "center", tooltip: "Test duration" },
       { key: "tests", label: "Tests", width: "w-16", align: "center", tooltip: "Total tests completed" },
     ],
     color: "text-yellow-500",
     bgColor: "bg-yellow-500/10",
+    activeBgColor: "bg-yellow-500",
+    activeTextColor: "text-yellow-950",
     sortMetric: "wpm",
     sortMetricLabel: "WPM",
   },
@@ -182,6 +234,8 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
     ],
     color: "text-blue-500",
     bgColor: "bg-blue-500/10",
+    activeBgColor: "bg-blue-500",
+    activeTextColor: "text-white",
     sortMetric: "wpm",
     sortMetricLabel: "WPM",
   },
@@ -204,14 +258,16 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
     ],
     color: "text-purple-500",
     bgColor: "bg-purple-500/10",
+    activeBgColor: "bg-purple-500",
+    activeTextColor: "text-white",
     sortMetric: "wpm",
     sortMetricLabel: "WPM",
   },
   stress: {
     key: "stress",
-    label: "Stress Test",
-    shortLabel: "Stress",
-    description: "Rankings for survival under extreme typing conditions",
+    label: "Speed Challenge",
+    shortLabel: "Challenge",
+    description: "Survive extreme typing conditions and test your limits",
     icon: Flame,
     endpoint: "/api/stress-test/leaderboard",
     aroundMeEndpoint: "/api/stress-test/leaderboard/around-me",
@@ -234,14 +290,16 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
     ],
     color: "text-orange-500",
     bgColor: "bg-orange-500/10",
+    activeBgColor: "bg-orange-500",
+    activeTextColor: "text-white",
     sortMetric: "stressScore",
     sortMetricLabel: "Score",
   },
   rating: {
     key: "rating",
-    label: "Race Rating",
-    shortLabel: "Rating",
-    description: "ELO-based competitive racing rankings",
+    label: "Competitive Racing",
+    shortLabel: "Racing",
+    description: "Compete in ranked races and climb the competitive ladder",
     icon: Gauge,
     endpoint: "/api/ratings/leaderboard",
     aroundMeEndpoint: "/api/ratings/leaderboard/around-me",
@@ -255,15 +313,17 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
       },
     ],
     columns: [
-      { key: "rank", label: "#", width: "w-12", align: "center" },
+      { key: "rank", label: "#", width: "w-12", align: "center", tooltip: "Rank position" },
       { key: "user", label: "User", width: "flex-1", align: "left" },
       { key: "rating", label: "Rating", width: "w-20", align: "center", tooltip: "ELO rating" },
-      { key: "tier", label: "Tier", width: "w-24", align: "center" },
-      { key: "wins", label: "Wins", width: "w-16", align: "center" },
-      { key: "totalRaces", label: "Races", width: "w-16", align: "center" },
+      { key: "tier", label: "Tier", width: "w-24", align: "center", tooltip: "Skill tier based on rating" },
+      { key: "wins", label: "Wins", width: "w-16", align: "center", tooltip: "Total race victories" },
+      { key: "totalRaces", label: "Races", width: "w-16", align: "center", tooltip: "Total races participated" },
     ],
     color: "text-green-500",
     bgColor: "bg-green-500/10",
+    activeBgColor: "bg-green-500",
+    activeTextColor: "text-white",
     sortMetric: "rating",
     sortMetricLabel: "Rating",
   },
@@ -294,6 +354,8 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
     ],
     color: "text-amber-500",
     bgColor: "bg-amber-500/10",
+    activeBgColor: "bg-amber-500",
+    activeTextColor: "text-amber-950",
     sortMetric: "wpm",
     sortMetricLabel: "WPM",
   },
@@ -336,11 +398,15 @@ export function formatTestMode(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
-  return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  if (remainingSeconds > 0) {
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  }
+  return `${minutes}:00`;
 }
 
 // Get tier color class
-export function getTierColor(tier: string): string {
+export function getTierColor(tier: string | undefined | null): string {
+  if (!tier) return "text-muted-foreground";
   const tierColors: Record<string, string> = {
     bronze: "text-orange-600",
     silver: "text-gray-400",
@@ -354,7 +420,8 @@ export function getTierColor(tier: string): string {
 }
 
 // Get tier badge variant
-export function getTierBadgeVariant(tier: string): "default" | "secondary" | "destructive" | "outline" {
+export function getTierBadgeVariant(tier: string | undefined | null): "default" | "secondary" | "destructive" | "outline" {
+  if (!tier) return "secondary";
   const highTiers = ["diamond", "master", "grandmaster"];
   return highTiers.includes(tier.toLowerCase()) ? "default" : "secondary";
 }

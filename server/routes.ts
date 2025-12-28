@@ -4,6 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { checkRateLimit } from "./auth-security";
 import { leaderboardCache } from "./leaderboard-cache";
+import { leaderboardWS } from "./leaderboard-websocket";
 import { streamChatCompletionWithSearch, shouldPerformWebSearch, generateConversationTitle, type ChatMessage, type StreamEvent } from "./chat-service";
 import { generateTypingParagraph } from "./ai-paragraph-generator";
 import { generateCodeSnippet } from "./ai-code-generator";
@@ -138,7 +139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const sessionPool = new Pool({ connectionString: process.env.DATABASE_URL });
   
   // Handle session pool errors gracefully to prevent server crashes
-  sessionPool.on('error', (err) => {
+  sessionPool.on('error', (err: any) => {
     console.error('[Session Pool] Unexpected connection error (will auto-reconnect):', err.message);
   });
 
@@ -310,7 +311,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         keyboardLayout: user.keyboardLayout,
       });
     } catch (error) {
-      done(error);
+      // Log the error but don't propagate it - treat as unauthenticated
+      // This prevents database timeouts from breaking all requests
+      console.error("[Auth] Failed to deserialize user:", error instanceof Error ? error.message : error);
+      done(null, false);
     }
   });
 
@@ -836,6 +840,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const result = await storage.createTestResult(parsed.data);
 
+      // Broadcast leaderboard update via WebSocket
+      try {
+        const user = await storage.getUser(req.user!.id);
+        const leaderboardData = await storage.getLeaderboardAroundUser(req.user!.id, 0, 'all', result.language);
+        
+        if (leaderboardData.userRank > 0) {
+          leaderboardWS.broadcastNewEntry(
+            req.user!.id,
+            user?.username || 'Anonymous',
+            'global',
+            'all',
+            result.language,
+            leaderboardData.userRank,
+            result.wpm,
+            result.accuracy,
+            {
+              mode: result.mode,
+              avatarColor: user?.avatarColor,
+              isVerified: false,
+            }
+          );
+        }
+      } catch (wsError) {
+        console.error('[Leaderboard WS] Failed to broadcast update:', wsError);
+        // Don't fail the request if WebSocket broadcast fails
+      }
+
       // Update user streak after completing a test
       const streakResult = await storage.updateUserStreak(req.user!.id);
 
@@ -1151,7 +1182,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         language,
       });
       
-      res.set('Cache-Control', 'public, max-age=30');
+      res.set('Cache-Control', 'public, max-age=300'); // 5 minutes to match materialized view refresh
       res.set('X-Cache', result.metadata.cacheHit ? 'HIT' : 'MISS');
       res.set('X-Total-Count', String(result.pagination.total));
       
@@ -1159,6 +1190,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Get leaderboard error:", error);
       res.status(500).json({ message: "Failed to fetch leaderboard" });
+    }
+  });
+  
+  // Batched leaderboard endpoint - fetch multiple data points in one request
+  app.post("/api/leaderboard/batch", leaderboardLimiter, async (req, res) => {
+    try {
+      const { requests } = req.body;
+      
+      if (!Array.isArray(requests) || requests.length === 0 || requests.length > 5) {
+        return res.status(400).json({ message: "Invalid batch request. Must include 1-5 requests." });
+      }
+      
+      const results = await Promise.all(
+        requests.map(async (request: any) => {
+          const { type, timeframe = "all", language = "en", limit = 20, offset = 0, userId, range = 5 } = request;
+          
+          try {
+            switch (type) {
+              case "leaderboard":
+                return {
+                  type,
+                  data: await leaderboardCache.getGlobalLeaderboard({
+                    timeframe: timeframe as any,
+                    limit: Math.min(limit, 100),
+                    offset: Math.max(0, offset),
+                    language,
+                  }),
+                };
+              
+              case "aroundMe":
+                if (!userId) {
+                  return { type, error: "userId required for aroundMe request" };
+                }
+                return {
+                  type,
+                  data: await leaderboardCache.getAroundMe("global", userId, {
+                    range: Math.min(range, 20),
+                    timeframe: timeframe as any,
+                    language,
+                  }),
+                };
+              
+              default:
+                return { type, error: "Unknown request type" };
+            }
+          } catch (error: any) {
+            return { type, error: error.message };
+          }
+        })
+      );
+      
+      res.set('Cache-Control', 'public, max-age=300');
+      res.json({ results });
+    } catch (error: any) {
+      console.error("Batch leaderboard error:", error);
+      res.status(500).json({ message: "Failed to fetch batch leaderboard data" });
     }
   });
 

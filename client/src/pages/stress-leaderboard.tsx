@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'wouter';
+import { motion } from "framer-motion";
 import { ArrowLeft, Trophy, Zap, Flame, Award, Info, Target, BarChart3, Timer, CheckCircle2, Medal, Crown, Star, HelpCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -265,11 +266,22 @@ function StressLeaderboardContent() {
 
           {/* Difficulty Filter */}
           <Tabs value={selectedDifficulty} onValueChange={handleDifficultyChange} className="mb-8">
-            <TabsList className="grid w-full grid-cols-6">
+            <TabsList className="grid w-full grid-cols-6 p-1 bg-muted/60">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="all" data-testid="tab-all">
-                    All
+                  <TabsTrigger 
+                    value="all" 
+                    data-testid="tab-all"
+                    className="relative z-0 data-[state=active]:bg-transparent data-[state=active]:shadow-none transition-none"
+                  >
+                    {selectedDifficulty === 'all' && (
+                      <motion.div
+                        layoutId="active-difficulty-tab"
+                        className="absolute inset-0 bg-background shadow-sm rounded-sm z-[-1]"
+                        transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                      />
+                    )}
+                    <span className="relative z-10">All</span>
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="top">
@@ -277,25 +289,26 @@ function StressLeaderboardContent() {
                 </TooltipContent>
               </Tooltip>
               
-              <TabsTrigger value="beginner" data-testid="tab-beginner">
-                🔥 Beginner
-              </TabsTrigger>
-              
-              <TabsTrigger value="intermediate" data-testid="tab-intermediate">
-                ⚡ Intermediate
-              </TabsTrigger>
-              
-              <TabsTrigger value="expert" data-testid="tab-expert">
-                💀 Expert
-              </TabsTrigger>
-              
-              <TabsTrigger value="nightmare" data-testid="tab-nightmare">
-                ☠️ Nightmare
-              </TabsTrigger>
-              
-              <TabsTrigger value="impossible" data-testid="tab-impossible">
-                🌀 Impossible
-              </TabsTrigger>
+              {(['beginner', 'intermediate', 'expert', 'nightmare', 'impossible'] as const).map((diff) => (
+                <TabsTrigger 
+                  key={diff}
+                  value={diff} 
+                  data-testid={`tab-${diff}`}
+                  className="relative z-0 data-[state=active]:bg-transparent data-[state=active]:shadow-none transition-none"
+                >
+                  {selectedDifficulty === diff && (
+                    <motion.div
+                      layoutId="active-difficulty-tab"
+                      className="absolute inset-0 bg-background shadow-sm rounded-sm z-[-1]"
+                      transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-1">
+                    <span>{DIFFICULTY_ICONS[diff]}</span>
+                    <span className="capitalize">{diff}</span>
+                  </span>
+                </TabsTrigger>
+              ))}
             </TabsList>
 
             <TabsContent value={selectedDifficulty}>

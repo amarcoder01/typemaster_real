@@ -42,14 +42,14 @@ interface PaginatedResponse<T> {
 }
 
 const CACHE_TTL_MS = {
-  global: 30000,
-  code: 30000,
-  stress: 5000,
-  dictation: 30000,
-  rating: 15000,
-  book: 30000,
-  aroundMe: 10000,
-  timeBased: 60000,
+  global: 300000, // 5 minutes - materialized views refresh every 5 minutes
+  code: 300000,
+  stress: 300000,
+  dictation: 300000,
+  rating: 300000,
+  book: 300000,
+  aroundMe: 60000, // 1 minute for user-specific data
+  timeBased: 300000,
 };
 
 const MAX_CACHE_SIZE = 100;
@@ -186,7 +186,7 @@ class LeaderboardCache {
       let lruKey: string | null = null;
       let lruTime = Infinity;
 
-      for (const [key, entry] of this.cache.entries()) {
+      for (const [key, entry] of Array.from(this.cache.entries())) {
         if (entry.lastAccessed < lruTime) {
           lruTime = entry.lastAccessed;
           lruKey = key;

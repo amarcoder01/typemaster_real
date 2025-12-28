@@ -16,13 +16,13 @@ import {
   BarChart3,
   Users,
   Clock,
+  ArrowLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { 
   ModeSelector, 
   LeaderboardFilters, 
-  LeaderboardTable, 
-  AroundMeSection 
+  LeaderboardTable,
 } from "@/components/leaderboard";
 import {
   type LeaderboardMode,
@@ -198,6 +198,19 @@ function UnifiedLeaderboardContent() {
         )}
 
         {/* Hero Header */}
+        {/* Back Button */}
+        <div className="mb-6">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setLocation("/leaderboard")}
+            className="gap-2 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to Leaderboard</span>
+          </Button>
+        </div>
+
         <header className="relative mb-8 sm:mb-12">
           {/* Background decoration */}
           <div className="absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
@@ -242,22 +255,6 @@ function UnifiedLeaderboardContent() {
                 {config.description}
               </p>
             </div>
-
-            {/* Quick Stats */}
-            <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 mt-2">
-              <Badge variant="secondary" className="gap-1.5 py-1.5 px-3">
-                <Users className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>{pagination.total.toLocaleString()} Players</span>
-              </Badge>
-              <Badge variant="secondary" className="gap-1.5 py-1.5 px-3">
-                <BarChart3 className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>6 Categories</span>
-              </Badge>
-              <Badge variant="secondary" className="gap-1.5 py-1.5 px-3">
-                <Clock className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Live Rankings</span>
-              </Badge>
-            </div>
           </div>
         </header>
 
@@ -270,57 +267,46 @@ function UnifiedLeaderboardContent() {
         </nav>
 
         {/* Filters & User Rank */}
-        <section className="mb-6" aria-label="Filters and user ranking">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <LeaderboardFilters 
-              mode={mode} 
-              filters={filters} 
-              onFilterChange={handleFilterChange} 
-            />
+        <section className="mb-12" aria-label="Filters and user ranking">
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <LeaderboardFilters 
+                mode={mode} 
+                filters={filters} 
+                onFilterChange={handleFilterChange} 
+              />
 
-            {/* User Rank Display */}
-            {userData?.user && (
-              <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-                <CardContent className="p-3 flex items-center gap-3">
-                  <div className={cn("p-2 rounded-lg", config.bgColor)}>
-                    <User className={cn("w-4 h-4", config.color)} aria-hidden="true" />
-                  </div>
-                  {aroundMeLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                      <span>Loading rank...</span>
+              {/* User Rank Display */}
+              {userData?.user && (
+                <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+                  <CardContent className="p-3 flex items-center gap-3">
+                    <div className={cn("p-2 rounded-lg", config.bgColor)}>
+                      <User className={cn("w-4 h-4", config.color)} aria-hidden="true" />
                     </div>
-                  ) : aroundMeData?.userRank && aroundMeData.userRank > 0 ? (
-                    <div className="flex flex-col">
-                      <span className="text-xs text-muted-foreground">Your Rank</span>
-                      <span className="font-mono font-bold text-lg text-foreground" aria-label={`Your rank is ${aroundMeData.userRank}`}>
-                        #{aroundMeData.userRank}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col">
-                      <span className="text-xs text-muted-foreground">Not Ranked</span>
-                      <span className="text-sm text-muted-foreground">Complete a test to rank!</span>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
+                    {aroundMeLoading ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                        <span>Loading rank...</span>
+                      </div>
+                    ) : aroundMeData?.userRank && aroundMeData.userRank > 0 ? (
+                      <div className="flex flex-col">
+                        <span className="text-xs text-muted-foreground">Your Rank</span>
+                        <span className="font-mono font-bold text-lg text-foreground" aria-label={`Your rank is ${aroundMeData.userRank}`}>
+                          #{aroundMeData.userRank}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col">
+                        <span className="text-xs text-muted-foreground">Not Ranked</span>
+                        <span className="text-sm text-muted-foreground">Complete a test to rank!</span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           </div>
         </section>
-
-        {/* Around Me Section */}
-        {userData?.user && aroundMeData?.entries?.length > 0 && aroundMeData.userRank > 0 && (
-          <section aria-label="Your leaderboard position">
-            <AroundMeSection
-              mode={mode}
-              entries={aroundMeData.entries}
-              userRank={aroundMeData.userRank}
-              currentUserId={userData.user.id}
-              isLoading={aroundMeLoading}
-            />
-          </section>
-        )}
 
         {/* Leaderboard Table */}
         <section aria-label="Leaderboard rankings" id={`leaderboard-${mode}`}>
@@ -333,6 +319,7 @@ function UnifiedLeaderboardContent() {
             isError={isError}
             error={error as Error}
             currentUserId={userData?.user?.id}
+            userRank={aroundMeData?.userRank}
             onPageChange={handlePageChange}
             onRetry={() => refetch()}
           />

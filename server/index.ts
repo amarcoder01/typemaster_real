@@ -8,12 +8,17 @@ import { nanoid } from "nanoid";
 import { createServer as createViteServer, createLogger } from "vite";
 
 import runApp from "./app";
+import { startLeaderboardRefreshScheduler } from "./jobs/schedule-leaderboard-refresh.js";
+import { leaderboardWS } from "./leaderboard-websocket.js";
 
 import viteConfig from "../vite.config";
 
 const viteLogger = createLogger();
 
 export async function setupVite(app: Express, server: Server) {
+  // Initialize leaderboard WebSocket service
+  leaderboardWS.initialize(server);
+  
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
@@ -63,4 +68,7 @@ export async function setupVite(app: Express, server: Server) {
 
 (async () => {
   await runApp(setupVite);
+  
+  // Start leaderboard cache refresh scheduler
+  await startLeaderboardRefreshScheduler();
 })();

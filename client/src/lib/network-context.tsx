@@ -5,7 +5,7 @@ import { useToast } from '@/hooks/use-toast';
 interface NetworkContextType extends NetworkStatus {
   isServerReachable: boolean;
   isCheckingServer: boolean;
-  checkConnection: () => Promise<boolean>;
+  checkConnection: (force?: boolean) => Promise<boolean>;
   pendingActions: PendingAction[];
   addPendingAction: (action: PendingAction) => void;
   removePendingAction: (id: string) => void;
@@ -61,11 +61,6 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
 
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const previousStateRef = useRef<ConnectionState>(networkStatus.connectionState);
-  const toastShownRef = useRef<{ offline: boolean; reconnected: boolean }>({
-    offline: false,
-    reconnected: false,
-  });
 
   useEffect(() => {
     try {
@@ -75,38 +70,6 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
   }, [pendingActions]);
 
   useEffect(() => {
-    const prevState = previousStateRef.current;
-    const currentState = networkStatus.connectionState;
-    
-    if (prevState !== currentState) {
-      if (currentState === 'disconnected' && !toastShownRef.current.offline) {
-        toastShownRef.current.offline = true;
-        toastShownRef.current.reconnected = false;
-        toast({
-          variant: 'destructive',
-          title: "You're offline",
-          description: "Your progress is saved and will sync when you reconnect.",
-          duration: 10000,
-        });
-      } else if (currentState === 'connected' && prevState === 'disconnected' && !toastShownRef.current.reconnected) {
-        toastShownRef.current.reconnected = true;
-        toastShownRef.current.offline = false;
-        toast({
-          title: "You're back online!",
-          description: pendingActions.length > 0 
-            ? `Syncing ${pendingActions.length} pending action${pendingActions.length > 1 ? 's' : ''}...`
-            : "Your connection has been restored.",
-          duration: 5000,
-        });
-      } else if (currentState === 'reconnecting') {
-        toastShownRef.current.offline = false;
-      }
-      
-      previousStateRef.current = currentState;
-    }
-  }, [networkStatus.connectionState, pendingActions.length, toast]);
-
-  useEffect(() => {
     if (networkStatus.connectionState === 'disconnected' || networkStatus.connectionState === 'reconnecting') {
       setIsServerReachable(false);
     } else if (networkStatus.connectionState === 'connected') {
@@ -114,8 +77,8 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
     }
   }, [networkStatus.connectionState]);
 
-  const checkConnection = useCallback(async (): Promise<boolean> => {
-    if (!networkStatus.isOnline) {
+  const checkConnection = useCallback(async (force?: boolean): Promise<boolean> => {
+    if (!networkStatus.isOnline && !force) {
       setIsServerReachable(false);
       return false;
     }
