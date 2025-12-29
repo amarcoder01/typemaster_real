@@ -849,6 +849,7 @@ export default function Chat() {
     
     if (!isRegenerating && (!input.trim() && !uploadedFile) || isLoading) return;
 
+    const requestStartTime = Date.now();
     let messageContent = isRegenerating ? "" : input;
     let fileAnalysis = "";
     let messagesToSend = [...messages];
@@ -897,6 +898,18 @@ export default function Chat() {
 
     abortControllerRef.current = new AbortController();
 
+    // Add request timeout protection (60s)
+    const timeoutId = setTimeout(() => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        setChatError({
+          code: "TIMEOUT",
+          message: "Request timed out. The server took too long to respond.",
+          retryable: true,
+        });
+      }
+    }, 60000);
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -908,6 +921,8 @@ export default function Chat() {
         }),
         signal: abortControllerRef.current.signal,
       });
+      
+      clearTimeout(timeoutId);
 
       if (!response.ok) throw new Error("Failed to get response");
 
@@ -1049,6 +1064,14 @@ export default function Chat() {
       setIsRetrying(false);
       setSearchState({ isSearching: false, status: null, query: "", results: [] });
       abortControllerRef.current = null;
+      
+      // Log client-side performance metric
+      const totalTime = Date.now() - requestStartTime;
+      if (totalTime > 10000) {
+        console.warn(`[Chat] Slow response: ${totalTime}ms`);
+      } else if (totalTime < 1000) {
+        console.log(`[Chat] Fast response (likely cached): ${totalTime}ms`);
+      }
     }
   };
   

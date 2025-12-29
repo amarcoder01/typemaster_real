@@ -56,6 +56,12 @@ function CodeLeaderboardContent() {
         <p className="text-muted-foreground text-lg">
           Top developers ranked by code typing speed and accuracy
         </p>
+        <a 
+          href="/leaderboards?mode=code" 
+          className="text-xs text-primary hover:underline mt-2"
+        >
+          View all leaderboards →
+        </a>
       </div>
 
       <Card className="mb-6">

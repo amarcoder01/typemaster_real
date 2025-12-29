@@ -1,0 +1,74 @@
+{
+  "firstNames": {
+    "english": [
+      "Alex", "Jordan", "Taylor", "Morgan", "Casey", "Riley", "Avery", "Quinn",
+      "Sam", "Jamie", "Blake", "Cameron", "Dakota", "Rowan", "Skylar", "Sage",
+      "Charlie", "River", "Phoenix", "Finley", "Emerson", "Reese", "Parker", "Drew",
+      "Max", "Leo", "Mia", "Zoe", "Emma", "Liam", "Noah", "Olivia", "Ava", "Ethan",
+      "Sophia", "Mason", "Isabella", "Lucas", "Charlotte", "Jack", "Amelia", "Ryan",
+      "Harper", "Daniel", "Ella", "Matthew", "Grace", "Henry", "Lily", "Owen"
+    ],
+    "spanish": [
+      "Carlos", "Maria", "Diego", "Sofia", "Luis", "Ana", "Miguel", "Elena",
+      "Jose", "Carmen", "Pablo", "Rosa", "Antonio", "Laura", "Manuel", "Isabel",
+      "Rafael", "Teresa", "Pedro", "Lucia", "Fernando", "Cristina", "Javier", "Monica"
+    ],
+    "asian": [
+      "Yuki", "Wei", "Arjun", "Mei", "Raj", "Hiro", "Sakura", "Chen", "Priya",
+      "Kenji", "Ming", "Sana", "Akira", "Li", "Aisha", "Ravi", "Yuna", "Jin"
+    ],
+    "international": [
+      "Kai", "Nova", "Zara", "Nico", "Luna", "Atlas", "Aria", "Orion", "Iris",
+      "Finn", "Maya", "Ezra", "Nora", "Ivan", "Mila", "Mateo", "Nina", "Omar"
+    ]
+  },
+  "descriptors": {
+    "speed": [
+      "Swift", "Lightning", "Rapid", "Flash", "Quick", "Fast", "Velocity", "Turbo",
+      "Sonic", "Blazing", "Racing", "Flying", "Speedy", "Rocket", "Bullet", "Dash",
+      "Rush", "Zoom", "Bolt", "Jet", "Nitro", "Hyper", "Ultra", "Speed"
+    ],
+    "skill": [
+      "Master", "Pro", "Expert", "Ninja", "Ace", "Elite", "Legend", "Champion",
+      "Wizard", "Genius", "Guru", "Sage", "Sensei", "Virtuoso", "Maven", "Adept",
+      "Prodigy", "Savant", "Maestro", "Tactician", "Veteran", "Captain", "Chief"
+    ],
+    "creative": [
+      "Cosmic", "Digital", "Quantum", "Cyber", "Stellar", "Neon", "Electric", "Pixel",
+      "Techno", "Binary", "Data", "Matrix", "Glitch", "Chrome", "Silicon", "Nano",
+      "Mega", "Giga", "Macro", "Micro", "Alpha", "Beta", "Omega", "Delta", "Sigma"
+    ],
+    "typing": [
+      "Keys", "Type", "Typer", "Fingers", "Hands", "Keyboard", "Stroke", "Press",
+      "Writer", "Scribe", "Tap", "Click", "Clack", "Words", "Letters", "Text"
+    ],
+    "animals": [
+      "Tiger", "Dragon", "Wolf", "Eagle", "Falcon", "Panther", "Lion", "Bear",
+      "Hawk", "Phoenix", "Cobra", "Viper", "Shark", "Raven", "Fox", "Lynx"
+    ],
+    "nature": [
+      "Storm", "Thunder", "Blaze", "Frost", "Shadow", "Eclipse", "Aurora", "Comet",
+      "Meteor", "Nebula", "Horizon", "Summit", "Avalanche", "Cyclone", "Inferno"
+    ]
+  },
+  "styles": [
+    "{firstName}{Descriptor}",
+    "{descriptor}_{firstName}",
+    "{firstName}{Number}",
+    "{Descriptor}{Skill}",
+    "{descriptor}{firstName}",
+    "{firstName}_{descriptor}",
+    "{Descriptor}{Number}",
+    "{firstName}_{Descriptor}{Number}",
+    "{descriptor}{Typing}",
+    "{Typing}{Master}",
+    "{Skill}{firstName}",
+    "{Animal}{firstName}",
+    "{Nature}{Typer}"
+  ],
+  "suffixes": [
+    "Master", "Pro", "King", "Queen", "Lord", "Boss", "Star", "Legend",
+    "Hero", "Champ", "Winner", "Ace", "Top", "Best", "Prime", "Max"
+  ]
+}
+

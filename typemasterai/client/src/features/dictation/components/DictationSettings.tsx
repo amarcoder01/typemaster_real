@@ -28,7 +28,6 @@ import {
   PRACTICE_MODES, 
   ZEN_THEMES, 
   CATEGORIES, 
-  getDifficultyEmoji,
   ADAPTIVE_THRESHOLDS,
 } from '../types';
 
@@ -184,9 +183,9 @@ export function DictationSettings({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="easy">{getDifficultyEmoji('easy')} Easy</SelectItem>
-                <SelectItem value="medium">{getDifficultyEmoji('medium')} Medium</SelectItem>
-                <SelectItem value="hard">{getDifficultyEmoji('hard')} Hard</SelectItem>
+                <SelectItem value="easy">Easy</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="hard">Hard</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -279,8 +278,7 @@ export function DictationSettings({
               <div className="mt-3 p-3 bg-primary/5 rounded-lg">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Current Level:</span>
-                  <span className="font-medium flex items-center gap-1">
-                    {getDifficultyEmoji(adaptiveDifficulty.currentLevel)}
+                  <span className="font-medium">
                     {adaptiveDifficulty.currentLevel.charAt(0).toUpperCase() +
                       adaptiveDifficulty.currentLevel.slice(1)}
                   </span>

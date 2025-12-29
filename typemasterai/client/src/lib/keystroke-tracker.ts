@@ -798,7 +798,7 @@ export class KeystrokeTracker {
     return wpmByPosition.length > 0 ? wpmByPosition : null;
   }
 
-  private calculateSlowestWords(): string[] | null {
+  private calculateSlowestWords(): { word: string; avgTime: number }[] | null {
     if (this.events.length < 5 || !this.expectedText) return null;
 
     // Split expected text into words
@@ -853,7 +853,7 @@ export class KeystrokeTracker {
       .filter(w => w.duration > avgDuration * 1.3) // 30% slower than average
       .sort((a, b) => b.duration - a.duration)
       .slice(0, 10) // Top 10 slowest
-      .map(w => w.word);
+      .map(w => ({ word: w.word, avgTime: Math.round(w.duration) }));
 
     return slowWords.length > 0 ? slowWords : null;
   }

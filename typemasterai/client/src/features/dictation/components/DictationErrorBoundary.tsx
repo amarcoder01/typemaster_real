@@ -3,6 +3,7 @@ import { AlertCircle, RefreshCw, Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Link } from 'wouter';
+import { reportError } from '@/lib/error-reporting';
 
 interface Props {
   children: ReactNode;
@@ -38,16 +39,16 @@ export class DictationErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
-    // Log error to console
-    console.error('Dictation Error Boundary caught an error:', error, errorInfo);
-    
     this.setState({
       error,
       errorInfo,
     });
     
-    // TODO: Send to error reporting service
-    // reportError(error, errorInfo);
+    // Report error to backend service
+    reportError(error, { componentStack: errorInfo.componentStack ?? undefined }, {
+      component: 'DictationErrorBoundary',
+      feature: 'dictation',
+    });
   }
 
   handleReset = (): void => {
@@ -62,8 +63,8 @@ export class DictationErrorBoundary extends Component<Props, State> {
     // Clear session backup to prevent corrupted state
     try {
       localStorage.removeItem('dictation_session_backup');
-    } catch (e) {
-      console.error('Failed to clear session backup:', e);
+    } catch {
+      // Silently fail - localStorage might be unavailable
     }
     
     // Reload the page

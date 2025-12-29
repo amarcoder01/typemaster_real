@@ -4,6 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { checkRateLimit } from "./auth-security";
 import { leaderboardCache } from "./leaderboard-cache";
+import { leaderboardWS } from "./leaderboard-websocket";
 import { streamChatCompletionWithSearch, shouldPerformWebSearch, generateConversationTitle, type ChatMessage, type StreamEvent } from "./chat-service";
 import { generateTypingParagraph } from "./ai-paragraph-generator";
 import { generateCodeSnippet } from "./ai-code-generator";
@@ -136,6 +137,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const authSecurityService = new AuthSecurityService(storage);
 
   const sessionPool = new Pool({ connectionString: process.env.DATABASE_URL });
+  
+  // Handle session pool errors gracefully to prevent server crashes
+  sessionPool.on('error', (err: any) => {
+    console.error('[Session Pool] Unexpected connection error (will auto-reconnect):', err.message);
+  });
 
   app.use(
     session({
@@ -305,7 +311,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         keyboardLayout: user.keyboardLayout,
       });
     } catch (error) {
-      done(error);
+      // Log the error but don't propagate it - treat as unauthenticated
+      // This prevents database timeouts from breaking all requests
+      console.error("[Auth] Failed to deserialize user:", error instanceof Error ? error.message : error);
+      done(null, false);
     }
   });
 
@@ -831,6 +840,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const result = await storage.createTestResult(parsed.data);
 
+      // Broadcast leaderboard update via WebSocket
+      try {
+        const user = await storage.getUser(req.user!.id);
+        const leaderboardData = await storage.getLeaderboardAroundUser(req.user!.id, 0, 'all', result.language);
+        
+        if (leaderboardData.userRank > 0) {
+          leaderboardWS.broadcastNewEntry(
+            req.user!.id,
+            user?.username || 'Anonymous',
+            'global',
+            'all',
+            result.language,
+            leaderboardData.userRank,
+            result.wpm,
+            result.accuracy,
+            {
+              mode: result.mode,
+              avatarColor: user?.avatarColor,
+              isVerified: false,
+            }
+          );
+        }
+      } catch (wsError) {
+        console.error('[Leaderboard WS] Failed to broadcast update:', wsError);
+        // Don't fail the request if WebSocket broadcast fails
+      }
+
       // Update user streak after completing a test
       const streakResult = await storage.updateUserStreak(req.user!.id);
 
@@ -1146,7 +1182,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         language,
       });
       
-      res.set('Cache-Control', 'public, max-age=30');
+      res.set('Cache-Control', 'public, max-age=300'); // 5 minutes to match materialized view refresh
       res.set('X-Cache', result.metadata.cacheHit ? 'HIT' : 'MISS');
       res.set('X-Total-Count', String(result.pagination.total));
       
@@ -1154,6 +1190,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Get leaderboard error:", error);
       res.status(500).json({ message: "Failed to fetch leaderboard" });
+    }
+  });
+  
+  // Batched leaderboard endpoint - fetch multiple data points in one request
+  app.post("/api/leaderboard/batch", leaderboardLimiter, async (req, res) => {
+    try {
+      const { requests } = req.body;
+      
+      if (!Array.isArray(requests) || requests.length === 0 || requests.length > 5) {
+        return res.status(400).json({ message: "Invalid batch request. Must include 1-5 requests." });
+      }
+      
+      const results = await Promise.all(
+        requests.map(async (request: any) => {
+          const { type, timeframe = "all", language = "en", limit = 20, offset = 0, userId, range = 5 } = request;
+          
+          try {
+            switch (type) {
+              case "leaderboard":
+                return {
+                  type,
+                  data: await leaderboardCache.getGlobalLeaderboard({
+                    timeframe: timeframe as any,
+                    limit: Math.min(limit, 100),
+                    offset: Math.max(0, offset),
+                    language,
+                  }),
+                };
+              
+              case "aroundMe":
+                if (!userId) {
+                  return { type, error: "userId required for aroundMe request" };
+                }
+                return {
+                  type,
+                  data: await leaderboardCache.getAroundMe("global", userId, {
+                    range: Math.min(range, 20),
+                    timeframe: timeframe as any,
+                    language,
+                  }),
+                };
+              
+              default:
+                return { type, error: "Unknown request type" };
+            }
+          } catch (error: any) {
+            return { type, error: error.message };
+          }
+        })
+      );
+      
+      res.set('Cache-Control', 'public, max-age=300');
+      res.json({ results });
+    } catch (error: any) {
+      console.error("Batch leaderboard error:", error);
+      res.status(500).json({ message: "Failed to fetch batch leaderboard data" });
     }
   });
 
@@ -2140,6 +2232,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/chat", chatLimiter, async (req, res) => {
+    const requestStartTime = Date.now();
+    let searchStartTime: number | null = null;
+    let hadSearch = false;
+    let hadCacheHit = false;
+    let hadError = false;
+    
     try {
       const { messages: requestMessages, conversationId } = req.body;
       const isAuthenticated = !!req.user;
@@ -2205,6 +2303,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         for await (const event of streamChatCompletionWithSearch(sanitizedMessages, true)) {
           switch (event.type) {
             case "searching":
+              hadSearch = true;
+              searchStartTime = Date.now();
               res.write(`data: ${JSON.stringify({ 
                 type: "searching", 
                 status: event.data.status,
@@ -2232,6 +2332,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               })}\n\n`);
               break;
             case "error":
+              hadError = true;
               res.write(`data: ${JSON.stringify({ error: event.data })}\n\n`);
               break;
           }
@@ -2269,14 +2370,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         res.write("data: [DONE]\n\n");
         res.end();
+        
+        // Track metrics after successful completion
+        const totalTime = Date.now() - requestStartTime;
+        const searchTime = searchStartTime ? Date.now() - searchStartTime : undefined;
+        
+        const { chatMetrics } = await import("./chat-metrics");
+        chatMetrics.trackChatRequest({
+          queryType: hadSearch ? "search" : "knowledge",
+          responseTime: totalTime,
+          searchTime,
+          cacheHit: hadCacheHit,
+          modelUsed: "gpt-4o",
+          error: hadError ? "streaming_error" : undefined,
+        });
+        
       } catch (streamError: any) {
         console.error("Streaming error:", streamError);
+        hadError = true;
         res.write(`data: ${JSON.stringify({ error: streamError.message })}\n\n`);
         res.end();
+        
+        // Track error metrics
+        const { chatMetrics } = await import("./chat-metrics");
+        chatMetrics.trackChatRequest({
+          queryType: hadSearch ? "search" : "knowledge",
+          responseTime: Date.now() - requestStartTime,
+          cacheHit: false,
+          modelUsed: "gpt-4o",
+          error: streamError.message,
+        });
       }
     } catch (error: any) {
       console.error("Chat API error:", error);
       res.status(500).json({ message: "Chat service error" });
+      
+      // Track error metrics
+      const { chatMetrics } = await import("./chat-metrics");
+      chatMetrics.trackChatRequest({
+        queryType: "knowledge",
+        responseTime: Date.now() - requestStartTime,
+        cacheHit: false,
+        modelUsed: "gpt-4o",
+        error: error.message,
+      });
     }
   });
 
@@ -2298,6 +2435,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Default to timed race with 60 seconds if not specified
       const effectiveRaceType = raceType || "timed";
       const effectiveTimeLimit = timeLimitSeconds || 60;
+      
+      // Automatically assign random number of opponents (1-3) for natural feel
+      const effectiveBotCount = Math.floor(Math.random() * 3) + 1; // 1, 2, or 3
 
       const activeRaces = await storage.getActiveRaces();
       
@@ -2334,20 +2474,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (availableRace) {
         race = availableRace;
         
-        // Check if the existing race has bots - if not, add them
+        // Joining existing race
         console.log(`[Quick Match] Joining existing race ${race.id}...`);
         const existingParticipants = await storage.getRaceParticipants(race.id);
-        const existingBots = existingParticipants.filter(p => p.isBot === 1);
-        console.log(`[Quick Match] Existing race ${race.id} has ${existingParticipants.length} participants, ${existingBots.length} bots`);
-        if (existingBots.length === 0) {
-          try {
-            const botCount = 3;
-            const addedBots = await botService.addBotsToRace(race.id, botCount);
-            console.log(`[Quick Match] Added ${addedBots.length} bots to existing race ${race.id}: ${addedBots.map(b => b.username).join(', ')}`);
-          } catch (botError: any) {
-            console.error(`[Quick Match] Failed to add bots to existing race ${race.id}:`, botError);
-          }
-        }
+        console.log(`[Quick Match] Existing race ${race.id} has ${existingParticipants.length} participants`);
       } else {
         // For timed races, generate more content
         if (effectiveRaceType === "timed") {
@@ -2391,14 +2521,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           isPrivate: 0,
         });
 
-        // Add bots to the new race so player can start immediately
-        console.log(`[Quick Match] Creating new race ${race.id}, adding 3 bots...`);
+        // Add opponents to race
+        console.log(`[Quick Match] Creating new race ${race.id}, adding ${effectiveBotCount} opponents...`);
         try {
-          const botCount = 3;
-          const addedBots = await botService.addBotsToRace(race.id, botCount);
-          console.log(`[Quick Match] Added ${addedBots.length} bots to new race ${race.id}: ${addedBots.map(b => b.username).join(', ')}`);
-        } catch (botError: any) {
-          console.error(`[Quick Match] Failed to add bots to race ${race.id}:`, botError);
+          const addedOpponents = await botService.addBotsToRace(race.id, effectiveBotCount);
+          console.log(`[Quick Match] Added ${addedOpponents.length} opponents to race ${race.id}`);
+        } catch (opponentError: any) {
+          console.error(`[Quick Match] Failed to add opponents to race ${race.id}:`, opponentError);
         }
       }
 
@@ -2475,6 +2604,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate text source
       const validTextSources = ["general", "quotes", "programming", "technical", "news", "entertainment", "random"];
       const selectedTextSource = validTextSources.includes(textSource) ? textSource : "general";
+      
+      // Automatically assign random number of opponents (1-3) for natural feel
+      const botCount = Math.floor(Math.random() * 3) + 1; // 1, 2, or 3
       
       let username: string;
       
@@ -2588,7 +2720,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isBot: 0,
       });
 
-      // Bots and race duration will be configured by host in waiting room before starting
+      // Only add bots to public rooms, not private rooms
+      if (!isPrivate) {
+        console.log(`[Create Room] Adding ${botCount} opponents to race ${race.id}...`);
+        try {
+          const addedOpponents = await botService.addBotsToRace(race.id, botCount);
+          console.log(`[Create Room] Added ${addedOpponents.length} opponents to race ${race.id}`);
+        } catch (opponentError: any) {
+          console.error(`[Create Room] Failed to add opponents to race ${race.id}:`, opponentError);
+        }
+      } else {
+        console.log(`[Create Room] Private room - skipping bot opponents for race ${race.id}`);
+      }
+      
+      // Update race cache with all participants
+      const { raceCache } = await import("./race-cache");
+      const allParticipants = await storage.getRaceParticipants(race.id);
+      raceCache.setRace(race, allParticipants);
+      console.log(`[Create Room] Updated cache with ${allParticipants.length} participants for race ${race.id}`);
 
       res.json({ race, participant });
     } catch (error: any) {
@@ -2617,9 +2766,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Race not found" });
       }
 
-      if (race.status !== "waiting") {
+      // Allow joining during waiting OR countdown (countdown is only 3 seconds)
+      // This gives a better user experience for players who join just as the race starts
+      if (race.status !== "waiting" && race.status !== "countdown") {
         const statusMessages: Record<string, string> = {
-          countdown: "Race is about to start - cannot join during countdown",
           racing: "Race is in progress - cannot join an active race",
           finished: "Race has ended - please join a new room",
         };
@@ -2627,6 +2777,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
           message: statusMessages[race.status] || "Race has already started",
           code: "RACE_STARTED"
         });
+      }
+
+      // Check if the room is locked by the host (prevents new players from joining)
+      const { raceWebSocket } = await import("./websocket");
+      if (raceWebSocket.isRoomLocked(race.id)) {
+        // Check if this user is already a participant (allow re-joining)
+        const existingParticipants = await storage.getRaceParticipants(race.id);
+        const isExistingParticipant = existingParticipants.some(p => 
+          (user && p.userId === user.id) || (!user && p.guestName === guestId)
+        );
+        
+        if (!isExistingParticipant) {
+          return res.status(403).json({ 
+            message: "Room is locked - the host has locked this room to new players",
+            code: "ROOM_LOCKED"
+          });
+        }
+        // Existing participant can rejoin even if room is locked
+        console.log(`[Join Room] Allowing existing participant to rejoin locked room ${race.id}`);
       }
 
       const participants = await storage.getRaceParticipants(race.id);
@@ -2646,6 +2815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           participant = await storage.reactivateRaceParticipant(inactive.id);
         } else {
           // Check if race is full
+          let removedBotId: number | null = null;
           if (participants.length >= race.maxPlayers) {
             // If there are bots, remove one to make room for the human player
             const botParticipants = participants.filter(p => p.isBot === 1);
@@ -2653,6 +2823,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // Remove a bot to make room for the human
               const botToRemove = botParticipants[botParticipants.length - 1];
               await storage.deleteRaceParticipant(botToRemove.id);
+              removedBotId = botToRemove.id;
               console.log(`[Join Room] Removed bot ${botToRemove.username} to make room for human player`);
             } else {
               // No bots to remove - race is truly full with humans
@@ -2678,8 +2849,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // This ensures WebSocket can find the participant when they connect
           const { raceCache } = await import("./race-cache");
           const updatedParticipants = await storage.getRaceParticipants(race.id);
-          raceCache.updateParticipants(race.id, updatedParticipants);
+          raceCache.updateParticipants(race.id, updatedParticipants, race);
           console.log(`[Join Room] Updated race cache with new participant ${username} (${participant.id})`);
+          
+          // CRITICAL: Broadcast to existing WebSocket clients that a new player joined
+          // This ensures all players see the new participant immediately
+          const { raceWebSocket } = await import("./websocket");
+          
+          // First broadcast bot removal if applicable
+          if (removedBotId) {
+            raceWebSocket.broadcastParticipantRemoved(race.id, removedBotId, updatedParticipants);
+            console.log(`[Join Room] Broadcast bot removal to existing WebSocket clients`);
+          }
+          
+          // Then broadcast the new participant
+          raceWebSocket.broadcastNewParticipant(race.id, participant, updatedParticipants);
+          console.log(`[Join Room] Broadcast new participant to existing WebSocket clients`);
         }
       }
 
@@ -2803,6 +2988,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(result.ready ? 200 : 503).json(result);
     } catch (error: any) {
       res.status(503).json({ ready: false, error: error.message });
+    }
+  });
+
+  // Chat metrics endpoint for monitoring
+  app.get("/api/chat/metrics", async (req, res) => {
+    try {
+      const { chatMetrics } = await import("./chat-metrics");
+      const { chatCache } = await import("./chat-cache-service");
+      const { requestDedup } = await import("./request-deduplication");
+      const { chatHealthMonitor } = await import("./chat-health-monitor");
+      
+      const windowMinutes = parseInt(req.query.window as string) || 60;
+      const metrics = chatMetrics.getAggregatedMetrics(windowMinutes);
+      const cacheStats = chatCache.getStats();
+      const dedupStats = requestDedup.getStats();
+      const healthStatus = chatHealthMonitor.getHealthStatus();
+      
+      res.json({
+        performance: metrics,
+        cache: cacheStats,
+        deduplication: dedupStats,
+        health: {
+          ...healthStatus,
+          avgResponseTime: metrics.avgResponseTime,
+          errorRate: metrics.errorRate,
+          cacheHitRate: metrics.cacheHitRate,
+        },
+        summary: chatMetrics.getSummary(windowMinutes),
+      });
+    } catch (error: any) {
+      console.error("Get chat metrics error:", error);
+      res.status(500).json({ message: error.message });
     }
   });
 
@@ -3877,54 +4094,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Batch fetch sentences for Challenge Mode
-  app.get("/api/dictation/sentences/batch", async (req, res) => {
-    try {
-      const difficulty = req.query.difficulty as string | undefined;
-      const category = req.query.category as string | undefined;
-      const countParam = req.query.count as string | undefined;
-      const excludeIdsParam = req.query.excludeIds as string | undefined;
-      
-      const count = countParam ? parseInt(countParam, 10) : 5;
-      if (isNaN(count) || count < 1 || count > 100) {
-        return res.status(400).json({ message: "Count must be between 1 and 100" });
-      }
-      
-      let excludeIds: number[] | undefined;
-      if (excludeIdsParam) {
-        excludeIds = excludeIdsParam.split(',').map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-      }
-      
-      // Fetch multiple sentences
-      const sentences = [];
-      const usedIds = new Set<number>(excludeIds || []);
-      
-      for (let i = 0; i < count; i++) {
-        const sentence = await storage.getRandomDictationSentence(
-          difficulty, 
-          category, 
-          Array.from(usedIds)
-        );
-        
-        if (!sentence) {
-          break; // No more sentences available
-        }
-        
-        sentences.push(sentence);
-        usedIds.add(sentence.id);
-      }
-      
-      if (sentences.length === 0) {
-        return res.status(404).json({ message: "No sentences available" });
-      }
-      
-      res.json({ sentences });
-    } catch (error: any) {
-      console.error("Get batch dictation sentences error:", error);
-      res.status(500).json({ message: "Failed to fetch dictation sentences" });
-    }
-  });
-
   app.post("/api/dictation/test", isAuthenticated, async (req, res) => {
     try {
       const parsed = insertDictationTestSchema.safeParse({
@@ -4014,6 +4183,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================================================
+  // BOOK LIBRARY LEADERBOARD ENDPOINTS
+  // ============================================================================
+
+  app.get("/api/book/leaderboard", leaderboardLimiter, async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 100);
+      const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
+      const cursor = req.query.cursor as string | undefined;
+      const topic = req.query.topic as string | undefined;
+      
+      const actualOffset = cursor ? leaderboardCache.decodeCursor(cursor) : offset;
+      
+      const result = await leaderboardCache.getBookLeaderboard({
+        topic,
+        limit,
+        offset: actualOffset,
+      });
+      
+      res.set('Cache-Control', 'public, max-age=30');
+      res.set('X-Cache', result.metadata.cacheHit ? 'HIT' : 'MISS');
+      res.set('X-Total-Count', String(result.pagination.total));
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("Get book leaderboard error:", error);
+      res.status(500).json({ message: "Failed to fetch book leaderboard" });
+    }
+  });
+
+  app.get("/api/book/leaderboard/around-me", isAuthenticated, leaderboardAroundMeLimiter, async (req, res) => {
+    try {
+      const range = Math.min(Math.max(1, parseInt(req.query.range as string) || 5), 20);
+      const topic = req.query.topic as string | undefined;
+      
+      const result = await leaderboardCache.getAroundMe("book", req.user!.id, { topic, range });
+      
+      res.set('Cache-Control', 'private, max-age=10');
+      res.set('X-Cache', result.cacheHit ? 'HIT' : 'MISS');
+      
+      res.json({
+        userRank: result.userRank,
+        entries: result.entries,
+      });
+    } catch (error: any) {
+      console.error("Get book leaderboard around me error:", error);
+      res.status(500).json({ message: "Failed to fetch leaderboard" });
+    }
+  });
+
   app.post("/api/dictation/tts", async (req, res) => {
     try {
       const { text, voice = "alloy", speed = 1.0 } = req.body;
@@ -4080,6 +4299,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: "TTS service error", 
         fallback: true 
       });
+    }
+  });
+
+  // Streaming TTS endpoint for ultra-low latency playback
+  // Audio starts playing as chunks arrive instead of waiting for full file
+  app.post("/api/dictation/tts/stream", async (req, res) => {
+    try {
+      const { text, voice = "alloy", speed = 1.0 } = req.body;
+      
+      if (!text || typeof text !== "string" || text.trim().length === 0) {
+        return res.status(400).json({ message: "Text is required" });
+      }
+      
+      if (text.length > 1000) {
+        return res.status(400).json({ message: "Text too long (max 1000 characters)" });
+      }
+      
+      const apiKey = process.env.OPENAI_TTS_API_KEY 
+        || process.env.OPENAI_API_KEY 
+        || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({ 
+          message: "TTS not available", 
+          fallback: true 
+        });
+      }
+      
+      const validVoices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
+      const selectedVoice = validVoices.includes(voice) ? voice : "alloy";
+      const selectedSpeed = Math.max(0.25, Math.min(4.0, speed));
+      
+      // Use PCM format for lowest latency (no encoding/decoding overhead)
+      const response = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "tts-1",
+          input: text,
+          voice: selectedVoice,
+          speed: selectedSpeed,
+          response_format: "pcm",
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("OpenAI TTS streaming error:", response.status, errorText);
+        return res.status(503).json({ 
+          message: "TTS generation failed", 
+          fallback: true 
+        });
+      }
+
+      // Stream the response directly to client
+      res.set({
+        "Content-Type": "audio/pcm",
+        "Transfer-Encoding": "chunked",
+        "Cache-Control": "no-cache",
+        "X-Audio-Sample-Rate": "24000",
+        "X-Audio-Channels": "1",
+        "X-Audio-Bit-Depth": "16",
+      });
+
+      // Pipe OpenAI's streaming response directly to the client
+      if (response.body) {
+        const reader = response.body.getReader();
+        
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            res.write(Buffer.from(value));
+          }
+          res.end();
+        } catch (streamError) {
+          console.error("TTS stream error:", streamError);
+          if (!res.headersSent) {
+            res.status(503).json({ message: "Stream interrupted", fallback: true });
+          } else {
+            res.end();
+          }
+        }
+      } else {
+        res.status(503).json({ message: "No stream available", fallback: true });
+      }
+    } catch (error: any) {
+      console.error("TTS streaming error:", error);
+      if (!res.headersSent) {
+        res.status(503).json({ 
+          message: "TTS service error", 
+          fallback: true 
+        });
+      }
     }
   });
 

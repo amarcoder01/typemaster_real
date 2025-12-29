@@ -39,6 +39,7 @@ import DictationTest from "@/pages/dictation-test";
 import DictationMode from "@/pages/dictation-mode";
 import StressTest from "@/pages/stress-test";
 import StressLeaderboard from "@/pages/stress-leaderboard";
+import UnifiedLeaderboard from "@/pages/unified-leaderboard";
 import SharedResult from "@/pages/shared-result";
 import Result from "@/pages/result";
 import PrivacyPolicy from "@/pages/privacy-policy";
@@ -84,6 +85,7 @@ function Router() {
             <Route path="/profile" component={Profile} />
             <Route path="/profile/edit" component={ProfileEdit} />
             <Route path="/leaderboard" component={Leaderboard} />
+            <Route path="/leaderboards" component={UnifiedLeaderboard} />
             <Route path="/analytics" component={Analytics} />
             <Route path="/multiplayer" component={Multiplayer} />
             <Route path="/race/:id" component={Race} />

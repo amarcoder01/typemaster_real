@@ -135,14 +135,14 @@ export default function MultiplayerPage() {
         body: JSON.stringify({ 
           guestId,
           raceType: "timed",
-          timeLimitSeconds: selectedDuration
+          timeLimitSeconds: selectedDuration,
         }),
       });
 
       if (response.ok) {
         const { race, participant } = await response.json();
         localStorage.setItem(`race_${race.id}_participant`, JSON.stringify(participant));
-        toast.success(`Match found! ${formatDuration(selectedDuration)} race starting...`, {
+        toast.success(`Match found! ${formatDuration(selectedDuration)} race`, {
           icon: <CheckCircle2 className="h-4 w-4 text-green-500" />,
         });
         setLocation(`/race/${race.id}`);
@@ -373,12 +373,12 @@ export default function MultiplayerPage() {
                       </TooltipTrigger>
                       <TooltipContent side="right" className="max-w-xs">
                         <p className="font-medium">How Quick Match Works</p>
-                        <p className="text-zinc-400">System finds an open race or creates a new public one. AI racers may join to fill empty slots.</p>
+                        <p className="text-zinc-400">Start racing instantly or wait for more players to join your race.</p>
                       </TooltipContent>
                     </Tooltip>
                   </CardTitle>
                   <CardDescription>
-                    Join an available race or start a new one instantly
+                    Jump into a race instantly or find other players
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -404,10 +404,10 @@ export default function MultiplayerPage() {
                         <SelectValue placeholder="Select duration" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="30">30 seconds</SelectItem>
-                        <SelectItem value="60">1 minute</SelectItem>
-                        <SelectItem value="90">90 seconds</SelectItem>
-                        <SelectItem value="120">2 minutes</SelectItem>
+                        <SelectItem value="30">0:30 (30 sec)</SelectItem>
+                        <SelectItem value="60">1:00 (1 min)</SelectItem>
+                        <SelectItem value="90">1:30 (1 min 30 sec)</SelectItem>
+                        <SelectItem value="120">2:00 (2 min)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -435,7 +435,7 @@ export default function MultiplayerPage() {
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom">
-                      <p>Click to instantly join or create a {selectedDuration}s race</p>
+                      <p>Start a {formatDuration(selectedDuration)} typing race</p>
                     </TooltipContent>
                   </Tooltip>
                 </CardContent>
@@ -519,10 +519,10 @@ export default function MultiplayerPage() {
                         <SelectValue placeholder="Select duration" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="30">30 seconds - Sprint</SelectItem>
-                        <SelectItem value="60">1 minute - Standard</SelectItem>
-                        <SelectItem value="90">90 seconds - Extended</SelectItem>
-                        <SelectItem value="120">2 minutes - Marathon</SelectItem>
+                        <SelectItem value="30">0:30 - Sprint (30 sec)</SelectItem>
+                        <SelectItem value="60">1:00 - Standard (1 min)</SelectItem>
+                        <SelectItem value="90">1:30 - Extended (1 min 30 sec)</SelectItem>
+                        <SelectItem value="120">2:00 - Marathon (2 min)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

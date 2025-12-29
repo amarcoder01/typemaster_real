@@ -15,12 +15,7 @@ export interface PracticeModeConfig {
   timerPressure: boolean;
   defaultSpeed: string;
   defaultDifficulty: DifficultyLevel;
-  /** Whether this mode uses a countdown timer (vs elapsed timer) */
-  useCountdownTimer: boolean;
-  /** Expected WPM for time limit calculation (only used if useCountdownTimer is true) */
-  expectedWpm: number;
-  /** Buffer multiplier for time limit (e.g., 1.5 = 50% extra time) */
-  bufferMultiplier: number;
+  maxReplays?: number;
 }
 
 export const PRACTICE_MODES: Record<PracticeMode, PracticeModeConfig> = {
@@ -32,33 +27,25 @@ export const PRACTICE_MODES: Record<PracticeMode, PracticeModeConfig> = {
     timerPressure: false,
     defaultSpeed: '1.0',
     defaultDifficulty: 'easy',
-    useCountdownTimer: false,
-    expectedWpm: 40,
-    bufferMultiplier: 1.5,
   },
   focus: {
     name: 'Focus Mode',
-    description: 'Zen fullscreen with calming themes & encouragement',
+    description: 'Deep listening with limited replays - no hints',
     autoAdvance: false,
-    hintsAllowed: true,
+    hintsAllowed: false,
     timerPressure: false,
     defaultSpeed: '0.8',
     defaultDifficulty: 'easy',
-    useCountdownTimer: false,
-    expectedWpm: 40,
-    bufferMultiplier: 1.5,
+    maxReplays: 5,
   },
   challenge: {
     name: 'Challenge Mode',
-    description: 'Timed challenge - complete before time runs out!',
+    description: 'No hints, timed pressure, prove your skills',
     autoAdvance: false,
     hintsAllowed: false,
     timerPressure: true,
-    defaultSpeed: '1.0',
+    defaultSpeed: '1.3',
     defaultDifficulty: 'easy',
-    useCountdownTimer: true,
-    expectedWpm: 40,
-    bufferMultiplier: 1.5,
   },
 };
 
@@ -164,6 +151,88 @@ export interface DictationTestState {
   showHint: boolean;
   isComplete: boolean;
   result: DictationTestResult | null;
+  // Challenge Mode time limit fields
+  timeLimitMs: number | null;
+  timeExpired: boolean;
+  showTimeUpOverlay: boolean;
+  showTimePreview: boolean;
+}
+
+// ============================================================================
+// CHALLENGE MODE TIMING
+// Industry-standard WPM-based time calculation
+// Formula: Time = (Words / TargetWPM) * BufferFactor * 60 seconds
+// ============================================================================
+
+export const CHALLENGE_TIMING = {
+  GRACE_PERIOD_MS: 3000,     // 3 second grace period after time expires
+  WARNING_THRESHOLD_MS: 10000, // Yellow warning at 10 seconds remaining
+  URGENT_THRESHOLD_MS: 5000,   // Red urgent at 5 seconds remaining
+  MIN_TIME_MS: 5000,         // Minimum 5 seconds
+  MAX_TIME_MS: 180000,       // Maximum 3 minutes
+  DEFAULT_DIFFICULTY: 'medium' as DifficultyLevel,
+  
+  // Fixed time limits per difficulty (in milliseconds)
+  // More challenging times to keep pressure on
+  FIXED_TIME_MS: {
+    easy: 30000,    // 30 seconds - challenging but achievable
+    medium: 40000,  // 40 seconds - moderate challenge
+    hard: 50000,    // 50 seconds - more time for complex sentences
+  } as Record<DifficultyLevel, number>,
+  
+  // Legacy WPM-based config (kept for reference)
+  DIFFICULTY_CONFIG: {
+    easy: { targetWPM: 25, buffer: 2.5 },
+    medium: { targetWPM: 40, buffer: 1.8 },
+    hard: { targetWPM: 60, buffer: 1.4 },
+  } as Record<DifficultyLevel, { targetWPM: number; buffer: number }>,
+  
+  // Overtime penalties
+  OVERTIME_PENALTY_BASE: 0.05,    // 5% base penalty for any overtime
+  OVERTIME_PENALTY_PER_SECOND: 0.01, // Additional 1% per second over time
+  OVERTIME_PENALTY_MAX: 0.30,     // Maximum 30% penalty cap
+  
+  // Streak bonuses
+  STREAK_BONUS: 0.02,        // 2% bonus per streak (max 10%)
+  MAX_STREAK_BONUS: 0.10,    // Cap at 10% bonus
+} as const;
+
+/**
+ * Calculate the overtime penalty based on how many seconds over the limit.
+ * Penalty scales with lateness: 5% base + 1% per second, capped at 30%.
+ */
+export function calculateOvertimePenalty(secondsOvertime: number): number {
+  if (secondsOvertime <= 0) return 0;
+  
+  const penalty = CHALLENGE_TIMING.OVERTIME_PENALTY_BASE + 
+    (secondsOvertime * CHALLENGE_TIMING.OVERTIME_PENALTY_PER_SECOND);
+  
+  return Math.min(penalty, CHALLENGE_TIMING.OVERTIME_PENALTY_MAX);
+}
+
+/**
+ * Calculate the time limit in milliseconds for a Challenge Mode sentence.
+ * Uses industry-standard WPM-based formula:
+ * Time = (WordCount / TargetWPM) * BufferFactor * 60 seconds
+ * 
+ * Example times for a 10-word sentence:
+ * - Easy:   (10/25) * 2.5 * 60 = 60 seconds
+ * - Medium: (10/40) * 1.8 * 60 = 27 seconds
+ * - Hard:   (10/60) * 1.4 * 60 = 14 seconds
+ * 
+ * @param sentenceText - The sentence text to calculate time for
+ * @param difficulty - The difficulty level (defaults to medium if invalid)
+ * @returns Time limit in milliseconds, clamped to MIN_TIME_MS and MAX_TIME_MS
+ */
+export function calculateTimeLimit(
+  sentenceText: string,
+  difficulty: DifficultyLevel
+): number {
+  // Use fixed time limits per difficulty for consistent challenge
+  const fixedTime = CHALLENGE_TIMING.FIXED_TIME_MS[difficulty] ?? 
+    CHALLENGE_TIMING.FIXED_TIME_MS[CHALLENGE_TIMING.DEFAULT_DIFFICULTY];
+  
+  return fixedTime;
 }
 
 export interface SessionStats {
@@ -171,6 +240,11 @@ export interface SessionStats {
   totalAccuracy: number;
   totalErrors: number;
   count: number;
+  // Challenge Mode streak tracking
+  challengeStreak: number;
+  maxChallengeStreak: number;
+  completedInTime: number;
+  timedOut: number;
 }
 
 export interface ErrorCategory {
@@ -339,6 +413,10 @@ export const INITIAL_TEST_STATE: DictationTestState = {
   showHint: false,
   isComplete: false,
   result: null,
+  timeLimitMs: null,
+  timeExpired: false,
+  showTimeUpOverlay: false,
+  showTimePreview: false,
 };
 
 export const INITIAL_SESSION_STATS: SessionStats = {
@@ -346,6 +424,10 @@ export const INITIAL_SESSION_STATS: SessionStats = {
   totalAccuracy: 0,
   totalErrors: 0,
   count: 0,
+  challengeStreak: 0,
+  maxChallengeStreak: 0,
+  completedInTime: 0,
+  timedOut: 0,
 };
 
 export const INITIAL_ADAPTIVE_CONFIG: AdaptiveDifficultyConfig = {

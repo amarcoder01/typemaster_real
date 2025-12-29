@@ -1,9 +1,18 @@
 import { useRef, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Download, Share2, Check, Clipboard, Award, Sparkles, Trophy, Medal, Crown } from "lucide-react";
+import { Download, Share2, Check, Clipboard, Award, Sparkles, Trophy, Medal, Crown, FileImage, FileText, ChevronDown } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { getTypingPerformanceRating, triggerCelebration } from "@/lib/share-utils";
 import { generateVerificationQRCode } from "@/lib/qr-code-utils";
+import { jsPDF } from "jspdf";
+
+type DownloadFormat = "png" | "jpg" | "pdf";
 
 interface RaceCertificateProps {
   wpm: number;
@@ -137,7 +146,7 @@ export function RaceCertificate({
   // Load QR code image for any verification ID
   useEffect(() => {
     if (certificateId) {
-      generateVerificationQRCode(certificateId, 80)
+      generateVerificationQRCode(certificateId, 120)  // Higher resolution for better visibility
         .then(dataUrl => {
           const img = new Image();
           img.onload = () => setQrCodeImage(img);
@@ -467,35 +476,87 @@ export function RaceCertificate({
     ctx.font = "11px 'DM Sans', system-ui, sans-serif";
     ctx.fillText("Official Multiplayer Racing Authority", canvas.width / 2, sigY + 18);
 
-    // Footer with certificate ID and URL
+    // Footer with certificate ID, QR code, and URL
+    const footerY = canvas.height - 25;
+
+    // Draw QR code if available (positioned on the left)
+    if (qrCodeImage) {
+      const qrSize = 70;
+      const qrX = 45;
+      const qrY = footerY - qrSize - 8;
+
+      // QR code background
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(qrX - 3, qrY - 3, qrSize + 6, qrSize + 6);
+
+      // Draw QR code
+      ctx.drawImage(qrCodeImage, qrX, qrY, qrSize, qrSize);
+
+      // "Scan to Verify" text under QR
+      ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.font = "9px 'DM Sans', system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Scan to Verify", qrX + qrSize / 2, qrY + qrSize + 12);
+    }
+
+    // Certificate ID - positioned to the right of QR code
     ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
     ctx.font = "10px 'JetBrains Mono', monospace";
     ctx.textAlign = "left";
-    ctx.fillText(`ID: ${certificateId}`, 50, canvas.height - 25);
+    ctx.fillText(`ID: ${certificateId}`, qrCodeImage ? 140 : 50, footerY);
 
+    // Center URL
     ctx.textAlign = "center";
-    ctx.fillText("typemasterai.com/multiplayer", canvas.width / 2, canvas.height - 25);
+    ctx.fillText("typemasterai.com/multiplayer", canvas.width / 2, footerY);
 
+    // Placement badge on right
     ctx.textAlign = "right";
     ctx.fillStyle = placementVisuals.color;
     ctx.font = "bold 10px 'JetBrains Mono', monospace";
-    ctx.fillText(`${placementVisuals.emoji} ${placementVisuals.text}`, canvas.width - 50, canvas.height - 25);
+    ctx.fillText(`${placementVisuals.emoji} ${placementVisuals.text}`, canvas.width - 50, footerY);
   };
 
-  const downloadCertificate = () => {
+  const downloadCertificate = (format: DownloadFormat = "png") => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const link = document.createElement("a");
-    link.download = `TypeMasterAI_Race_Certificate_P${placement}_${wpm}WPM_${certificateId}.png`;
-    link.href = canvas.toDataURL("image/png");
-    link.click();
+    const baseFileName = `TypeMasterAI_Race_Certificate_P${placement}_${wpm}WPM_${certificateId}`;
+
+    if (format === "png") {
+      const link = document.createElement("a");
+      link.download = `${baseFileName}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } else if (format === "jpg") {
+      const link = document.createElement("a");
+      link.download = `${baseFileName}.jpg`;
+      link.href = canvas.toDataURL("image/jpeg", 0.95);
+      link.click();
+    } else if (format === "pdf") {
+      try {
+        const imgData = canvas.toDataURL("image/png");
+        const pdf = new jsPDF({
+          orientation: "landscape",
+          unit: "px",
+          format: [canvas.width, canvas.height],
+        });
+        pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+        pdf.save(`${baseFileName}.pdf`);
+      } catch (error) {
+        toast({
+          title: "PDF Download Failed",
+          description: "Please try downloading as PNG instead.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
 
     triggerCelebration(placement <= 3 ? 'large' : 'medium');
 
     toast({
       title: "Certificate Downloaded!",
-      description: "Share your racing achievement!",
+      description: `Your certificate has been saved as ${format.toUpperCase()}.`,
     });
   };
 
@@ -579,7 +640,7 @@ export function RaceCertificate({
           ref={canvasRef}
           className="w-full h-auto"
           style={{ maxWidth: "100%" }}
-          data-testid="race-certificate-canvas"
+          data-testid="certificate-canvas"
         />
         <div className="absolute top-3 left-3 flex items-center gap-1.5 px-3 py-1.5 bg-black/60 rounded-full backdrop-blur-sm border border-white/10">
           <Trophy className="w-3.5 h-3.5" style={{ color: placementVisuals.color }} />
@@ -589,21 +650,48 @@ export function RaceCertificate({
         </div>
       </div>
 
-      {/* Minimal mode: Only download button */}
+      {/* Minimal mode: Only download button with format dropdown */}
       {minimal ? (
-        <div className="w-full">
-          <Button
-            onClick={downloadCertificate}
-            className="w-full gap-2 h-11 text-white font-semibold"
-            style={{
-              background: `linear-gradient(135deg, ${placement <= 3 ? placementVisuals.color : tierVisuals.borderGradient[0]}, ${tierVisuals.primaryColor}, ${placement <= 3 ? placementVisuals.color : tierVisuals.borderGradient[2]})`,
-            }}
-            data-testid="button-download-race-certificate"
-          >
-            <Download className="w-4 h-4" />
-            Download Certificate
-          </Button>
-          <p className="text-[10px] text-center text-zinc-500 mt-2" data-testid="text-race-certificate-id">
+        <div className="w-full space-y-2">
+          <div className="flex gap-2">
+            <Button
+              onClick={() => downloadCertificate("png")}
+              className="flex-1 gap-2 h-11 text-white font-semibold"
+              style={{
+                background: `linear-gradient(135deg, ${placement <= 3 ? placementVisuals.color : tierVisuals.borderGradient[0]}, ${tierVisuals.primaryColor}, ${placement <= 3 ? placementVisuals.color : tierVisuals.borderGradient[2]})`,
+              }}
+              data-testid="button-download-race-certificate"
+            >
+              <Download className="w-4 h-4" />
+              Download
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="h-11 px-3 bg-zinc-800/50 border-zinc-600 hover:bg-zinc-700/50"
+                  data-testid="button-download-format-menu"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-zinc-900 border-zinc-700">
+                <DropdownMenuItem onClick={() => downloadCertificate("png")} className="gap-2 cursor-pointer">
+                  <FileImage className="w-4 h-4 text-blue-400" />
+                  <span>PNG (High Quality)</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => downloadCertificate("jpg")} className="gap-2 cursor-pointer">
+                  <FileImage className="w-4 h-4 text-green-400" />
+                  <span>JPG (Compressed)</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => downloadCertificate("pdf")} className="gap-2 cursor-pointer">
+                  <FileText className="w-4 h-4 text-red-400" />
+                  <span>PDF (Printable)</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <p className="text-[10px] text-center text-zinc-500" data-testid="text-race-certificate-id">
             Certificate ID: <span className="font-mono" style={{ color: placementVisuals.color }}>{certificateId}</span>
           </p>
         </div>
@@ -625,15 +713,42 @@ export function RaceCertificate({
                 {imageCopied ? <Check className="w-4 h-4 text-green-500" /> : <Clipboard className="w-4 h-4" style={{ color: placementVisuals.color }} />}
                 <span className="text-zinc-200">{imageCopied ? "Copied!" : "Copy Image"}</span>
               </Button>
-              <Button
-                onClick={downloadCertificate}
-                variant="outline"
-                className="gap-2 h-10 bg-zinc-800/50 border-zinc-600 hover:bg-zinc-700/50 hover:border-zinc-500"
-                data-testid="button-download-race-certificate"
-              >
-                <Download className="w-4 h-4 text-purple-400" />
-                <span className="text-zinc-200">Download</span>
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="gap-2 h-10 bg-zinc-800/50 border-zinc-600 hover:bg-zinc-700/50 hover:border-zinc-500"
+                    data-testid="button-download-race-certificate"
+                  >
+                    <Download className="w-4 h-4 text-purple-400" />
+                    <span className="text-zinc-200">Download</span>
+                    <ChevronDown className="w-3 h-3 text-zinc-400" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="bg-zinc-900 border-zinc-700 min-w-[180px]">
+                  <DropdownMenuItem onClick={() => downloadCertificate("png")} className="gap-3 cursor-pointer hover:bg-zinc-800">
+                    <FileImage className="w-4 h-4 text-blue-400" />
+                    <div className="flex flex-col">
+                      <span className="text-zinc-200">PNG</span>
+                      <span className="text-[10px] text-zinc-500">High Quality Image</span>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => downloadCertificate("jpg")} className="gap-3 cursor-pointer hover:bg-zinc-800">
+                    <FileImage className="w-4 h-4 text-green-400" />
+                    <div className="flex flex-col">
+                      <span className="text-zinc-200">JPG</span>
+                      <span className="text-[10px] text-zinc-500">Compressed Image</span>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => downloadCertificate("pdf")} className="gap-3 cursor-pointer hover:bg-zinc-800">
+                    <FileText className="w-4 h-4 text-red-400" />
+                    <div className="flex flex-col">
+                      <span className="text-zinc-200">PDF</span>
+                      <span className="text-[10px] text-zinc-500">Printable Document</span>
+                    </div>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 

@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Trophy, Medal, Clock, Target, ChevronLeft, ChevronRight, ShieldCheck, User, AlertCircle, RefreshCw, Info, Wifi, WifiOff, Ban, Globe, HelpCircle } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { motion } from "framer-motion";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +16,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { fetchLeaderboardWithRank } from "@/lib/leaderboard-api";
+import { useLeaderboardWebSocket } from "@/hooks/useLeaderboardWebSocket";
+import { cn } from "@/lib/utils";
 
 type Timeframe = "all" | "daily" | "weekly" | "monthly";
 
@@ -296,23 +300,98 @@ function LeaderboardContent() {
     staleTime: 60000,
   });
 
-  const { data: aroundMeData, isLoading: aroundMeLoading } = useQuery({
-    queryKey: ["leaderboard-around-me", timeframe, language],
+  // Batched query for leaderboard + user rank (more efficient)
+  const { data: batchedData, isLoading: batchedLoading } = useQuery({
+    queryKey: ["leaderboard-batched", timeframe, language, limit, offset, userData?.user?.id],
     queryFn: async () => {
-      try {
-        const response = await fetch(`/api/leaderboard/around-me?range=3&timeframe=${timeframe}&language=${language}`);
-        if (!response.ok) return null;
-        return response.json();
-      } catch {
-        return null;
-      }
+      return fetchLeaderboardWithRank(
+        userData?.user?.id,
+        timeframe,
+        language,
+        limit,
+        offset
+      );
     },
-    enabled: !!userData?.user,
-    staleTime: 30000,
+    staleTime: 300000, // 5 minutes to match server cache
     retry: 1,
+    enabled: !!data, // Only fetch after main leaderboard data is available
   });
 
-  const entries: LeaderboardEntry[] = data?.entries || [];
+  // Use batched data if available, otherwise fall back to separate queries
+  const aroundMeData = batchedData?.aroundMe || null;
+  const aroundMeLoading = batchedLoading;
+
+  // Real-time WebSocket updates
+  const [liveEntries, setLiveEntries] = useState<LeaderboardEntry[]>([]);
+  const [realtimeUpdateCount, setRealtimeUpdateCount] = useState(0);
+  
+  const { isConnected: wsConnected, lastUpdate } = useLeaderboardWebSocket({
+    mode: 'global',
+    timeframe,
+    language,
+    userId: userData?.user?.id,
+    enabled: true,
+    onUpdate: (update) => {
+      console.log('[Leaderboard] Real-time update:', update);
+      setRealtimeUpdateCount(prev => prev + 1);
+      
+      // Update the entries list with the new data
+      setLiveEntries(prevEntries => {
+        const existingIndex = prevEntries.findIndex(e => e.userId === update.entry.userId);
+        
+        if (existingIndex >= 0) {
+          // Update existing entry
+          const updated = [...prevEntries];
+          updated[existingIndex] = {
+            ...updated[existingIndex],
+            rank: update.entry.rank,
+            wpm: update.entry.wpm,
+            accuracy: update.entry.accuracy,
+          };
+          return updated;
+        } else if (update.type === 'new_entry') {
+          // Add new entry
+          return [...prevEntries, {
+            userId: update.entry.userId,
+            username: update.entry.username,
+            rank: update.entry.rank,
+            wpm: update.entry.wpm,
+            accuracy: update.entry.accuracy,
+            mode: update.entry.mode || 60,
+            totalTests: 1,
+            avatarColor: update.entry.avatarColor,
+            isVerified: update.entry.isVerified,
+          }];
+        }
+        
+        return prevEntries;
+      });
+    },
+  });
+
+  // Merge live updates with cached data
+  const entries: LeaderboardEntry[] = useMemo(() => {
+    const baseEntries = data?.entries || [];
+    
+    // If we have live updates, merge them
+    if (liveEntries.length > 0) {
+      const merged = [...baseEntries];
+      
+      liveEntries.forEach(liveEntry => {
+        const existingIndex = merged.findIndex(e => e.userId === liveEntry.userId);
+        if (existingIndex >= 0) {
+          merged[existingIndex] = liveEntry;
+        } else {
+          merged.push(liveEntry);
+        }
+      });
+      
+      // Re-sort by rank
+      return merged.sort((a, b) => Number(a.rank) - Number(b.rank));
+    }
+    
+    return baseEntries;
+  }, [data?.entries, liveEntries]);
   const pagination = data?.pagination || { total: 0, hasMore: false };
   const currentPage = Math.floor(offset / limit) + 1;
   const totalPages = Math.max(1, Math.ceil(pagination.total / limit));
@@ -395,6 +474,23 @@ function LeaderboardContent() {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="max-w-5xl mx-auto px-4 sm:px-0">
+        {/* Real-time connection indicator */}
+        {wsConnected && realtimeUpdateCount > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg flex items-center gap-2 text-green-500"
+          >
+            <div className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+            </div>
+            <span className="text-sm font-medium">
+              Live updates active • {realtimeUpdateCount} update{realtimeUpdateCount !== 1 ? 's' : ''} received
+            </span>
+          </motion.div>
+        )}
+        
         {!isOnline && (
           <div className="mb-4 p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg flex items-center gap-2 text-orange-500">
             <WifiOff className="w-4 h-4" />
@@ -418,24 +514,67 @@ function LeaderboardContent() {
           </Tooltip>
           <h1 className="text-2xl sm:text-3xl font-bold">Global Leaderboard</h1>
           <p className="text-sm sm:text-base text-muted-foreground">Top typists worldwide</p>
+          <a 
+            href="/leaderboards" 
+            className="text-xs text-primary hover:underline mt-1"
+          >
+            View all leaderboards →
+          </a>
         </div>
 
         <div className="mb-6 flex flex-col gap-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <Tabs value={timeframe} onValueChange={handleTimeframeChange} className="w-full sm:w-auto">
-              <TabsList className="grid grid-cols-4 w-full sm:w-auto" data-testid="timeframe-tabs">
-                {(["all", "daily", "weekly", "monthly"] as Timeframe[]).map((tf) => (
-                  <Tooltip key={tf}>
-                    <TooltipTrigger asChild>
-                      <TabsTrigger value={tf} data-testid={`tab-${tf}`}>
-                        {tf === "all" ? "All Time" : tf.charAt(0).toUpperCase() + tf.slice(1)}
-                      </TabsTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                      <p>{TIMEFRAME_TOOLTIPS[tf]}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
+              <TabsList className="grid grid-cols-4 w-full sm:w-auto bg-slate-900/50 backdrop-blur-sm p-1.5 rounded-lg border border-slate-800/50" data-testid="timeframe-tabs">
+                {(["all", "daily", "weekly", "monthly"] as Timeframe[]).map((tf) => {
+                  const isActive = timeframe === tf;
+                  return (
+                    <Tooltip key={tf}>
+                      <TooltipTrigger asChild>
+                        <TabsTrigger 
+                          value={tf} 
+                          data-testid={`tab-${tf}`}
+                          className={`
+                            relative z-0 px-3 py-2.5 rounded-md font-medium text-sm
+                            transition-all duration-200 ease-in-out
+                            data-[state=active]:bg-transparent data-[state=active]:shadow-none
+                            overflow-hidden
+                            ${isActive 
+                              ? 'text-white' 
+                              : 'text-slate-400 hover:text-slate-200'
+                            }
+                            hover:bg-slate-800/30
+                            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary
+                          `}
+                        >
+                          {isActive && (
+                            <motion.div
+                              layoutId="active-timeframe-tab"
+                              className="absolute inset-0 bg-gradient-to-br from-primary to-primary/80 shadow-lg shadow-primary/20 rounded-md z-[-1]"
+                              transition={{ type: "spring", bounce: 0.15, duration: 0.5 }}
+                            />
+                          )}
+                          <span className={`relative z-10 flex items-center justify-center gap-1.5 whitespace-nowrap ${isActive ? 'drop-shadow-sm' : ''}`}>
+                            {isActive && (
+                              <motion.span
+                                initial={{ scale: 0, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                transition={{ type: "spring", bounce: 0.4, duration: 0.4 }}
+                                className="inline-block w-1.5 h-1.5 bg-white rounded-full flex-shrink-0"
+                              />
+                            )}
+                            <span className="truncate">
+                            {tf === "all" ? "All Time" : tf.charAt(0).toUpperCase() + tf.slice(1)}
+                            </span>
+                          </span>
+                        </TabsTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="bg-slate-800 border-slate-700">
+                        <p>{TIMEFRAME_TOOLTIPS[tf]}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
               </TabsList>
             </Tabs>
 
@@ -524,45 +663,31 @@ function LeaderboardContent() {
           </div>
         </div>
 
-        {userData?.user && aroundMeData?.entries?.length > 0 && aroundMeData.userRank > 0 && (
-          <Card className="border-primary/30 bg-primary/5 mb-6">
-            <CardContent className="p-4">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="text-sm font-medium text-primary mb-3 flex items-center gap-2 cursor-help">
-                    <User className="w-4 h-4" />
-                    Your Position
-                    <Info className="w-3 h-3 opacity-50" />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Shows players ranked near you for the {getTimeframeLabel(timeframe).toLowerCase()} period</p>
-                </TooltipContent>
-              </Tooltip>
-              <div className="space-y-2">
-                {aroundMeData.entries.map((entry: LeaderboardEntry) => (
-                  <div 
-                    key={`around-${entry.rank}-${entry.userId}`} 
-                    className={`flex items-center justify-between p-2 rounded ${entry.userId === userData.user.id ? 'bg-primary/20 font-medium' : 'bg-background/50'}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono text-sm w-8">#{safeNumber(entry.rank)}</span>
-                      <span>{safeString(entry.username)}</span>
-                      {entry.isVerified && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <ShieldCheck className="w-4 h-4 text-green-500 cursor-help" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Verified score - passed anti-cheat challenge</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
-                    </div>
-                    <span className="font-mono text-primary">{safeNumber(entry.wpm)} WPM</span>
-                  </div>
-                ))}
+        {/* Your Rank Card - Prominent Display */}
+        {userData?.user && (
+          <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="p-3 rounded-lg bg-primary/10">
+                <User className="w-5 h-5 text-primary" aria-hidden="true" />
               </div>
+              {aroundMeLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                  <span>Loading your rank...</span>
+                </div>
+              ) : aroundMeData?.userRank && aroundMeData.userRank > 0 ? (
+                <div className="flex flex-col">
+                  <span className="text-xs text-muted-foreground">Your Rank in {getTimeframeLabel(timeframe)}</span>
+                  <span className="font-mono font-bold text-2xl text-foreground" aria-label={`Your rank is ${aroundMeData.userRank}`}>
+                    #{aroundMeData.userRank}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex flex-col">
+                  <span className="text-xs text-muted-foreground">Not Ranked Yet</span>
+                  <span className="text-sm text-muted-foreground">Complete a test in {LANGUAGE_NAMES[language]} to rank!</span>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -625,36 +750,45 @@ function LeaderboardContent() {
               </div>
             ) : (
               <>
-                <div className="divide-y divide-border/50">
-                  <div className="grid grid-cols-12 gap-4 p-4 bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <div className="divide-y divide-border/50 rounded-lg overflow-hidden border border-border/50">
+                  <div className="grid grid-cols-12 gap-4 px-4 py-3 bg-slate-900/30 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div className="col-span-1 text-center cursor-help">#</div>
+                        <div className="col-span-1 text-center cursor-help flex items-center justify-center">#</div>
                       </TooltipTrigger>
                       <TooltipContent><p>Rank position based on best WPM</p></TooltipContent>
                     </Tooltip>
-                    <div className="col-span-4">User</div>
+                    <div className="col-span-4 flex items-center">User</div>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div className="col-span-2 text-center cursor-help">WPM</div>
+                        <div className="col-span-2 text-center cursor-help flex items-center justify-center">
+                          <Target className="w-3.5 h-3.5 mr-1.5" />
+                          WPM
+                        </div>
                       </TooltipTrigger>
                       <TooltipContent><p>Words Per Minute - typing speed</p></TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div className="col-span-2 text-center cursor-help">Accuracy</div>
+                        <div className="col-span-2 text-center cursor-help flex items-center justify-center">
+                          <ShieldCheck className="w-3.5 h-3.5 mr-1.5" />
+                          Accuracy
+                        </div>
                       </TooltipTrigger>
                       <TooltipContent><p>Percentage of correctly typed characters</p></TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div className="col-span-2 text-center cursor-help">Test Mode</div>
+                        <div className="col-span-2 text-center cursor-help flex items-center justify-center">
+                          <Clock className="w-3.5 h-3.5 mr-1.5" />
+                          Time
+                        </div>
                       </TooltipTrigger>
                       <TooltipContent><p>Duration of the typing test</p></TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div className="col-span-1 text-center cursor-help">Tests</div>
+                        <div className="col-span-1 text-center cursor-help flex items-center justify-center">Tests</div>
                       </TooltipTrigger>
                       <TooltipContent><p>Total number of tests completed</p></TooltipContent>
                     </Tooltip>
@@ -671,7 +805,12 @@ function LeaderboardContent() {
                     return (
                       <div 
                         key={`${entry.userId}-${entry.createdAt || rank}`} 
-                        className={`grid grid-cols-12 gap-4 p-4 items-center hover:bg-muted/30 transition-colors ${isCurrentUser ? 'bg-primary/10' : ''}`}
+                        className={`
+                          grid grid-cols-12 gap-4 px-4 py-4 items-center 
+                          transition-all duration-200
+                          hover:bg-slate-800/30 hover:shadow-sm
+                          ${isCurrentUser ? 'bg-primary/10 border-l-2 border-primary' : ''}
+                        `}
                       >
                         <div className="col-span-1 flex justify-center">
                           {rank <= 3 && MEDAL_TOOLTIPS[rank] ? (
@@ -679,10 +818,10 @@ function LeaderboardContent() {
                               <TooltipTrigger asChild>
                                 <div className="cursor-help">
                                   <Medal 
-                                    className={`w-5 h-5 ${
-                                      rank === 1 ? 'text-yellow-500' : 
-                                      rank === 2 ? 'text-gray-400' : 
-                                      'text-amber-600'
+                                    className={`w-6 h-6 ${
+                                      rank === 1 ? 'text-yellow-400 drop-shadow-[0_0_6px_rgba(250,204,21,0.6)]' : 
+                                      rank === 2 ? 'text-slate-300 drop-shadow-[0_0_6px_rgba(203,213,225,0.4)]' : 
+                                      'text-amber-600 drop-shadow-[0_0_6px_rgba(217,119,6,0.4)]'
                                     }`} 
                                     data-testid={`medal-rank-${rank}`} 
                                   />
@@ -694,11 +833,11 @@ function LeaderboardContent() {
                               </TooltipContent>
                             </Tooltip>
                           ) : (
-                            <span className="font-mono text-muted-foreground" data-testid={`rank-${rank}`}>{rank}</span>
+                            <span className="font-mono text-sm font-medium text-muted-foreground" data-testid={`rank-${rank}`}>#{rank}</span>
                           )}
                         </div>
                         <div className="col-span-4 flex items-center gap-3">
-                          <Avatar className="w-9 h-9">
+                          <Avatar className="w-10 h-10 ring-2 ring-border/50">
                             <AvatarFallback 
                               className={entry.avatarColor || "bg-primary/20"} 
                               style={{ color: "white" }}
@@ -706,15 +845,15 @@ function LeaderboardContent() {
                               {username.charAt(0).toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
-                          <div className="flex flex-col">
+                          <div className="flex flex-col min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="font-medium truncate max-w-[120px]" data-testid={`username-${username}`}>
+                              <span className="font-semibold truncate max-w-[140px]" data-testid={`username-${username}`}>
                                 {username}
                               </span>
                               {entry.isVerified && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <ShieldCheck className="w-4 h-4 text-green-500 cursor-help flex-shrink-0" data-testid={`verified-${entry.userId}`} />
+                                    <ShieldCheck className="w-4 h-4 text-green-400 cursor-help flex-shrink-0" data-testid={`verified-${entry.userId}`} />
                                   </TooltipTrigger>
                                   <TooltipContent>
                                     <p>Verified score - passed anti-cheat challenge</p>
@@ -722,14 +861,17 @@ function LeaderboardContent() {
                                 </Tooltip>
                               )}
                             </div>
-                            <span className="text-xs text-muted-foreground">{totalTests} test{totalTests !== 1 ? 's' : ''}</span>
+                            <span className="text-xs text-muted-foreground/80">{totalTests} test{totalTests !== 1 ? 's' : ''}</span>
                           </div>
                         </div>
-                        <div className="col-span-2 text-center">
+                        <div className="col-span-2 flex justify-center">
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <div className="font-mono font-bold text-primary text-lg cursor-help" data-testid={`wpm-${entry.userId}`}>
+                              <div className="flex flex-col items-center cursor-help">
+                                <div className="font-mono font-bold text-primary text-xl tabular-nums" data-testid={`wpm-${entry.userId}`}>
                                 {wpm}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wide">wpm</div>
                               </div>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -737,11 +879,19 @@ function LeaderboardContent() {
                             </TooltipContent>
                           </Tooltip>
                         </div>
-                        <div className="col-span-2 text-center">
+                        <div className="col-span-2 flex justify-center">
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <div className="font-mono text-muted-foreground cursor-help" data-testid={`accuracy-${entry.userId}`}>
+                              <div className="flex flex-col items-center cursor-help" data-testid={`accuracy-${entry.userId}`}>
+                                <div className={`font-mono font-semibold text-base tabular-nums ${
+                                  accuracy >= 98 ? 'text-green-400' : 
+                                  accuracy >= 95 ? 'text-blue-400' : 
+                                  accuracy >= 90 ? 'text-yellow-400' : 
+                                  'text-red-400'
+                                }`}>
                                 {accuracy.toFixed(1)}%
+                                </div>
+                                <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wide">acc</div>
                               </div>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -749,31 +899,25 @@ function LeaderboardContent() {
                             </TooltipContent>
                           </Tooltip>
                         </div>
-                        <div className="col-span-2 text-center">
+                        <div className="col-span-2 flex justify-center">
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Badge variant="outline" className="gap-1 cursor-help" data-testid={`mode-${entry.userId}`}>
-                                <Clock className="w-3 h-3" />
+                              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800/40 rounded-md cursor-help">
+                                <Clock className="w-3.5 h-3.5 text-muted-foreground/80" />
+                                <span className="text-sm font-medium tabular-nums" data-testid={`mode-${entry.userId}`}>
                                 {formatTestMode(entry.mode)}
-                              </Badge>
+                                </span>
+                              </div>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p>Test duration: {formatTestMode(entry.mode)}</p>
+                              <p>Test time: {formatTestMode(entry.mode)}</p>
                             </TooltipContent>
                           </Tooltip>
                         </div>
-                        <div className="col-span-1 text-center">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Badge variant="secondary" className="gap-1 cursor-help" data-testid={`total-tests-${entry.userId}`}>
-                                <Target className="w-3 h-3" />
+                        <div className="col-span-1 flex justify-center">
+                          <span className="text-sm font-medium text-muted-foreground/80 tabular-nums" data-testid={`total-tests-${entry.userId}`}>
                                 {totalTests}
-                              </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>{totalTests} total test{totalTests !== 1 ? 's' : ''} completed</p>
-                            </TooltipContent>
-                          </Tooltip>
+                          </span>
                         </div>
                       </div>
                     );

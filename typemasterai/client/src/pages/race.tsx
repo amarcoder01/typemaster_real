@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Trophy, Copy, Check, Loader2, Home, RotateCcw, ArrowLeft, WifiOff, RefreshCw, Info, Gauge, Target, Bot, User, Users, Share2, Play, Flag, AlertTriangle, Wifi, XCircle, Timer, Sparkles, MessageCircle, Send, TrendingUp, TrendingDown, Award, Eye, Film, Zap, LogOut, Lock, ExternalLink, Twitter, Facebook, Linkedin, Mail } from "lucide-react";
+import { Trophy, Copy, Check, Loader2, Home, RotateCcw, ArrowLeft, WifiOff, RefreshCw, Info, Gauge, Target, User, Users, Share2, Play, Flag, AlertTriangle, Wifi, XCircle, Timer, Sparkles, MessageCircle, Send, TrendingUp, TrendingDown, Award, Eye, Film, Zap, LogOut, Lock, ExternalLink, Twitter, Facebook, Linkedin, Mail } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -858,6 +858,7 @@ export default function RacePage() {
   const seenParticipantJoinsRef = useRef<Set<number>>(new Set());
   const hasJoinedRef = useRef(false);
   const lastJoinedRaceIdRef = useRef<number | null>(null);
+  const [hasJoinedRace, setHasJoinedRace] = useState(false); // State for UI reactivity
   const extensionRequestedRef = useRef(false);
   const extensionThreshold = 0.85;
   const timedFinishSentRef = useRef(false);
@@ -883,6 +884,7 @@ export default function RacePage() {
     roomCode: string;
     createdBy: string;
   } | null>(null);
+  const [isCreatingRematch, setIsCreatingRematch] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [showCertificate, setShowCertificate] = useState(false);
@@ -918,17 +920,56 @@ export default function RacePage() {
   useEffect(() => {
     if (!params?.id) return;
 
-    // Reset state for new race
+    // Reset all state for new race
     finishBannerDismissedRef.current = false;
     setShowFinishBanner(false);
     setFinishBannerData(null);
+    setRematchInfo(null);
+    setIsCreatingRematch(false);
+    hasJoinedRef.current = false;
+    lastJoinedRaceIdRef.current = null;
+    setHasJoinedRace(false);
+    setCurrentIndex(0);
+    setErrors(0);
+    setCharStates([]);
+    currentIndexRef.current = 0;
+    errorsRef.current = 0;
+    setIsRacing(false);
+    setCountdown(null);
+    timedFinishSentRef.current = false;
+    // Reset chat and other UI states
+    setChatMessages([]);
+    setRatingInfo(null);
+    setLastResultSnapshot(null);
+    setReadyStates(new Map());
+    setIsRoomLocked(false);
+    setIsReady(false);
+    setHostParticipantId(null);
+    setParticipants([]);
+    setLiveWpm(0);
+    setLiveAccuracy(100);
+    setElapsedTime(0);
+    setTimeRemaining(null);
+    setStartTime(null);
+    extensionRequestedRef.current = false;
+    seenParticipantJoinsRef.current = new Set();
     
     const roomCodeOrId = params.id;
     const savedParticipant = localStorage.getItem(`race_${roomCodeOrId}_participant`);
     
     if (savedParticipant) {
-      const participant = JSON.parse(savedParticipant);
-      setMyParticipant(participant);
+      try {
+        const participant = JSON.parse(savedParticipant);
+        setMyParticipant(participant);
+        console.log(`[Race] Loaded participant from localStorage:`, participant);
+      } catch (e) {
+        console.error("[Race] Failed to parse saved participant:", e);
+        localStorage.removeItem(`race_${roomCodeOrId}_participant`);
+      }
+    } else {
+      // Reset participant if no saved data
+      setMyParticipant(null);
+      console.log(`[Race] No saved participant found for race ${roomCodeOrId}`);
     }
 
     fetchRaceData();
@@ -947,8 +988,18 @@ export default function RacePage() {
         return;
       }
       
+      // CRITICAL: Verify participant belongs to this race before joining
+      // This prevents stale participant data from old races causing "Invalid participant" errors
+      if (myParticipant.raceId !== race.id) {
+        console.log(`[Race] Participant ${myParticipant.id} belongs to race ${myParticipant.raceId}, not ${race.id} - waiting for correct participant data`);
+        return;
+      }
+      
       hasJoinedRef.current = true;
       lastJoinedRaceIdRef.current = race.id;
+      setHasJoinedRace(true); // Update state for UI reactivity
+      
+      console.log(`[Race] Joining race ${race.id} as participant ${myParticipant.id} (${myParticipant.username})`);
       
       sendWsMessage({
         type: "join",
@@ -988,9 +1039,12 @@ export default function RacePage() {
         setTimeRemaining(remaining);
         
         // Handle time running out - only send once
-        if (remaining <= 0 && myParticipant && !myParticipant.isFinished && !timedFinishSentRef.current) {
+        if (remaining <= 0 && myParticipant && !timedFinishSentRef.current) {
           timedFinishSentRef.current = true;
-          // Send finish message via WebSocket when time runs out
+          
+          console.log(`[Race Timer] Time expired! Progress: ${idx}, WPM: ${wpm}`);
+          
+          // Send finish message via WebSocket
           sendWsMessage({
             type: "timed_finish",
             raceId: race.id,
@@ -1000,6 +1054,57 @@ export default function RacePage() {
             accuracy: accuracy,
             errors: errs
           });
+          
+          // Show toast notification
+          toast.info("Time's up!", {
+            description: `You typed ${idx} characters at ${wpm} WPM`,
+            duration: 3000
+          });
+          
+          // STOP racing immediately
+          setIsRacing(false);
+          
+          // Update race status locally - this triggers the finished view
+          if (raceRef.current) {
+            setRace({ ...raceRef.current, status: "finished" });
+          }
+          
+          // Store values for use in timeout (avoid stale closures)
+          const finalIdx = idx;
+          const finalWpm = wpm;
+          const finalAccuracy = accuracy;
+          const finalErrors = errs;
+          const participantCount = participants.length;
+          const timeLimit = race.timeLimitSeconds || 60;
+          
+          // Set up a fallback to show results after a delay
+          // This ensures the UI shows results even if server doesn't respond
+          setTimeout(() => {
+            // Only show local results if we haven't received server results yet
+            if (!finishBannerDismissedRef.current) {
+              console.log(`[Race Timer] Showing race results (local fallback)`);
+              
+              setFinishBannerData({
+                position: null, // Unknown without server data
+                totalPlayers: participantCount,
+                wpm: finalWpm,
+                accuracy: finalAccuracy,
+              });
+              
+              setLastResultSnapshot({
+                wpm: finalWpm,
+                accuracy: finalAccuracy,
+                consistency: 85, // Default consistency
+                placement: 0, // Unknown
+                totalParticipants: participantCount,
+                characters: finalIdx,
+                errors: finalErrors,
+                duration: timeLimit,
+              });
+              
+              setShowFinishBanner(true);
+            }
+          }, 1000); // Wait 1 second for server response before showing local results
         }
       }
     }, 100);
@@ -1059,6 +1164,9 @@ export default function RacePage() {
 
   function handleTyping(e: React.FormEvent<HTMLInputElement>) {
     if (!isRacing || !race || isComposingRef.current) return;
+    
+    // Block typing if timed race has expired
+    if (timedFinishSentRef.current) return;
 
     const input = e.currentTarget;
     const value = input.value;
@@ -1071,6 +1179,9 @@ export default function RacePage() {
 
   function processInput(value: string) {
     if (!race) return;
+    
+    // Block processing if timed race has expired
+    if (timedFinishSentRef.current) return;
 
     let localIndex = currentIndexRef.current;
     let localErrors = errorsRef.current;
@@ -1104,6 +1215,9 @@ export default function RacePage() {
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (!isRacing) return;
+    
+    // Block key events if timed race has expired
+    if (timedFinishSentRef.current) return;
 
     if (e.key === 'Backspace' && currentIndexRef.current > 0) {
       e.preventDefault();
@@ -1153,8 +1267,17 @@ export default function RacePage() {
         : sortedParticipants[0]; // Fallback for when myParticipant isn't loaded
       
       if (myResult) {
-        const chars = (myResult as any).characters || myResult.wpm * 5;
-        const consistency = Math.max(0, Math.min(100, Math.round(100 - ((chars - myResult.wpm * 5) / chars) * 100)));
+        // Use 'progress' field from server (actual characters typed)
+        const chars = myResult.progress || currentIndexRef.current || 0;
+        const resultErrors = myResult.errors ?? Math.round(chars * (1 - myResult.accuracy / 100));
+        // Consistency estimate: based on accuracy with slight variation
+        // High accuracy = high consistency (stable typing with few errors)
+        // This is an approximation since we don't track per-interval WPM
+        const baseConsistency = myResult.accuracy || 100;
+        // Add slight variation based on chars typed (more chars = more opportunity for inconsistency)
+        const consistency = Math.max(70, Math.min(100, Math.round(
+          baseConsistency * 0.95 + (chars > 100 ? 5 : chars / 20)
+        )));
         
         setFinishBannerData({
           position: myResult.finishPosition || null,
@@ -1166,12 +1289,12 @@ export default function RacePage() {
         setLastResultSnapshot({
           wpm: myResult.wpm,
           accuracy: myResult.accuracy,
-          consistency: consistency || 85,
+          consistency: consistency,
           placement: myResult.finishPosition || participants.length,
           totalParticipants: participants.length,
           characters: chars,
-          errors: Math.round(chars * (1 - myResult.accuracy / 100)),
-          duration: (race as any)?.duration || 60,
+          errors: resultErrors,
+          duration: race?.timeLimitSeconds || 60,
         });
         
         setShowFinishBanner(true);
@@ -1212,10 +1335,23 @@ export default function RacePage() {
         setParticipants(data.participants);
         setErrorState(null);
         
-        if (myParticipant) {
-          const updatedParticipant = data.participants.find((p: Participant) => p.id === myParticipant.id);
+        // Get current myParticipant from ref (state may be stale in async callback)
+        const currentMyParticipant = myParticipantRef.current;
+        
+        if (currentMyParticipant) {
+          // Update existing participant data
+          const updatedParticipant = data.participants.find((p: Participant) => p.id === currentMyParticipant.id);
           if (updatedParticipant) {
             setMyParticipant(updatedParticipant);
+          }
+        } else if (user) {
+          // If no participant set but user is logged in, try to find their participant
+          const userParticipant = data.participants.find((p: Participant) => p.userId === user.id);
+          if (userParticipant) {
+            setMyParticipant(userParticipant);
+            // Also save to localStorage for future reference
+            localStorage.setItem(`race_${data.race.id}_participant`, JSON.stringify(userParticipant));
+            console.log(`[Race] Found and set participant for user:`, userParticipant);
           }
         }
       } else if (response.status === 404) {
@@ -1402,6 +1538,8 @@ export default function RacePage() {
             seenParticipantJoinsRef.current.add(p.id);
           });
         }
+        // Show confirmation toast to the user who just joined
+        toast.success("You joined the race!", { duration: 2000 });
         // Handle joining a race that's already in progress
         if (message.race.status === "racing") {
           setIsRacing(true);
@@ -1413,8 +1551,10 @@ export default function RacePage() {
           if (message.race.paragraphContent) {
             setCharStates(new Array(message.race.paragraphContent.length).fill('pending'));
           }
+          toast.info("Race in progress - start typing!", { duration: 3000 });
         } else if (message.race.status === "countdown") {
           setCountdown(3);
+          toast.info("Race starting soon!", { duration: 2000 });
         }
         break;
       case "participant_joined":
@@ -1424,7 +1564,19 @@ export default function RacePage() {
         }
         if (message.participant && !seenParticipantJoinsRef.current.has(message.participant.id)) {
           seenParticipantJoinsRef.current.add(message.participant.id);
-          toast.success(`${message.participant.username} joined the race!`);
+          // Only show notification if this isn't our own join (we already got "joined" message)
+          if (message.participant.id !== myParticipantRef.current?.id) {
+            toast.success(`${message.participant.username} joined the race!`, { duration: 2000 });
+            // Add system message to chat
+            setChatMessages(prev => [...prev, {
+              id: Date.now(),
+              username: "System",
+              avatarColor: null,
+              message: `${message.participant.username} joined the race`,
+              isSystem: true,
+              createdAt: new Date().toISOString(),
+            }]);
+          }
         }
         break;
       case "participants_sync":
@@ -1434,14 +1586,8 @@ export default function RacePage() {
         }
         break;
       case "bots_added":
-        if (message.participants) {
-          setParticipants(message.participants);
-        } else {
-          fetchRaceData();
-        }
-        if (message.bots && message.bots.length > 0) {
-          toast.info(`${message.bots.length} bot${message.bots.length > 1 ? 's' : ''} added to the race!`, { duration: 2000 });
-        }
+        fetchRaceData();
+        toast.info("More players joined!", { duration: 2000 });
         break;
       case "countdown_start":
         setIsStarting(false);
@@ -1462,6 +1608,7 @@ export default function RacePage() {
         setErrors(0);
         currentIndexRef.current = 0;
         errorsRef.current = 0;
+        timedFinishSentRef.current = false; // Reset for new race
         if (raceRef.current) {
           setRace({ ...raceRef.current, status: "racing" });
           setCharStates(new Array(raceRef.current.paragraphContent.length).fill('pending'));
@@ -1510,8 +1657,16 @@ export default function RacePage() {
         // If myResult found, use server values; otherwise default to 100% accuracy for no typing
         const finalWpm = myResult?.wpm ?? 0;
         const finalAccuracy = myResult?.accuracy ?? 100;
-        const finalCharacters = myResult?.characters || finalWpm * 5;
-        const finalConsistency = Math.max(0, Math.min(100, Math.round(100 - ((finalCharacters - finalWpm * 5) / finalCharacters) * 100))) || 85;
+        // Use 'progress' field from server (characters typed) - 'characters' doesn't exist in DB schema
+        const finalCharacters = myResult?.progress || currentIndexRef.current || 0;
+        // Calculate errors from the result or derive from accuracy and characters
+        const finalErrors = myResult?.errors ?? Math.round(finalCharacters * (1 - finalAccuracy / 100));
+        // Consistency estimate: based on accuracy with slight variation
+        // High accuracy = high consistency (stable typing with few errors)
+        const baseConsistency = finalAccuracy || 100;
+        const finalConsistency = Math.max(70, Math.min(100, Math.round(
+          baseConsistency * 0.95 + (finalCharacters > 100 ? 5 : finalCharacters / 20)
+        )));
         
         setFinishBannerData({
           position: myResult?.finishPosition || null,
@@ -1527,8 +1682,8 @@ export default function RacePage() {
           placement: myResult?.finishPosition || message.results.length,
           totalParticipants: message.results.length,
           characters: finalCharacters,
-          errors: Math.round(finalCharacters * (1 - finalAccuracy / 100)),
-          duration: (raceRef.current as any)?.duration || 60,
+          errors: finalErrors,
+          duration: raceRef.current?.timeLimitSeconds || Math.round(elapsedTime) || 60,
         });
         
         setShowFinishBanner(true);
@@ -1546,6 +1701,104 @@ export default function RacePage() {
         break;
       case "participant_left":
         setParticipants(prev => prev.filter(p => p.id !== message.participantId));
+        // Add system message to chat (username may be included in message)
+        if (message.username) {
+          toast.info(`${message.username} left the race`, { duration: 2000 });
+          setChatMessages(prev => [...prev, {
+            id: Date.now(),
+            username: "System",
+            avatarColor: null,
+            message: `${message.username} left the race`,
+            isSystem: true,
+            createdAt: new Date().toISOString(),
+          }]);
+        }
+        break;
+      case "participant_removed":
+        // A participant (usually a bot) was removed to make room for a human
+        setParticipants(message.participants);
+        if (message.hostParticipantId) {
+          setHostParticipantId(message.hostParticipantId);
+        }
+        break;
+      case "participant_disconnected":
+        // Mark participant as disconnected and show notification
+        setParticipants(prev => prev.map(p => 
+          p.id === message.participantId 
+            ? { ...p, isDisconnected: true } 
+            : p
+        ));
+        if (message.participantId !== myParticipantRef.current?.id && message.username) {
+          toast.warning(`${message.username} disconnected`, { 
+            description: message.reason === "timeout" ? "Connection timed out" : "They may reconnect...",
+            duration: 3000 
+          });
+          // Add system message to chat
+          setChatMessages(prev => [...prev, {
+            id: Date.now(),
+            username: "System",
+            avatarColor: null,
+            message: `${message.username} disconnected`,
+            isSystem: true,
+            createdAt: new Date().toISOString(),
+          }]);
+        }
+        break;
+      case "participant_reconnected":
+        // Mark participant as reconnected and show notification
+        setParticipants(prev => prev.map(p => 
+          p.id === message.participantId 
+            ? { ...p, isDisconnected: false } 
+            : p
+        ));
+        if (message.participantId !== myParticipantRef.current?.id && message.username) {
+          toast.success(`${message.username} reconnected!`, { duration: 2000 });
+          // Add system message to chat
+          setChatMessages(prev => [...prev, {
+            id: Date.now(),
+            username: "System",
+            avatarColor: null,
+            message: `${message.username} reconnected`,
+            isSystem: true,
+            createdAt: new Date().toISOString(),
+          }]);
+        }
+        break;
+      case "host_changed":
+        // Host was transferred to a new player
+        if (message.newHostParticipantId) {
+          setHostParticipantId(message.newHostParticipantId);
+          const isMe = message.newHostParticipantId === myParticipantRef.current?.id;
+          toast.info(isMe ? "You are now the host!" : message.message || `${message.newHostUsername} is now the host`, {
+            duration: 3000
+          });
+          // Add system message to chat
+          setChatMessages(prev => [...prev, {
+            id: Date.now(),
+            username: "System",
+            avatarColor: null,
+            message: isMe ? "You are now the host" : `${message.newHostUsername} is now the host`,
+            isSystem: true,
+            createdAt: new Date().toISOString(),
+          }]);
+        }
+        break;
+      case "countdown_cancelled":
+        // Countdown was cancelled (not enough players, etc.)
+        setCountdown(null);
+        setIsStarting(false);
+        setIsTransitioning(false);
+        toast.warning("Race countdown cancelled", {
+          description: message.reason || "Not enough players",
+          duration: 4000
+        });
+        break;
+      case "server_shutdown":
+        // Server is shutting down gracefully
+        toast.warning("Server maintenance", {
+          description: message.message || "Server is restarting. Please rejoin shortly.",
+          duration: 10000
+        });
         break;
       case "participant_dnf":
         // Mark participant as DNF (Did Not Finish)
@@ -1555,6 +1808,15 @@ export default function RacePage() {
             : p
         ));
         toast.info(`${message.username} left the race (DNF)`, { duration: 2000 });
+        // Add system message to chat
+        setChatMessages(prev => [...prev, {
+          id: Date.now(),
+          username: "System",
+          avatarColor: null,
+          message: `${message.username} left the race (DNF)`,
+          isSystem: true,
+          createdAt: new Date().toISOString(),
+        }]);
         break;
       case "chat_message":
         const chatData = message.message || message;
@@ -1592,14 +1854,28 @@ export default function RacePage() {
         }
         break;
       case "player_kicked":
-        // Remove kicked player from participants
-        setParticipants(prev => prev.filter(p => p.id !== message.participantId));
+        // Use server-provided participants list if available (more reliable)
+        // Otherwise fall back to filtering locally
+        if (message.participants && Array.isArray(message.participants)) {
+          setParticipants(message.participants);
+        } else {
+          setParticipants(prev => prev.filter(p => p.id !== message.participantId));
+        }
         setReadyStates(prev => {
           const newStates = new Map(prev);
           newStates.delete(message.participantId);
           return newStates;
         });
-        toast.info(`${message.username} was kicked from the room`, { duration: 3000 });
+        toast.info(`${message.username || 'A player'} was kicked from the room`, { duration: 3000 });
+        // Add system message to chat
+        setChatMessages(prev => [...prev, {
+          id: Date.now(),
+          username: "System",
+          avatarColor: null,
+          message: `${message.username || 'A player'} was kicked from the room`,
+          isSystem: true,
+          createdAt: new Date().toISOString(),
+        }]);
         break;
       case "kicked":
         // We were kicked from the room
@@ -1609,6 +1885,15 @@ export default function RacePage() {
       case "room_lock_changed":
         setIsRoomLocked(message.isLocked);
         toast.info(message.isLocked ? "Room is now locked" : "Room is now unlocked", { duration: 2000 });
+        // Add system message to chat
+        setChatMessages(prev => [...prev, {
+          id: Date.now(),
+          username: "System",
+          avatarColor: null,
+          message: message.isLocked ? "Room is now locked - no new players can join" : "Room is now unlocked",
+          isSystem: true,
+          createdAt: new Date().toISOString(),
+        }]);
         break;
       case "rematch_available":
         setRematchInfo({
@@ -1616,13 +1901,13 @@ export default function RacePage() {
           roomCode: message.roomCode,
           createdBy: message.createdBy,
         });
-        toast.success(`Rematch created! Room code: ${message.roomCode}`, { 
-          duration: 10000,
-          action: {
-            label: "Join",
-            onClick: () => setLocation(`/race/${message.newRaceId}?code=${message.roomCode}`)
-          }
+        toast.success(`New race created! Joining...`, { 
+          duration: 2000,
         });
+        // Auto-redirect to the new race
+        setTimeout(() => {
+          setLocation(`/race/${message.newRaceId}`);
+        }, 1000);
         break;
       case "error":
         // Handle server-side errors with typed error codes
@@ -1638,16 +1923,12 @@ export default function RacePage() {
               description: message.message || "Only the host can do this",
               duration: 3000
             });
-            setIsStarting(false);
-            setIsTransitioning(false);
             break;
           case "NOT_ENOUGH_PLAYERS":
             toast.warning("Not enough players", { 
               description: message.message || "Need at least 2 players to start",
               duration: 4000
             });
-            setIsStarting(false);
-            setIsTransitioning(false);
             break;
           case "PLAYERS_NOT_READY":
             toast.warning("Players not ready", { 
@@ -1668,6 +1949,100 @@ export default function RacePage() {
             });
             setLocation("/multiplayer");
             break;
+          case "PLAYER_NOT_FOUND":
+            toast.error("Player not found", { 
+              description: message.message || "The player may have already left the room",
+              duration: 3000
+            });
+            break;
+          case "CANNOT_KICK_SELF":
+            toast.error("Cannot kick yourself", { 
+              description: message.message || "You cannot remove yourself from the room",
+              duration: 3000
+            });
+            break;
+          case "ROOM_NOT_FOUND":
+            toast.error("Room not found", { 
+              description: message.message || "The race room no longer exists",
+              duration: 3000
+            });
+            break;
+          case "RACE_IN_PROGRESS":
+            toast.error("Race in progress", { 
+              description: message.message || "Cannot perform this action during an active race",
+              duration: 3000
+            });
+            break;
+          case "RACE_FINISHED":
+            toast.error("Race finished", { 
+              description: message.message || "Cannot perform this action on a finished race",
+              duration: 3000
+            });
+            break;
+          case "RACE_STARTING":
+            toast.info("Race starting", { 
+              description: message.message || "The race is already starting...",
+              duration: 2000
+            });
+            break;
+          case "ALREADY_KICKED":
+            toast.warning("Already kicked", { 
+              description: message.message || "This player has already been kicked",
+              duration: 2000
+            });
+            break;
+          case "INVALID_REQUEST":
+            toast.error("Invalid request", { 
+              description: message.message || "The request was invalid",
+              duration: 3000
+            });
+            break;
+          case "INVALID_RACE_STATUS":
+            toast.error("Invalid action", { 
+              description: message.message || "Cannot perform this action in the current race state",
+              duration: 3000
+            });
+            break;
+          case "RATE_LIMITED":
+            toast.error("Too fast", { 
+              description: message.message || "Please slow down and try again",
+              duration: 2000
+            });
+            break;
+          case "INVALID_PAYLOAD":
+            toast.error("Invalid data", { 
+              description: message.message || "The data sent was invalid",
+              duration: 3000
+            });
+            break;
+          case "NOT_IN_RACE":
+            toast.error("Not connected", { 
+              description: message.message || "You are not connected to this race",
+              duration: 3000
+            });
+            // Try to reconnect
+            if (!isReconnecting) {
+              connectWebSocket();
+            }
+            break;
+          case "INSUFFICIENT_PLAYERS":
+            toast.warning("Not enough players", { 
+              description: message.message || "More players needed to start the race",
+              duration: 4000
+            });
+            break;
+          case "RACE_UNAVAILABLE":
+            // Race is no longer available (finished, cancelled, or not found)
+            setIsStarting(false);
+            toast.error("Race unavailable", { 
+              description: message.message || "This race is no longer available",
+              duration: 5000
+            });
+            // Redirect to multiplayer after a short delay
+            setTimeout(() => {
+              setLocation("/multiplayer");
+            }, 2000);
+            break;
           default:
             if (message.message) {
               toast.error(message.message, { duration: 3000 });
@@ -1675,49 +2050,19 @@ export default function RacePage() {
             console.warn("Server error:", message.code, message.message);
         }
         break;
-      case "countdown_cancelled":
-        // Countdown was cancelled (player left during countdown)
-        setCountdown(null);
-        setIsStarting(false);
-        toast.warning("Race cancelled", { 
-          description: message.reason || "Not enough players to start",
-          duration: 4000
+      case "ready_state_changed":
+        // A player's ready state changed
+        setReadyStates(prev => {
+          const newMap = new Map(prev);
+          newMap.set(message.participantId, message.isReady);
+          return newMap;
         });
         break;
-      case "host_changed":
-        // Host was transferred to another player
-        if (message.newHostParticipantId) {
-          setHostParticipantId(message.newHostParticipantId);
-          if (myParticipantRef.current?.id === message.newHostParticipantId) {
-            toast.success("You are now the host!", { duration: 3000 });
-          } else {
-            toast.info(message.message || `${message.newHostUsername || 'A player'} is now the host`, { duration: 3000 });
-          }
-        }
-        break;
-      case "participant_disconnected":
-        // A player disconnected (may reconnect)
-        setParticipants(prev => prev.map(p => 
-          p.id === message.participantId 
-            ? { ...p, isDisconnected: true } 
-            : p
-        ));
+      case "participant_kicked":
+        // A player was kicked by the host (different from player_kicked which is the older handler)
+        setParticipants(prev => prev.filter(p => p.id !== message.participantId));
         if (message.username) {
-          toast.warning(`${message.username} disconnected`, { 
-            description: "They may reconnect...",
-            duration: 3000
-          });
-        }
-        break;
-      case "participant_reconnected":
-        // A player reconnected after disconnection
-        setParticipants(prev => prev.map(p => 
-          p.id === message.participantId 
-            ? { ...p, isDisconnected: false } 
-            : p
-        ));
-        if (message.username) {
-          toast.success(`${message.username} reconnected!`, { duration: 3000 });
+          toast.warning(`${message.username} was removed by the host`, { duration: 3000 });
         }
         break;
     }
@@ -1796,13 +2141,30 @@ export default function RacePage() {
   }
 
   function handleLeaveClick() {
-    // Show confirmation dialog if race is active (racing or countdown)
-    if (race && (race.status === "racing" || race.status === "countdown" || isRacing)) {
-      setShowLeaveConfirmation(true);
-    } else {
-      // For waiting or finished races, leave immediately
-      confirmLeaveRace();
+    // If in waiting room (not racing), leave directly without confirmation
+    // No need for scary confirmation when race hasn't started
+    if (race?.status === "waiting" && !isRacing) {
+      // Clean up and navigate directly
+      if (myParticipant && race) {
+        sendWsMessage({
+          type: "leave",
+          raceId: race.id,
+          participantId: myParticipant.id,
+          isRacing: false,
+          progress: 0,
+          wpm: 0,
+          accuracy: 100,
+        });
+        localStorage.removeItem(`race_${race.id}_participant`);
+        localStorage.removeItem(`race_${race.roomCode}_participant`);
+      }
+      toast.info("Left the race lobby", { duration: 2000 });
+      setLocation("/multiplayer");
+      return;
     }
+    
+    // During active racing, show confirmation dialog
+    setShowLeaveConfirmation(true);
   }
   
   function confirmLeaveRace() {
@@ -1828,15 +2190,13 @@ export default function RacePage() {
         
         toast.info("You left the race", { duration: 2000 });
       } else {
-        // Edge case: race or participant data missing
-        console.warn("[Leave Race] Missing race or participant data");
         toast.warning("Leaving race...", { duration: 1500 });
       }
     } catch (error) {
-      console.error("[Leave Race] Error leaving race:", error);
+      console.error("[Leave Race] Error:", error);
       toast.error("Failed to leave race properly. Redirecting...", { duration: 2000 });
     } finally {
-      // Always redirect to multiplayer, even if there was an error
+      // Always redirect to multiplayer
       setTimeout(() => {
         setLocation("/multiplayer");
       }, 100);
@@ -1938,6 +2298,9 @@ export default function RacePage() {
   }
 
   if (race.status === "waiting") {
+    // Quick matches are public (isPrivate = 0), so we limit display to 4 to match the actual experience
+    const displayMaxPlayers = !race.isPrivate ? 4 : race.maxPlayers;
+
     return (
       <TooltipProvider delayDuration={300}>
         <div className="min-h-screen bg-background">
@@ -2007,7 +2370,7 @@ export default function RacePage() {
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Users className="h-4 w-4" />
-                    <span>{race.maxPlayers} players max</span>
+                    <span>{displayMaxPlayers} players max</span>
                   </div>
                 </div>
               </CardHeader>
@@ -2015,14 +2378,14 @@ export default function RacePage() {
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <h3 className="text-sm font-medium">
-                      Players ({participants.length}/{race.maxPlayers})
+                      Players ({participants.length}/{displayMaxPlayers})
                     </h3>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
                       </TooltipTrigger>
                       <TooltipContent side="right">
-                        <p>{race.maxPlayers - participants.length} slot{race.maxPlayers - participants.length !== 1 ? 's' : ''} available</p>
+                        <p>{Math.max(0, displayMaxPlayers - participants.length)} slot{Math.max(0, displayMaxPlayers - participants.length) !== 1 ? 's' : ''} available</p>
                       </TooltipContent>
                     </Tooltip>
                   </div>
@@ -2098,6 +2461,10 @@ export default function RacePage() {
                                     size="sm"
                                     className="h-8 w-8 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
                                     onClick={() => {
+                                      if (!wsConnected || !hasJoinedRace) {
+                                        toast.warning("Please wait for connection to be established", { duration: 2000 });
+                                        return;
+                                      }
                                       sendWsMessage({
                                         type: "kick_player",
                                         raceId: race.id,
@@ -2105,6 +2472,7 @@ export default function RacePage() {
                                         targetParticipantId: p.id,
                                       });
                                     }}
+                                    disabled={!wsConnected || !hasJoinedRace}
                                     data-testid={`kick-player-${p.id}`}
                                   >
                                     <XCircle className="h-4 w-4" />
@@ -2154,6 +2522,11 @@ export default function RacePage() {
                       variant={isRoomLocked ? "default" : "outline"}
                       size="sm"
                       onClick={() => {
+                        // Ensure we're connected and authenticated before sending
+                        if (!wsConnected || !hasJoinedRace) {
+                          toast.warning("Please wait for connection to be established", { duration: 2000 });
+                          return;
+                        }
                         sendWsMessage({
                           type: "lock_room",
                           raceId: race.id,
@@ -2161,6 +2534,7 @@ export default function RacePage() {
                           locked: !isRoomLocked,
                         });
                       }}
+                      disabled={!wsConnected || !hasJoinedRace}
                       data-testid="button-lock-room"
                     >
                       {isRoomLocked ? "Unlock" : "Lock"}
@@ -2169,20 +2543,35 @@ export default function RacePage() {
                 )}
 
                 {/* Show Start Race button only for the host, or show waiting message for others */}
-                {/* Minimum 2 players required - like TypeRacer and other real typing race sites */}
-                {(!hostParticipantId || myParticipant?.id === hostParticipantId) ? (
+                {/* Minimum requirements: 1 human + bots OR 2+ humans (no bots) */}
+                {(() => {
+                  const botCount = participants.filter((p: any) => p.isBot === 1).length;
+                  const humanCount = participants.filter((p: any) => p.isBot !== 1).length;
+                  const hasBots = botCount > 0;
+                  // With bots: 1 human can start. Without bots: 2 humans required.
+                  const minHumansNeeded = hasBots ? 1 : 2;
+                  const canStart = humanCount >= minHumansNeeded;
+                  const humansNeeded = minHumansNeeded - humanCount;
+                  
+                  return (!hostParticipantId || myParticipant?.id === hostParticipantId) ? (
                   <div className="space-y-2">
-                    {participants.length < 2 && (
+                    {!canStart && (
                       <div className="flex items-center justify-center gap-2 p-3 bg-muted/50 rounded-lg text-sm text-muted-foreground">
                         <Users className="h-4 w-4" />
-                        <span>Waiting for at least 1 more player to join...</span>
+                        <span>
+                          {hasBots 
+                            ? "Waiting for you to connect..." 
+                            : `Waiting for ${humansNeeded} more player${humansNeeded > 1 ? 's' : ''} to join...`}
+                        </span>
                       </div>
                     )}
+                    
+                    
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
                           onClick={startRace}
-                          disabled={participants.length < 2 || isStarting}
+                          disabled={!canStart || isStarting}
                           size="lg"
                           className="w-full"
                           data-testid="button-start-race"
@@ -2195,18 +2584,22 @@ export default function RacePage() {
                           ) : (
                             <>
                               <Play className="h-4 w-4 mr-2" />
-                              {participants.length < 2 
-                                ? `Start Race (Need ${2 - participants.length} more)` 
+                              {!canStart 
+                                ? (hasBots ? 'Waiting...' : `Need ${humansNeeded} more player${humansNeeded > 1 ? 's' : ''}`)
                                 : 'Start Race'}
                             </>
                           )}
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent side="bottom">
-                        {participants.length < 2 ? (
+                        {!canStart ? (
                           <>
                             <p className="font-medium">Need more players</p>
-                            <p className="text-zinc-400">Share the room code with friends to start racing!</p>
+                            <p className="text-zinc-400">
+                              {hasBots 
+                                ? "Make sure you're connected to start racing!"
+                                : "Share the room code with friends to start racing!"}
+                            </p>
                           </>
                         ) : (
                           <>
@@ -2224,7 +2617,8 @@ export default function RacePage() {
                       <span>Waiting for host to start the race...</span>
                     </div>
                   </div>
-                )}
+                );
+                })()}
               </CardContent>
             </Card>
           </div>
@@ -2287,6 +2681,7 @@ export default function RacePage() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
+                    type="button"
                     variant="outline"
                     size="sm"
                     onClick={handleLeaveClick}
@@ -2464,7 +2859,7 @@ export default function RacePage() {
                   </div>
                 )}
                 
-                <div>
+                <div className="relative">
                   <div 
                     ref={textContainerRef}
                     className="text-xl leading-[2] font-mono select-none max-h-[280px] overflow-y-auto scroll-smooth p-8 bg-zinc-900 rounded-lg whitespace-pre-wrap break-words" 
@@ -2579,6 +2974,7 @@ export default function RacePage() {
                     onCompositionEnd={handleCompositionEnd}
                     onPaste={handlePaste}
                     onCut={handleCut}
+                    disabled={!isRacing || race?.status === "finished" || (race?.raceType === "timed" && timeRemaining !== null && timeRemaining <= 0)}
                     className="absolute inset-0 opacity-0 w-full h-full cursor-text"
                     autoComplete="off"
                     autoCorrect="off"
@@ -2619,229 +3015,406 @@ export default function RacePage() {
             }}
           />
         )}
-        <div className="min-h-screen bg-background">
-          <div className="container max-w-4xl mx-auto px-4 py-8">
-            <div className="flex items-center gap-4 mb-4">
-              <Tooltip>
-                <TooltipTrigger asChild>
+        <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
+          <div className="container max-w-5xl mx-auto px-4 py-6">
+            {/* Hero Section */}
+            <div className="relative mb-8">
+              {/* Background decoration */}
+              <div className="absolute inset-0 bg-gradient-to-r from-primary/10 via-yellow-500/10 to-primary/10 rounded-3xl blur-3xl opacity-50" />
+              
+              <div className="relative bg-gradient-to-br from-zinc-900/80 via-zinc-900/60 to-zinc-800/80 backdrop-blur-xl rounded-2xl border border-white/10 p-6 md:p-8">
+                <div className="flex items-center justify-between mb-6">
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => setLocation("/multiplayer")}
+                    className="hover:bg-white/10"
                     data-testid="button-back-to-lobby"
                   >
                     <ArrowLeft className="h-4 w-4 mr-2" />
                     Back to Lobby
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>Return to multiplayer lobby</p>
-                </TooltipContent>
-              </Tooltip>
+                  <Badge variant="outline" className="border-yellow-500/50 text-yellow-400">
+                    <Flag className="h-3 w-3 mr-1" />
+                    Race Complete
+                  </Badge>
             </div>
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Trophy className="h-6 w-6 text-yellow-500" />
-                  Race Results
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs">
-                      <p className="font-medium">Final Standings</p>
-                      <p className="text-zinc-400">
-                        {myPosition === 1 
-                          ? "Congratulations! You won the race!" 
-                          : myPosition 
-                            ? `You finished in position #${myPosition}` 
-                            : "Race complete - see final standings below"}
-                      </p>
-                      <div className="pt-2 border-t border-zinc-700 mt-2">
-                        <p className="text-xs font-medium text-zinc-300">Tie-breaking rules:</p>
-                        <ol className="text-xs text-zinc-400 list-decimal list-inside">
-                          <li>Higher WPM wins</li>
-                          <li>If tied: Higher accuracy wins</li>
-                          <li>If still tied: More characters typed wins</li>
-                          <li>Final tie: Who joined first wins</li>
-                        </ol>
-                      </div>
-                    </TooltipContent>
-                  </Tooltip>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
+
+                {/* Your Result Hero */}
                 {myResult && lastResultSnapshot && (
-                  <div className="flex justify-center">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          onClick={() => setShareDialogOpen(true)}
-                          className="gap-2"
-                          data-testid="button-share-race-results"
-                        >
-                          <Share2 className="w-4 h-4" />
-                          Share Race Certificate
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        <p className="text-xs">Share your race achievement with professional certificate</p>
-                      </TooltipContent>
-                    </Tooltip>
+                  <div className="text-center space-y-4">
+                    <div className="inline-flex items-center justify-center">
+                      {myPosition === 1 ? (
+                        <div className="relative">
+                          <div className="absolute inset-0 bg-yellow-500/30 blur-2xl rounded-full" />
+                          <div className="relative text-7xl">🏆</div>
+                        </div>
+                      ) : myPosition === 2 ? (
+                        <div className="text-6xl">🥈</div>
+                      ) : myPosition === 3 ? (
+                        <div className="text-6xl">🥉</div>
+                      ) : (
+                        <div className="text-5xl">🏁</div>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-white via-primary to-white bg-clip-text text-transparent">
+                        {myPosition === 1 ? "Victory!" : myPosition === 2 ? "Runner Up!" : myPosition === 3 ? "Podium Finish!" : "Race Complete!"}
+                      </h1>
+                      <p className="text-muted-foreground mt-1">
+                        You finished #{myPosition} of {sortedParticipants.length} racers
+                      </p>
+                      </div>
+
+                    {/* Quick Stats */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                      <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                        <div className="flex items-center justify-center gap-2 text-primary mb-1">
+                          <Gauge className="h-4 w-4" />
+                          <span className="text-xs uppercase tracking-wide">Speed</span>
+                        </div>
+                        <p className="text-2xl md:text-3xl font-bold">{lastResultSnapshot.wpm}</p>
+                        <p className="text-xs text-muted-foreground">WPM</p>
+                      </div>
+                      <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                        <div className="flex items-center justify-center gap-2 text-green-400 mb-1">
+                          <Target className="h-4 w-4" />
+                          <span className="text-xs uppercase tracking-wide">Accuracy</span>
+                        </div>
+                        <p className="text-2xl md:text-3xl font-bold">{lastResultSnapshot.accuracy}%</p>
+                        <p className="text-xs text-muted-foreground">Correct</p>
+                      </div>
+                      <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                        <div className="flex items-center justify-center gap-2 text-purple-400 mb-1">
+                          <Zap className="h-4 w-4" />
+                          <span className="text-xs uppercase tracking-wide">Characters</span>
+                        </div>
+                        <p className="text-2xl md:text-3xl font-bold">{lastResultSnapshot.characters}</p>
+                        <p className="text-xs text-muted-foreground">Typed</p>
+                      </div>
+                      <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                        <div className="flex items-center justify-center gap-2 text-yellow-400 mb-1">
+                          <Award className="h-4 w-4" />
+                          <span className="text-xs uppercase tracking-wide">Tier</span>
+                        </div>
+                        <p className="text-lg font-bold">{getTypingPerformanceRating(lastResultSnapshot.wpm, lastResultSnapshot.accuracy).badge}</p>
+                        <p className="text-xs text-muted-foreground">Performance</p>
+                      </div>
+                    </div>
                   </div>
                 )}
-                
-                <div className="space-y-3">
+              </div>
+            </div>
+
+            {/* Tabs Section */}
+            <Tabs defaultValue="leaderboard" className="w-full">
+              <TabsList className="grid w-full grid-cols-4 mb-6 bg-zinc-900/50 border border-white/10 p-1 rounded-xl">
+                <TabsTrigger value="leaderboard" className="gap-2 data-[state=active]:bg-primary/20 data-[state=active]:text-primary rounded-lg" data-testid="tab-leaderboard">
+                  <Trophy className="h-4 w-4" />
+                  <span className="hidden sm:inline">Leaderboard</span>
+                </TabsTrigger>
+                <TabsTrigger value="stats" className="gap-2 data-[state=active]:bg-green-500/20 data-[state=active]:text-green-400 rounded-lg" data-testid="tab-stats">
+                  <Target className="h-4 w-4" />
+                  <span className="hidden sm:inline">Stats</span>
+                </TabsTrigger>
+                <TabsTrigger value="certificate" className="gap-2 data-[state=active]:bg-yellow-500/20 data-[state=active]:text-yellow-400 rounded-lg" data-testid="tab-certificate">
+                  <Award className="h-4 w-4" />
+                  <span className="hidden sm:inline">Certificate</span>
+                </TabsTrigger>
+                <TabsTrigger value="share" className="gap-2 data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-400 rounded-lg" data-testid="tab-share">
+                  <Share2 className="h-4 w-4" />
+                  <span className="hidden sm:inline">Share</span>
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Leaderboard Tab */}
+              <TabsContent value="leaderboard" className="space-y-4">
+                <Card className="bg-zinc-900/50 border-white/10">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <Users className="h-5 w-5 text-primary" />
+                      Final Standings
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
                   {sortedParticipants.map((p, idx) => {
                     const isParticipantBot = p.isBot === 1 || p.isBot === true;
                     const tierColor = p.tierInfo?.color || 'gray';
                     return (
-                      <Tooltip key={p.id}>
-                        <TooltipTrigger asChild>
-                          <div
-                            className={`flex items-center gap-4 p-4 border rounded-lg cursor-default transition-colors hover:border-primary/30 ${
-                              p.id === myParticipant?.id ? 'border-primary bg-primary/5' : ''
+                        <div
+                          key={p.id}
+                          className={`flex items-center gap-4 p-4 rounded-xl transition-all duration-200 hover:scale-[1.01] ${
+                            p.id === myParticipant?.id 
+                              ? 'bg-gradient-to-r from-primary/20 to-primary/5 border border-primary/30' 
+                              : 'bg-white/5 border border-white/10 hover:border-white/20'
                             }`}
                             data-testid={`result-${p.id}`}
                           >
                             <div className="text-2xl font-bold w-12 text-center">
                               {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
                             </div>
-                            <div className={`h-12 w-12 rounded-full ${p.avatarColor || 'bg-primary'} flex items-center justify-center text-white font-medium`}>
+                          <div className={`h-12 w-12 rounded-full ${p.avatarColor || 'bg-primary'} flex items-center justify-center text-white font-bold text-lg shadow-lg`}>
                               {p.username[0].toUpperCase()}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="font-medium flex items-center gap-2 flex-wrap">
+                            <div className="font-semibold flex items-center gap-2 flex-wrap">
                                 <span className="truncate">{p.username}</span>
+                              {p.id === myParticipant?.id && (
+                                <Badge variant="secondary" className="text-[10px] bg-primary/20 text-primary border-0">
+                                  You
+                                </Badge>
+                              )}
                                 {!isParticipantBot && p.tier && (
                                   <Badge
                                     variant="outline"
                                     className="text-[10px] px-1.5 py-0 capitalize"
                                     style={{ borderColor: tierColor, color: tierColor }}
-                                    data-testid={`tier-badge-${p.id}`}
                                   >
                                     {p.tierInfo?.name || p.tier}
                                   </Badge>
                                 )}
                               </div>
-                              <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
-                                {p.id === myParticipant?.id && (
-                                  <span className="text-primary flex items-center gap-1">
-                                    <User className="h-3 w-3" />
-                                    You
-                                  </span>
-                                )}
+                            <div className="text-xs text-muted-foreground flex items-center gap-3 mt-1">
                                 {!isParticipantBot && p.rating !== null && p.rating !== undefined && (
-                                  <span data-testid={`rating-${p.id}`} className="flex items-center gap-1">
+                                <span className="flex items-center gap-1">
                                     <Award className="h-3 w-3" />
-                                    {p.rating}
+                                  {p.rating} Rating
                                   </span>
                                 )}
+                              <span className="flex items-center gap-1">
+                                <Zap className="h-3 w-3" />
+                                {p.progress} chars
+                              </span>
                               </div>
                             </div>
                             <div className="text-right">
-                              <div className="text-xl font-bold flex items-center justify-end gap-1">
-                                <Gauge className="h-4 w-4 text-muted-foreground" />
-                                {p.wpm} WPM
-                                {/* Show tie indicator if same WPM as adjacent player */}
-                                {(
-                                  (idx > 0 && sortedParticipants[idx - 1].wpm === p.wpm) ||
-                                  (idx < sortedParticipants.length - 1 && sortedParticipants[idx + 1].wpm === p.wpm)
-                                ) && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span className="text-xs text-yellow-500 ml-1 cursor-help">⚡</span>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="left" className="max-w-[200px]">
-                                      <p className="text-xs">Tie decided by: accuracy → characters typed → join order</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
+                            <div className="text-2xl font-bold text-primary">{p.wpm}</div>
+                            <div className="text-xs text-muted-foreground">WPM • {p.accuracy}%</div>
                               </div>
-                              <div className="text-sm text-muted-foreground flex items-center justify-end gap-1">
-                                <Target className="h-3 w-3" />
-                                {p.accuracy}% Accuracy
                               </div>
-                            </div>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent side="left" className="max-w-xs">
-                          <div className="space-y-1">
-                            <p className="font-medium">{p.username} - #{idx + 1}</p>
-                            <p className="text-zinc-400">
-                              {p.id === myParticipant?.id ? "Your result" : "Racer"}
-                            </p>
-                            <div className="pt-1 border-t border-zinc-700 mt-1">
-                              <p className="text-zinc-300">Speed: {p.wpm} words per minute</p>
-                              <p className="text-zinc-300">Accuracy: {p.accuracy}% correct</p>
-                              <p className="text-zinc-300">Characters typed: {p.progress}</p>
-                              {p.errors > 0 && <p className="text-zinc-400">Errors: {p.errors}</p>}
-                              {!isParticipantBot && p.rating !== null && p.rating !== undefined && (
-                                <p className="text-zinc-300 mt-1">
-                                  Rating: {p.rating} ({p.tierInfo?.name || p.tier})
-                                </p>
-                              )}
-                            </div>
-                            {/* Show tie-breaking info if there's a tie with adjacent player */}
-                            {idx > 0 && sortedParticipants[idx - 1].wpm === p.wpm && (
-                              <div className="pt-1 border-t border-zinc-700 mt-1">
-                                <p className="text-xs text-yellow-400">
-                                  ⚡ Tie-breaker: {
-                                    sortedParticipants[idx - 1].accuracy !== p.accuracy 
-                                      ? "Lower accuracy" 
-                                      : sortedParticipants[idx - 1].progress !== p.progress 
-                                        ? "Fewer characters typed"
-                                        : "Joined later"
-                                  }
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              </TabsContent>
 
-                {/* Rating Section */}
+              {/* Stats Tab */}
+              <TabsContent value="stats" className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Your Performance Card */}
+                  {myResult && lastResultSnapshot && (
+                    <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="flex items-center gap-2 text-lg">
+                          <User className="h-5 w-5 text-primary" />
+                          Your Performance
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="text-center p-3 bg-white/5 rounded-lg">
+                            <p className="text-3xl font-bold text-primary">{lastResultSnapshot.wpm}</p>
+                            <p className="text-xs text-muted-foreground">Words/Min</p>
+                            </div>
+                          <div className="text-center p-3 bg-white/5 rounded-lg">
+                            <p className="text-3xl font-bold text-green-400">{lastResultSnapshot.accuracy}%</p>
+                            <p className="text-xs text-muted-foreground">Accuracy</p>
+                          </div>
+                          <div className="text-center p-3 bg-white/5 rounded-lg">
+                            <p className="text-3xl font-bold text-purple-400">{lastResultSnapshot.characters}</p>
+                            <p className="text-xs text-muted-foreground">Characters</p>
+                            </div>
+                          <div className="text-center p-3 bg-white/5 rounded-lg">
+                            <p className="text-3xl font-bold text-red-400">{lastResultSnapshot.errors}</p>
+                            <p className="text-xs text-muted-foreground">Errors</p>
+                              </div>
+                          </div>
+                        <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
+                          <span className="text-sm text-muted-foreground">Race Duration</span>
+                          <span className="font-bold">{lastResultSnapshot.duration}s</span>
+                </div>
+                        <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
+                          <span className="text-sm text-muted-foreground">Consistency</span>
+                          <span className="font-bold">{lastResultSnapshot.consistency}%</span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Rating Card */}
+                  <Card className="bg-zinc-900/50 border-white/10">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="flex items-center gap-2 text-lg">
+                        <TrendingUp className="h-5 w-5 text-green-400" />
+                        Rating & Ranking
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
                 {user ? (
                   ratingInfo ? (
                     <RatingChangeDisplay ratingInfo={ratingInfo} position={myPosition} />
                   ) : (
-                    <div className="p-3 border rounded-lg bg-muted/30 flex items-center gap-2 text-muted-foreground" data-testid="rating-loading">
+                          <div className="flex items-center gap-2 text-muted-foreground p-4">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       <span>Loading your rating...</span>
                     </div>
                   )
                 ) : (
-                  <div className="p-3 border rounded-lg bg-muted/30 text-center" data-testid="rating-guest">
-                    <p className="text-muted-foreground text-sm">
-                      Sign in to track your competitive rating and tier
-                    </p>
+                        <div className="text-center p-6">
+                          <User className="h-12 w-12 mx-auto mb-3 text-muted-foreground" />
+                          <p className="text-muted-foreground">Sign in to track your competitive rating</p>
+                          <Button variant="outline" className="mt-4" onClick={() => setLocation("/login")}>
+                            Sign In
+                          </Button>
                   </div>
                 )}
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
 
+              {/* Certificate Tab */}
+              <TabsContent value="certificate" className="space-y-4">
+                <Card className="bg-gradient-to-br from-yellow-500/10 to-orange-500/10 border-yellow-500/20">
+                  <CardContent className="pt-6">
+                    {lastResultSnapshot ? (
+                      <RaceCertificate
+                        wpm={lastResultSnapshot.wpm}
+                        accuracy={lastResultSnapshot.accuracy}
+                        consistency={lastResultSnapshot.consistency}
+                        placement={lastResultSnapshot.placement}
+                        totalParticipants={lastResultSnapshot.totalParticipants}
+                        characters={lastResultSnapshot.characters}
+                        errors={lastResultSnapshot.errors}
+                        duration={lastResultSnapshot.duration}
+                        username={user?.username}
+                        raceId={race?.id?.toString()}
+                      />
+                    ) : (
+                      <div className="text-center p-8 text-muted-foreground">
+                        <Award className="h-12 w-12 mx-auto mb-3" />
+                        <p>Certificate data not available</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Share Tab */}
+              <TabsContent value="share" className="space-y-4">
+                <Card className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 border-purple-500/20">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <Share2 className="h-5 w-5 text-purple-400" />
+                      Share Your Achievement
+                    </CardTitle>
+                    <CardDescription>
+                      Let everyone know about your race performance!
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Quick Share Buttons */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <Button
+                        variant="outline"
+                        className="gap-2 bg-[#1DA1F2]/10 border-[#1DA1F2]/30 hover:bg-[#1DA1F2]/20 text-[#1DA1F2]"
+                        onClick={() => {
+                          const text = `🏁 Just finished a multiplayer race!\n\n⚡ ${lastResultSnapshot?.wpm} WPM with ${lastResultSnapshot?.accuracy}% accuracy\n🏆 Placed #${lastResultSnapshot?.placement} of ${lastResultSnapshot?.totalParticipants}\n\nCan you beat my time?\n\n🔗 typemasterai.com/multiplayer`;
+                          window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
+                        }}
+                      >
+                        <Twitter className="h-4 w-4" />
+                        Twitter
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="gap-2 bg-[#1877F2]/10 border-[#1877F2]/30 hover:bg-[#1877F2]/20 text-[#1877F2]"
+                        onClick={() => {
+                          window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent('https://typemasterai.com/multiplayer')}`, '_blank');
+                        }}
+                      >
+                        <Facebook className="h-4 w-4" />
+                        Facebook
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="gap-2 bg-[#0A66C2]/10 border-[#0A66C2]/30 hover:bg-[#0A66C2]/20 text-[#0A66C2]"
+                        onClick={() => {
+                          const text = `Just completed a multiplayer typing race! ${lastResultSnapshot?.wpm} WPM with ${lastResultSnapshot?.accuracy}% accuracy. #typing #productivity`;
+                          window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent('https://typemasterai.com/multiplayer')}&summary=${encodeURIComponent(text)}`, '_blank');
+                        }}
+                      >
+                        <Linkedin className="h-4 w-4" />
+                        LinkedIn
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="gap-2"
+                        onClick={() => {
+                          const text = `Check out my race result: ${lastResultSnapshot?.wpm} WPM with ${lastResultSnapshot?.accuracy}% accuracy! Try it at typemasterai.com/multiplayer`;
+                          window.open(`mailto:?subject=My Typing Race Result&body=${encodeURIComponent(text)}`, '_blank');
+                        }}
+                      >
+                        <Mail className="h-4 w-4" />
+                        Email
+                      </Button>
+                    </div>
+
+                    {/* Copy Link */}
+                    <div className="flex gap-2">
+                      <Input
+                        readOnly
+                        value="typemasterai.com/multiplayer"
+                        className="bg-white/5 border-white/10"
+                      />
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          navigator.clipboard.writeText('https://typemasterai.com/multiplayer');
+                          toast.success('Link copied!');
+                        }}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    {/* Share Certificate Button */}
+                    <Button
+                      onClick={() => setShareDialogOpen(true)}
+                      className="w-full gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+                    >
+                      <Award className="h-4 w-4" />
+                      Share Certificate Image
+                    </Button>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+
+            {/* Action Buttons Section */}
+            <Card className="mt-6 bg-zinc-900/50 border-white/10">
+              <CardContent className="pt-6">
                 {/* Rematch Notification */}
                 {rematchInfo && (
-                  <div className="p-4 border border-green-500/30 rounded-lg bg-green-500/10 flex items-center justify-between" data-testid="rematch-notification">
+                  <div className="p-4 mb-4 border border-green-500/30 rounded-xl bg-green-500/10 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <RotateCcw className="h-5 w-5 text-green-500" />
                       <div>
-                        <p className="font-medium text-green-500">Rematch Available!</p>
+                        <p className="font-medium text-green-400">New Race Ready!</p>
                         <p className="text-sm text-muted-foreground">Room Code: {rematchInfo.roomCode}</p>
                       </div>
                     </div>
                     <Button
                       onClick={() => setLocation(`/race/${rematchInfo.newRaceId}?code=${rematchInfo.roomCode}`)}
                       className="bg-green-600 hover:bg-green-700"
-                      data-testid="button-join-rematch"
                     >
-                      Join Rematch
+                      Join Now
                     </Button>
                   </div>
                 )}
 
-                <div className="flex gap-3">
+                <div className="flex gap-3 mt-4">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -2861,31 +3434,79 @@ export default function RacePage() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
-                        onClick={() => {
-                          if (ws && ws.readyState === WebSocket.OPEN && myParticipant) {
-                            ws.send(JSON.stringify({
-                              type: "rematch",
-                              raceId: race?.id,
-                              participantId: myParticipant.id,
-                              username: myParticipant.username,
-                            }));
-                            toast.info("Creating rematch room...", { duration: 2000 });
+                        onClick={async () => {
+                          // Set loading state
+                          setIsCreatingRematch(true);
+                          
+                          try {
+                            const response = await fetch("/api/races/quick-match", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              credentials: "include",
+                            });
+                            if (response.ok) {
+                              const data = await response.json();
+                              
+                              // CRITICAL: Save participant to localStorage before redirect
+                              // This ensures the race page can find the participant on load
+                              if (data.participant) {
+                                localStorage.setItem(`race_${data.race.id}_participant`, JSON.stringify(data.participant));
+                                console.log(`[Play Again] Saved new participant ${data.participant.id} for race ${data.race.id}`);
+                              }
+                              
+                              // Clear old race participant from localStorage to avoid confusion
+                              if (race?.id && race.id !== data.race.id) {
+                                localStorage.removeItem(`race_${race.id}_participant`);
+                              }
+                              
+                              setRematchInfo({
+                                newRaceId: data.race.id,
+                                roomCode: data.race.roomCode,
+                                createdBy: myParticipant?.username || "You",
+                              });
+                              
+                              // Auto-redirect to new race
+                              setTimeout(() => {
+                                setLocation(`/race/${data.race.id}`);
+                              }, 500);
+                            } else {
+                              const errorData = await response.json().catch(() => ({}));
+                              toast.error(errorData.message || "Failed to create race");
+                              setIsCreatingRematch(false);
+                            }
+                          } catch (error) {
+                            toast.error("Failed to create race. Please try again.");
+                            setIsCreatingRematch(false);
                           }
                         }}
-                        className="flex-1"
+                        className="flex-1 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70"
                         data-testid="button-rematch"
-                        disabled={!!rematchInfo}
+                        disabled={isCreatingRematch || !!rematchInfo}
                       >
-                        <RotateCcw className="h-4 w-4 mr-2" />
-                        {rematchInfo ? "Rematch Created" : "Create Rematch"}
+                        {isCreatingRematch ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Creating Race...
+                          </>
+                        ) : rematchInfo ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Joining...
+                          </>
+                        ) : (
+                          <>
+                            <RotateCcw className="h-4 w-4 mr-2" />
+                            Play Again
+                          </>
+                        )}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom">
-                      <p className="font-medium">{rematchInfo ? "Rematch already created" : "Create rematch room"}</p>
+                      <p className="font-medium">{rematchInfo ? "Rematch ready!" : "Start a new race"}</p>
                       <p className="text-zinc-400">
                         {rematchInfo 
                           ? "Click 'Join Rematch' above to continue" 
-                          : "Create a new room with same settings for all players"
+                          : "Create a new race with same settings"
                         }
                       </p>
                     </TooltipContent>
@@ -2959,7 +3580,11 @@ export default function RacePage() {
                   </div>
 
                   {/* Hidden pre-rendered certificate for sharing */}
-                  <div className="absolute -z-50 w-0 h-0 overflow-hidden opacity-0 pointer-events-none" aria-hidden="true">
+                  <div 
+                    className="absolute -z-50 w-0 h-0 overflow-hidden opacity-0 pointer-events-none" 
+                    aria-hidden="true"
+                    data-testid="hidden-certificate-container"
+                  >
                     <RaceCertificate
                       wpm={lastResultSnapshot.wpm}
                       accuracy={lastResultSnapshot.accuracy}
@@ -2971,6 +3596,7 @@ export default function RacePage() {
                       duration={lastResultSnapshot.duration}
                       username={user?.username}
                       raceId={race?.id?.toString()}
+                      minimal={true}
                     />
                   </div>
 
@@ -2985,7 +3611,7 @@ export default function RacePage() {
                     </button>
                     <button
                       onClick={async () => {
-                        const certCanvas = document.querySelector('[data-testid="certificate-canvas"]') as HTMLCanvasElement;
+                        const certCanvas = document.querySelector('[data-testid="hidden-certificate-container"] [data-testid="certificate-canvas"]') as HTMLCanvasElement;
                         if (!certCanvas) {
                           toast("Certificate not ready", { description: "Please try again." });
                           return;
@@ -3013,7 +3639,7 @@ export default function RacePage() {
                   {'share' in navigator && (
                     <button
                       onClick={async () => {
-                        const certCanvas = document.querySelector('[data-testid="certificate-canvas"]') as HTMLCanvasElement;
+                        const certCanvas = document.querySelector('[data-testid="hidden-certificate-container"] [data-testid="certificate-canvas"]') as HTMLCanvasElement;
                         if (!certCanvas) {
                           toast("Certificate not ready", { description: "Please try again." });
                           return;
@@ -3028,7 +3654,7 @@ export default function RacePage() {
                             const rating = getTypingPerformanceRating(lastResultSnapshot.wpm, lastResultSnapshot.accuracy);
                             await navigator.share({
                               title: `TypeMasterAI Race Certificate - ${lastResultSnapshot.wpm} WPM`,
-                              text: `🏆 I finished #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipants} in a TypeMasterAI Race!\n\n⚡ ${lastResultSnapshot.wpm} WPM | ✨ ${lastResultSnapshot.accuracy}% Accuracy\n🎖️ ${rating.badge} Badge\n\n🔗 typemasterai.com/race`,
+                              text: `🏆 I finished #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipants} in a TypeMasterAI Race!\n\n⚡ ${lastResultSnapshot.wpm} WPM | ✨ ${lastResultSnapshot.accuracy}% Accuracy\n🎖️ ${rating.badge} Badge\n\n🔗 typemasterai.com/multiplayer`,
                               files: [file],
                             });
                             toast("Certificate Shared!", { description: "Your achievement is on its way!" });
@@ -3211,7 +3837,6 @@ Finished #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipa
                         duration={lastResultSnapshot.duration}
                         username={user?.username}
                         raceId={race?.id?.toString()}
-                        minimal={true}
                       />
                     </DialogContent>
                   </Dialog>

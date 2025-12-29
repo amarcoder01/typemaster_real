@@ -1,7 +1,7 @@
 import { storage } from "./storage";
 import crypto from "node:crypto";
 
-export type LeaderboardType = "global" | "code" | "stress" | "dictation" | "rating";
+export type LeaderboardType = "global" | "code" | "stress" | "dictation" | "rating" | "book";
 export type TimeFrame = "all" | "daily" | "weekly" | "monthly";
 
 interface CacheEntry<T> {
@@ -42,13 +42,14 @@ interface PaginatedResponse<T> {
 }
 
 const CACHE_TTL_MS = {
-  global: 30000,
-  code: 30000,
-  stress: 5000,
-  dictation: 30000,
-  rating: 15000,
-  aroundMe: 10000,
-  timeBased: 60000,
+  global: 300000, // 5 minutes - materialized views refresh every 5 minutes
+  code: 300000,
+  stress: 300000,
+  dictation: 300000,
+  rating: 300000,
+  book: 300000,
+  aroundMe: 60000, // 1 minute for user-specific data
+  timeBased: 300000,
 };
 
 const MAX_CACHE_SIZE = 100;
@@ -81,6 +82,7 @@ class LeaderboardCache {
       difficulty?: string;
       language?: string;
       tier?: string;
+      topic?: string;
       limit?: number;
       offset?: number;
       userId?: string;
@@ -91,6 +93,7 @@ class LeaderboardCache {
     if (options.difficulty) parts.push(`diff:${options.difficulty}`);
     if (options.language) parts.push(`lang:${options.language}`);
     if (options.tier) parts.push(`tier:${options.tier}`);
+    if (options.topic) parts.push(`topic:${options.topic}`);
     if (options.limit) parts.push(`lim:${options.limit}`);
     if (options.offset) parts.push(`off:${options.offset}`);
     if (options.userId) parts.push(`uid:${options.userId}`);
@@ -183,7 +186,7 @@ class LeaderboardCache {
       let lruKey: string | null = null;
       let lruTime = Infinity;
 
-      for (const [key, entry] of this.cache.entries()) {
+      for (const [key, entry] of Array.from(this.cache.entries())) {
         if (entry.lastAccessed < lruTime) {
           lruTime = entry.lastAccessed;
           lruKey = key;
@@ -413,6 +416,43 @@ class LeaderboardCache {
     return { ...response, metadata: { ...response.metadata, etag } };
   }
 
+  async getBookLeaderboard(options: {
+    topic?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<PaginatedResponse<any>> {
+    const { topic, limit = 20, offset = 0 } = options;
+    const cacheKey = this.getCacheKey("book", { topic, limit, offset });
+    
+    const cached = this.get<PaginatedResponse<any>>(cacheKey, CACHE_TTL_MS.book);
+    if (cached) {
+      return { ...cached.data, metadata: { ...cached.data.metadata, cacheHit: true, etag: cached.etag } };
+    }
+
+    const entries = await storage.getBookLeaderboardPaginated(topic, limit, offset);
+    const total = await storage.getBookLeaderboardCount(topic);
+
+    const response: PaginatedResponse<any> = {
+      entries,
+      pagination: {
+        total,
+        limit,
+        offset,
+        hasMore: offset + entries.length < total,
+        nextCursor: offset + limit < total ? this.encodeCursor(offset + limit) : undefined,
+        prevCursor: offset > 0 ? this.encodeCursor(Math.max(0, offset - limit)) : undefined,
+      },
+      metadata: {
+        cacheHit: false,
+        timeframe: "all",
+        lastUpdated: Date.now(),
+      },
+    };
+
+    const etag = this.set(cacheKey, response);
+    return { ...response, metadata: { ...response.metadata, etag } };
+  }
+
   async getAroundMe(
     type: LeaderboardType,
     userId: string,
@@ -420,6 +460,7 @@ class LeaderboardCache {
       difficulty?: string;
       language?: string;
       tier?: string;
+      topic?: string;
       range?: number;
       timeframe?: TimeFrame;
     } = {}
@@ -449,6 +490,9 @@ class LeaderboardCache {
         break;
       case "dictation":
         result = await storage.getDictationLeaderboardAroundUser(userId, range);
+        break;
+      case "book":
+        result = await storage.getBookLeaderboardAroundUser(userId, options.topic, range);
         break;
       default:
         result = { userRank: -1, entries: [] };

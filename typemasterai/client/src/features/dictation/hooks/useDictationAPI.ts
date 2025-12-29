@@ -7,13 +7,8 @@ interface FetchSentenceOptions {
   difficulty: string;
   category: string;
   excludeIds: number[];
-}
-
-interface FetchBatchSentencesOptions {
-  difficulty: string;
-  category: string;
-  count: number;
-  excludeIds?: number[];
+  maxRetries?: number;
+  silent?: boolean; // Don't show toasts for prefetch failures
 }
 
 interface SaveTestData {
@@ -36,10 +31,6 @@ interface UseDictationAPIReturn {
   isFetching: boolean;
   fetchError: string | null;
   
-  // Fetch batch of sentences (for challenge mode)
-  fetchBatchSentences: (options: FetchBatchSentencesOptions) => Promise<DictationSentence[]>;
-  isFetchingBatch: boolean;
-  
   // Save test
   saveTest: (data: SaveTestData) => Promise<{ id: number } | null>;
   isSaving: boolean;
@@ -56,44 +47,22 @@ export function useDictationAPI(): UseDictationAPIReturn {
   const { toast } = useToast();
   
   const [isFetching, setIsFetching] = useState(false);
-  const [isFetchingBatch, setIsFetchingBatch] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   
   const abortControllerRef = useRef<AbortController | null>(null);
-  const batchAbortControllerRef = useRef<AbortController | null>(null);
   
-  // Fetch a new sentence
-  const fetchSentence = useCallback(async (
-    options: FetchSentenceOptions
+  // Helper to delay with exponential backoff
+  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  
+  // Single fetch attempt
+  const attemptFetch = async (
+    params: URLSearchParams,
+    controller: AbortController,
+    timeoutMs: number
   ): Promise<DictationSentence | null> => {
-    const { difficulty, category, excludeIds } = options;
-    
-    // Cancel any previous request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    
-    setIsFetching(true);
-    setFetchError(null);
-    
-    // Set timeout
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-    }, 15000);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     
     try {
-      const params = new URLSearchParams();
-      params.set('difficulty', difficulty);
-      if (category !== 'all') {
-        params.set('category', category);
-      }
-      if (excludeIds.length > 0) {
-        params.set('excludeIds', excludeIds.join(','));
-      }
-      
       const response = await fetch(`/api/dictation/sentence?${params.toString()}`, {
         signal: controller.signal,
         credentials: 'include',
@@ -103,49 +72,112 @@ export function useDictationAPI(): UseDictationAPIReturn {
       
       if (!response.ok) {
         if (response.status === 404) {
-          const errorMsg = 'No sentences found matching your criteria';
-          setFetchError(errorMsg);
-          toast({
-            title: 'No sentences found',
-            description: 'No sentences match your current filters. Try different settings.',
-            variant: 'destructive',
-          });
-          return null;
+          // No retry for 404 - this is a definitive "no results" response
+          throw { status: 404, message: 'No sentences found matching your criteria' };
         }
         throw new Error(`HTTP ${response.status}`);
       }
       
       const data = await response.json();
       return data.sentence as DictationSentence;
-      
-    } catch (error: any) {
+    } catch (error) {
       clearTimeout(timeoutId);
+      throw error;
+    }
+  };
+  
+  // Fetch a new sentence with retry logic
+  const fetchSentence = useCallback(async (
+    options: FetchSentenceOptions
+  ): Promise<DictationSentence | null> => {
+    const { difficulty, category, excludeIds, maxRetries = 3, silent = false } = options;
+    
+    // Cancel any previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    setIsFetching(true);
+    setFetchError(null);
+    
+    // Build params
+    const params = new URLSearchParams();
+    params.set('difficulty', difficulty);
+    if (category !== 'all') {
+      params.set('category', category);
+    }
+    if (excludeIds.length > 0) {
+      params.set('excludeIds', excludeIds.join(','));
+    }
+    
+    let lastError: any = null;
+    
+    // Retry loop with exponential backoff
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       
-      if (error.name === 'AbortError') {
-        const errorMsg = 'Request timed out';
-        setFetchError(errorMsg);
-        toast({
-          title: 'Request timeout',
-          description: 'The server took too long to respond. Please try again.',
-          variant: 'destructive',
-        });
-        return null;
+      try {
+        // Increase timeout for each retry (10s, 15s, 20s, 25s)
+        const timeoutMs = 10000 + (attempt * 5000);
+        const sentence = await attemptFetch(params, controller, timeoutMs);
+        
+        if (sentence) {
+          setIsFetching(false);
+          abortControllerRef.current = null;
+          return sentence;
+        }
+      } catch (error: any) {
+        lastError = error;
+        
+        // Don't retry on 404 (no sentences found)
+        if (error.status === 404) {
+          setFetchError(error.message);
+          if (!silent) {
+            toast({
+              title: 'No sentences found',
+              description: 'No sentences match your current filters. Try different settings.',
+              variant: 'destructive',
+            });
+          }
+          setIsFetching(false);
+          abortControllerRef.current = null;
+          return null;
+        }
+        
+        // Don't retry if aborted manually
+        if (error.name === 'AbortError' && attempt === maxRetries) {
+          break;
+        }
+        
+        // Retry with exponential backoff
+        if (attempt < maxRetries) {
+          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 8000); // 1s, 2s, 4s, 8s
+          await delay(backoffMs);
+        }
       }
-      
-      console.error('Failed to fetch sentence:', error);
-      const errorMsg = 'Failed to fetch sentence';
-      setFetchError(errorMsg);
+    }
+    
+    // All retries failed
+    console.error('[DictationAPI] All fetch attempts failed:', lastError);
+    const errorMsg = lastError?.name === 'AbortError' 
+      ? 'Request timed out' 
+      : 'Failed to fetch sentence';
+    setFetchError(errorMsg);
+    
+    if (!silent) {
       toast({
-        title: 'Error',
-        description: 'Could not fetch a new sentence. Please try again.',
+        title: lastError?.name === 'AbortError' ? 'Request timeout' : 'Error',
+        description: lastError?.name === 'AbortError'
+          ? 'The server took too long to respond. Please try again.'
+          : 'Could not fetch a new sentence. Please try again.',
         variant: 'destructive',
       });
-      return null;
-      
-    } finally {
-      setIsFetching(false);
-      abortControllerRef.current = null;
     }
+    
+    setIsFetching(false);
+    abortControllerRef.current = null;
+    return null;
   }, [toast]);
   
   // Save test mutation
@@ -192,95 +224,11 @@ export function useDictationAPI(): UseDictationAPIReturn {
     }
   }, [saveTestMutation]);
   
-  // Fetch batch of sentences for challenge mode
-  const fetchBatchSentences = useCallback(async (
-    options: FetchBatchSentencesOptions
-  ): Promise<DictationSentence[]> => {
-    const { difficulty, category, count, excludeIds = [] } = options;
-    
-    // Cancel any previous batch request
-    if (batchAbortControllerRef.current) {
-      batchAbortControllerRef.current.abort();
-    }
-    
-    const controller = new AbortController();
-    batchAbortControllerRef.current = controller;
-    
-    setIsFetchingBatch(true);
-    
-    // Set timeout (longer for batch)
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-    }, 30000);
-    
-    try {
-      const params = new URLSearchParams();
-      params.set('difficulty', difficulty);
-      params.set('count', count.toString());
-      if (category !== 'all') {
-        params.set('category', category);
-      }
-      if (excludeIds.length > 0) {
-        params.set('excludeIds', excludeIds.join(','));
-      }
-      
-      const response = await fetch(`/api/dictation/sentences/batch?${params.toString()}`, {
-        signal: controller.signal,
-        credentials: 'include',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        if (response.status === 404) {
-          toast({
-            title: 'No sentences found',
-            description: 'Not enough sentences match your criteria. Try different settings.',
-            variant: 'destructive',
-          });
-          return [];
-        }
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
-      const data = await response.json();
-      return data.sentences as DictationSentence[];
-      
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      
-      if (error.name === 'AbortError') {
-        toast({
-          title: 'Request timeout',
-          description: 'The server took too long to respond. Please try again.',
-          variant: 'destructive',
-        });
-        return [];
-      }
-      
-      console.error('Failed to fetch batch sentences:', error);
-      toast({
-        title: 'Error',
-        description: 'Could not fetch sentences. Please try again.',
-        variant: 'destructive',
-      });
-      return [];
-      
-    } finally {
-      setIsFetchingBatch(false);
-      batchAbortControllerRef.current = null;
-    }
-  }, [toast]);
-  
   // Cancel ongoing requests
   const cancelRequests = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
-    }
-    if (batchAbortControllerRef.current) {
-      batchAbortControllerRef.current.abort();
-      batchAbortControllerRef.current = null;
     }
   }, []);
   
@@ -288,8 +236,6 @@ export function useDictationAPI(): UseDictationAPIReturn {
     fetchSentence,
     isFetching,
     fetchError,
-    fetchBatchSentences,
-    isFetchingBatch,
     saveTest,
     isSaving: saveTestMutation.isPending,
     saveError: saveTestMutation.error?.message || null,

@@ -190,7 +190,21 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // Performance optimizations for Neon serverless
+  max: 10, // Maximum connections in pool
+  idleTimeoutMillis: 30000, // Close idle connections after 30s
+  connectionTimeoutMillis: 10000, // Wait max 10s for connection
+});
+
+// Handle pool-level errors gracefully to prevent server crashes
+// Neon serverless can terminate connections unexpectedly due to scaling/idle timeouts
+pool.on('error', (err: any) => {
+  console.error('[Database Pool] Unexpected connection error (will auto-reconnect):', err.message);
+  // Don't crash - the pool will create new connections on next query
+});
+
 export const db = drizzle({ client: pool });
 
 export interface IStorage {
@@ -202,7 +216,7 @@ export interface IStorage {
   updateUserPassword(userId: string, hashedPassword: string): Promise<void>;
   deleteUser(userId: string): Promise<void>;
   verifyUserEmail(userId: string): Promise<void>;
-  
+
   // Login History & Security
   createLoginHistory(history: InsertLoginHistory): Promise<LoginHistory>;
   getUserLoginHistory(userId: string, limit?: number): Promise<LoginHistory[]>;
@@ -216,19 +230,19 @@ export interface IStorage {
     maxAttempts: number,
     lockoutMinutes: number
   ): Promise<void>;
-  
+
   // Account Lockout
   getAccountLockout(userId: string): Promise<AccountLockout | undefined>;
   createOrUpdateAccountLockout(userId: string, failedAttempts: number, lockedUntil?: Date): Promise<AccountLockout>;
   clearAccountLockout(userId: string): Promise<void>;
   isAccountLocked(userId: string): Promise<boolean>;
-  
+
   // Email Verification
   createEmailVerificationToken(userId: string, token: string, expiresAt: Date): Promise<EmailVerificationToken>;
   getEmailVerificationToken(token: string): Promise<EmailVerificationToken | undefined>;
   markEmailVerified(userId: string, token: string): Promise<void>;
   deleteEmailVerificationToken(userId: string): Promise<void>;
-  
+
   // Password Reset (with secure token hashing)
   createPasswordResetToken(userId: string, token: string, expiresAt: Date, ipAddress?: string): Promise<PasswordResetToken>;
   getPasswordResetTokenByHash(tokenHash: string): Promise<PasswordResetToken | undefined>;
@@ -239,14 +253,14 @@ export interface IStorage {
   atomicPasswordReset(tokenHash: string, userId: string, hashedPassword: string): Promise<{ success: boolean; alreadyUsed: boolean }>;
   cleanupUsedPasswordResetTokens(userId: string): Promise<void>;
   getRecentPasswordResetRequests(userId: string, minutes: number): Promise<number>;
-  
+
   // User Sessions
   createUserSession(session: InsertUserSession): Promise<UserSession>;
   getUserSessions(userId: string): Promise<UserSession[]>;
   updateSessionActivity(sessionId: string): Promise<void>;
   revokeSession(sessionId: string): Promise<void>;
   revokeAllUserSessions(userId: string, exceptSessionId?: string): Promise<void>;
-  
+
   // Security Settings
   getSecuritySettings(userId: string): Promise<SecuritySettings | undefined>;
   createSecuritySettings(userId: string): Promise<SecuritySettings>;
@@ -255,7 +269,7 @@ export interface IStorage {
   disable2FA(userId: string): Promise<void>;
   verify2FABackupCode(userId: string, code: string): Promise<boolean>;
   use2FABackupCode(userId: string, code: string): Promise<void>;
-  
+
   createTestResult(result: InsertTestResult): Promise<TestResult>;
   getUserTestResults(userId: string, limit?: number): Promise<TestResult[]>;
   getTestResultById(testResultId: number): Promise<TestResult | undefined>;
@@ -342,6 +356,21 @@ export interface IStorage {
   getDictationLeaderboardCount(): Promise<number>;
   getDictationLeaderboardAroundUser(userId: string, range?: number): Promise<{ userRank: number; entries: any[] }>;
 
+  getBookLeaderboardPaginated(topic: string | undefined, limit: number, offset: number): Promise<Array<{
+    userId: string;
+    username: string;
+    wpm: number;
+    accuracy: number;
+    wordsTyped: number;
+    booksCompleted: number;
+    createdAt: Date;
+    avatarColor: string | null;
+    totalTests: number;
+    rank: number;
+  }>>;
+  getBookLeaderboardCount(topic?: string): Promise<number>;
+  getBookLeaderboardAroundUser(userId: string, topic: string | undefined, range?: number): Promise<{ userRank: number; entries: any[] }>;
+
   getTimeBasedLeaderboard(timeframe: "daily" | "weekly" | "monthly", limit: number, offset: number): Promise<Array<{
     userId: string;
     username: string;
@@ -353,29 +382,29 @@ export interface IStorage {
     rank: number;
   }>>;
   getTimeBasedLeaderboardCount(timeframe: "daily" | "weekly" | "monthly"): Promise<number>;
-  
+
   getPlatformStats(): Promise<{
     totalUsers: number;
     totalTests: number;
     totalLanguages: number;
   }>;
-  
+
   createConversation(conversation: InsertConversation): Promise<Conversation>;
   getUserConversations(userId: string): Promise<Conversation[]>;
   getConversation(id: number, userId: string): Promise<Conversation | undefined>;
   updateConversation(id: number, userId: string, data: Partial<Conversation>): Promise<Conversation | undefined>;
   deleteConversation(id: number, userId: string): Promise<void>;
-  
+
   createMessage(message: InsertMessage): Promise<Message>;
   getConversationMessages(conversationId: number): Promise<Message[]>;
-  
+
   getRandomParagraph(language: string, mode?: string, difficulty?: string): Promise<TypingParagraph | undefined>;
   getRandomParagraphs(language: string, count: number, mode?: string, difficulty?: string): Promise<TypingParagraph[]>;
   getExactParagraph(language: string, mode: string, difficulty?: string): Promise<TypingParagraph | undefined>;
   getAvailableLanguages(): Promise<string[]>;
   getAvailableModes(): Promise<string[]>;
   createTypingParagraph(paragraph: InsertTypingParagraph): Promise<TypingParagraph>;
-  
+
   saveKeystrokeAnalytics(keystroke: InsertKeystrokeAnalytics): Promise<KeystrokeAnalytics>;
   saveBulkKeystrokeAnalytics(keystrokes: InsertKeystrokeAnalytics[]): Promise<void>;
   getUserAnalytics(userId: string, days?: number): Promise<{
@@ -389,7 +418,7 @@ export interface IStorage {
     };
     commonMistakes: Array<{ expectedKey: string; typedKey: string; count: number }>;
   }>;
-  
+
   getHistoricalTrends(userId: string): Promise<{
     weeklyAggregates: Array<{
       weekStart: string;
@@ -417,7 +446,7 @@ export interface IStorage {
       achievedAt: string;
     }>;
   }>;
-  
+
   getUserBadgeData(userId: string): Promise<{
     bestWpm: number;
     bestAccuracy: number;
@@ -425,13 +454,13 @@ export interface IStorage {
     currentStreak: number;
     bestStreak: number;
   }>;
-  updateUserStreak(userId: string): Promise<{ 
-    newStreak: number; 
-    previousStreak: number; 
+  updateUserStreak(userId: string): Promise<{
+    newStreak: number;
+    previousStreak: number;
     isMilestone: boolean;
     milestoneReward?: number;
   } | null>;
-  
+
   // Multiplayer Racing
   createRace(race: InsertRace): Promise<Race>;
   getRace(id: number): Promise<Race | undefined>;
@@ -440,7 +469,7 @@ export interface IStorage {
   updateRaceTimeLimitSeconds(id: number, timeLimitSeconds: number): Promise<void>;
   extendRaceParagraph(id: number, additionalContent: string): Promise<Race | undefined>;
   getActiveRaces(): Promise<Race[]>;
-  
+
   createRaceParticipant(participant: InsertRaceParticipant): Promise<RaceParticipant>;
   getRaceParticipants(raceId: number): Promise<RaceParticipant[]>;
   updateParticipantProgress(id: number, progress: number, wpm: number, accuracy: number, errors: number): Promise<void>;
@@ -450,18 +479,18 @@ export interface IStorage {
   reactivateRaceParticipant(id: number): Promise<RaceParticipant>;
   findInactiveParticipant(raceId: number, userId?: string, guestName?: string): Promise<RaceParticipant | undefined>;
   getRaceWithParticipants(raceId: number): Promise<{ race: Race; participants: RaceParticipant[] } | undefined>;
-  
+
   // Scalability methods for race cache
   getStaleRaces(waitingTimeout: number, countdownTimeout: number, racingTimeout: number): Promise<Race[]>;
   cleanupOldFinishedRaces(retentionMs: number): Promise<number>;
   bulkUpdateParticipantProgress(updates: Map<number, { progress: number; wpm: number; accuracy: number; errors: number }>): Promise<void>;
-  
+
   createCodeSnippet(snippet: InsertCodeSnippet): Promise<CodeSnippet>;
   getCodeSnippet(id: number): Promise<CodeSnippet | undefined>;
   getRandomCodeSnippet(language: string, difficulty?: string, framework?: string): Promise<CodeSnippet | undefined>;
   getAvailableProgrammingLanguages(): Promise<string[]>;
   getAvailableFrameworks(language?: string): Promise<string[]>;
-  
+
   createCodeTypingTest(test: InsertCodeTypingTest): Promise<CodeTypingTest>;
   getUserCodeTypingTests(userId: string, limit?: number): Promise<CodeTypingTest[]>;
   getUserCodeStats(userId: string, language?: string): Promise<{
@@ -484,7 +513,7 @@ export interface IStorage {
   }>>;
   createSharedCodeResult(result: InsertSharedCodeResult): Promise<SharedCodeResult>;
   getSharedCodeResult(shareId: string): Promise<SharedCodeResult | undefined>;
-  
+
   getBookParagraphs(filters: { difficulty?: string; topic?: string; durationMode?: number; limit?: number }): Promise<BookParagraph[]>;
   getRandomBookParagraph(filters?: { difficulty?: string; topic?: string; durationMode?: number }): Promise<BookParagraph | null>;
   getBookTopics(): Promise<string[]>;
@@ -499,7 +528,7 @@ export interface IStorage {
   getChapterParagraphs(bookId: number, chapter: number): Promise<BookParagraph[]>;
   createBookTestResult(result: InsertBookTypingTest): Promise<BookTypingTest>;
   getBookTestResults(userId: string, limit?: number): Promise<BookTypingTest[]>;
-  
+
   getRandomDictationSentence(difficulty?: string, category?: string, excludeIds?: number[]): Promise<DictationSentence | undefined>;
   createDictationTest(test: InsertDictationTest): Promise<DictationTest>;
   getDictationTestById(testId: number): Promise<DictationTest | undefined>;
@@ -520,7 +549,7 @@ export interface IStorage {
     avatarColor: string | null;
     totalTests: number;
   }>>;
-  
+
   createStressTest(test: InsertStressTest): Promise<StressTest>;
   upsertStressTestBestScore(test: InsertStressTest): Promise<{ result: StressTest; isNewPersonalBest: boolean }>;
   getUserStressTests(userId: string, limit?: number): Promise<StressTest[]>;
@@ -543,11 +572,11 @@ export interface IStorage {
     completedTests: number;
     difficultiesCompleted: string[];
   } | null>;
-  
+
   createSharedResult(result: InsertSharedResult): Promise<SharedResult>;
   getSharedResult(shareToken: string): Promise<SharedResult | undefined>;
   incrementShareViewCount(shareToken: string): Promise<void>;
-  
+
   saveKeystrokeEvents(events: InsertKeystrokeEvent[]): Promise<void>;
   saveTypingAnalytics(analytics: InsertTypingAnalytics): Promise<TypingAnalytics>;
   getUserTypingAnalytics(userId: string, limit?: number): Promise<TypingAnalytics[]>;
@@ -558,16 +587,16 @@ export interface IStorage {
   savePracticeRecommendation(recommendation: InsertPracticeRecommendation): Promise<PracticeRecommendation>;
   getUserPracticeRecommendations(userId: string): Promise<PracticeRecommendation[]>;
   completePracticeRecommendation(recommendationId: number): Promise<void>;
-  
+
   createPushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription>;
   getUserPushSubscriptions(userId: string): Promise<PushSubscription[]>;
   deletePushSubscription(id: number): Promise<void>;
   findExistingSubscription(userId: string, endpoint: string): Promise<PushSubscription | undefined>;
-  
+
   getNotificationPreferences(userId: string): Promise<NotificationPreferences | undefined>;
   createNotificationPreferences(prefs: InsertNotificationPreferences): Promise<NotificationPreferences>;
   updateNotificationPreferences(userId: string, prefs: Partial<NotificationPreferences>): Promise<NotificationPreferences>;
-  
+
   createNotificationHistory(history: InsertNotificationHistory): Promise<NotificationHistory>;
   getUserNotificationHistory(userId: string, limit?: number): Promise<NotificationHistory[]>;
   markNotificationDelivered(id: number): Promise<void>;
@@ -580,7 +609,7 @@ export interface IStorage {
   markJobFailed(jobId: number, errorMessage: string): Promise<void>;
   rescheduleJob(jobId: number, newSendAtUtc: Date): Promise<void>;
   deleteCompletedJobsOlderThan(daysAgo: number): Promise<number>;
-  
+
   getUsersWithNotificationPreferences(notificationType: string, offset: number, limit: number): Promise<Array<{
     user: User;
     preferences: NotificationPreferences;
@@ -588,7 +617,7 @@ export interface IStorage {
   getUsersForDailyReminders(currentHour: number): Promise<Array<{ id: string; username: string; currentStreak: number }>>;
   getUsersWithStreakAtRisk(): Promise<Array<{ id: string; username: string; currentStreak: number }>>;
   getUsersForWeeklySummary(): Promise<Array<{ id: string; username: string }>>;
-  
+
   getUserAverageWpm(userId: string): Promise<number>;
   getWeeklySummaryStats(userId: string): Promise<{
     testsCompleted: number;
@@ -597,23 +626,23 @@ export interface IStorage {
     improvement: number;
     rank: number;
   }>;
-  
+
   createAchievement(achievement: InsertAchievement): Promise<Achievement>;
   getAllAchievements(): Promise<Achievement[]>;
   getAchievementByKey(key: string): Promise<Achievement | undefined>;
   unlockAchievement(userId: string, achievementId: number, testResultId?: number): Promise<UserAchievement>;
   getUserAchievements(userId: string): Promise<Array<UserAchievement & { achievement: Achievement }>>;
-  
+
   createChallenge(challenge: InsertChallenge): Promise<Challenge>;
   getActiveChallenge(type: 'daily' | 'weekly'): Promise<Challenge | undefined>;
   getUserChallengeProgress(userId: string, challengeId: number): Promise<UserChallenge | undefined>;
   updateChallengeProgress(userId: string, challengeId: number, progress: number): Promise<UserChallenge>;
   completeChallenge(userId: string, challengeId: number): Promise<UserChallenge>;
-  
+
   getUserGamification(userId: string): Promise<UserGamification | undefined>;
   createUserGamification(gamification: InsertUserGamification): Promise<UserGamification>;
   updateUserGamification(userId: string, updates: Partial<UserGamification>): Promise<UserGamification>;
-  
+
   // OAuth Accounts
   createOAuthAccount(account: InsertOAuthAccount): Promise<OAuthAccount>;
   getOAuthAccount(provider: OAuthProvider, providerUserId: string): Promise<OAuthAccount | undefined>;
@@ -621,7 +650,7 @@ export interface IStorage {
   linkOAuthAccount(userId: string, account: Omit<InsertOAuthAccount, 'userId'>): Promise<OAuthAccount>;
   unlinkOAuthAccount(userId: string, provider: OAuthProvider): Promise<void>;
   findUserByOAuthProvider(provider: OAuthProvider, providerUserId: string): Promise<User | undefined>;
-  
+
   // Persistent Login (Remember Me)
   createPersistentLogin(login: InsertPersistentLogin): Promise<PersistentLogin>;
   getPersistentLogin(series: string): Promise<PersistentLogin | undefined>;
@@ -630,13 +659,13 @@ export interface IStorage {
   deleteAllUserPersistentLogins(userId: string): Promise<void>;
   deleteExpiredPersistentLogins(): Promise<number>;
   getUserPersistentLogins(userId: string): Promise<PersistentLogin[]>;
-  
+
   // OAuth States (CSRF protection - database persisted for multi-instance support)
   createOAuthState(state: InsertOAuthState): Promise<OAuthState>;
   getOAuthState(state: string): Promise<OAuthState | undefined>;
   deleteOAuthState(state: string): Promise<void>;
   deleteExpiredOAuthStates(): Promise<number>;
-  
+
   // Audit Logs (Security event tracking - database persisted for compliance)
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
   getAuditLogs(filters?: { userId?: string; eventType?: string; limit?: number }): Promise<AuditLog[]>;
@@ -782,7 +811,7 @@ export interface IStorage {
   getCertificateByCodeTestId(codeTestId: number): Promise<Certificate | undefined>;
   updateCertificateViewCount(id: number): Promise<void>;
   deleteCertificate(id: number): Promise<void>;
-  
+
   // Certificate Verification System
   getCertificateByVerificationId(verificationId: string): Promise<Certificate | undefined>;
   updateCertificateVerification(id: number, data: {
@@ -830,7 +859,7 @@ export class DatabaseStorage implements IStorage {
     return await db.transaction(async (tx) => {
       const result = await tx.insert(users).values(insertUser).returning();
       const newUser = result[0];
-      
+
       // Pre-create account_lockouts row to enable row-level locking for concurrent failed logins
       await tx.insert(accountLockouts).values({
         userId: newUser.id,
@@ -838,7 +867,7 @@ export class DatabaseStorage implements IStorage {
         lockedUntil: null,
         lastFailedAt: null,
       });
-      
+
       return newUser;
     });
   }
@@ -931,7 +960,7 @@ export class DatabaseStorage implements IStorage {
             lastFailedAt: null,
           })
           .onConflictDoNothing({ target: accountLockouts.userId });
-        
+
         // Now lock the row (exists either from our insert or a concurrent one)
         lockoutRow = await tx
           .select()
@@ -973,7 +1002,7 @@ export class DatabaseStorage implements IStorage {
         : null;
 
       const now = new Date();
-      
+
       await tx
         .update(accountLockouts)
         .set({
@@ -1002,7 +1031,7 @@ export class DatabaseStorage implements IStorage {
     lockedUntil?: Date
   ): Promise<AccountLockout> {
     const existing = await this.getAccountLockout(userId);
-    
+
     if (existing) {
       const updated = await db
         .update(accountLockouts)
@@ -1135,19 +1164,19 @@ export class DatabaseStorage implements IStorage {
     const MAX_FAILED_ATTEMPTS = 5;
     const result = await db
       .update(passwordResetTokens)
-      .set({ 
+      .set({
         failedAttempts: sql`${passwordResetTokens.failedAttempts} + 1`,
         lockedAt: sql`CASE WHEN ${passwordResetTokens.failedAttempts} + 1 >= ${MAX_FAILED_ATTEMPTS} THEN NOW() ELSE ${passwordResetTokens.lockedAt} END`
       })
       .where(eq(passwordResetTokens.tokenHash, tokenHash))
       .returning({ failedAttempts: passwordResetTokens.failedAttempts, lockedAt: passwordResetTokens.lockedAt });
-    
+
     if (result.length === 0) {
       return { failedAttempts: 0, locked: false };
     }
-    return { 
-      failedAttempts: result[0].failedAttempts, 
-      locked: result[0].lockedAt !== null 
+    return {
+      failedAttempts: result[0].failedAttempts,
+      locked: result[0].lockedAt !== null
     };
   }
 
@@ -1158,8 +1187,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async atomicPasswordReset(
-    tokenHash: string, 
-    userId: string, 
+    tokenHash: string,
+    userId: string,
     hashedPassword: string
   ): Promise<{ success: boolean; alreadyUsed: boolean }> {
     return await db.transaction(async (tx) => {
@@ -1380,7 +1409,7 @@ export class DatabaseStorage implements IStorage {
       .from(testResults)
       .where(and(eq(testResults.id, testResultId), eq(testResults.userId, userId)))
       .limit(1);
-    
+
     return result.length > 0;
   }
 
@@ -1486,116 +1515,72 @@ export class DatabaseStorage implements IStorage {
     rank: number;
     isVerified: boolean;
   }>> {
-    const dateFilter = this.getTimeframeDateFilter(timeframe);
-    
-    const leaderboard = await db.execute(sql`
-      WITH ranked_results AS (
+    // Use materialized views for much faster queries
+    const viewName = this.getMaterializedViewName(timeframe);
+
+    const leaderboard = await db.execute(sql.raw(`
         SELECT 
-          tr.user_id,
-          tr.wpm,
-          tr.accuracy,
-          tr.created_at,
-          tr.mode,
-          ROW_NUMBER() OVER (
-            PARTITION BY tr.user_id 
-            ORDER BY tr.wpm DESC, tr.created_at DESC
-          ) as user_rank
-        FROM test_results tr
-        WHERE tr.created_at >= ${dateFilter}
-          AND (tr.freestyle = false OR tr.freestyle IS NULL)
-          AND tr.language = ${language}
-      ),
-      test_counts AS (
-        SELECT 
-          user_id,
-          COUNT(*)::int as total_tests
-        FROM test_results
-        WHERE created_at >= ${dateFilter}
-          AND (freestyle = false OR freestyle IS NULL)
-          AND language = ${language}
-        GROUP BY user_id
-      ),
-      final_ranking AS (
-        SELECT 
-          rr.user_id,
-          rr.wpm,
-          rr.accuracy,
-          rr.created_at,
-          rr.mode,
-          tc.total_tests,
-          DENSE_RANK() OVER (ORDER BY rr.wpm DESC, rr.created_at ASC) as rank
-        FROM ranked_results rr
-        LEFT JOIN test_counts tc ON rr.user_id = tc.user_id
-        WHERE rr.user_rank = 1
-      )
-      SELECT 
-        fr.user_id as "userId",
-        u.username,
-        fr.wpm,
-        fr.accuracy,
-        fr.created_at as "createdAt",
-        fr.mode,
-        u.avatar_color as "avatarColor",
-        COALESCE(fr.total_tests, 1) as "totalTests",
-        fr.rank,
-        COALESCE(acc.certified_wpm IS NOT NULL, false) as "isVerified"
-      FROM final_ranking fr
-      INNER JOIN users u ON fr.user_id = u.id
-      LEFT JOIN anti_cheat_challenges acc ON fr.user_id = acc.user_id AND acc.passed = true
-      ORDER BY fr.rank ASC, fr.wpm DESC
+        user_id as "userId",
+        username,
+        wpm,
+        accuracy,
+        created_at as "createdAt",
+        mode,
+        avatar_color as "avatarColor",
+        total_tests as "totalTests",
+        rank,
+        is_verified as "isVerified"
+      FROM ${viewName}
+      WHERE language = '${language}'
+      ORDER BY rank ASC
       LIMIT ${limit}
       OFFSET ${offset}
-    `);
+    `));
 
     return leaderboard.rows as any[];
   }
 
+  /**
+   * Get the appropriate materialized view name based on timeframe
+   */
+  private getMaterializedViewName(timeframe?: string): string {
+    switch (timeframe) {
+      case 'daily':
+        return 'mv_leaderboard_daily';
+      case 'weekly':
+        return 'mv_leaderboard_weekly';
+      case 'monthly':
+        return 'mv_leaderboard_monthly';
+      default:
+        return 'mv_leaderboard_global';
+    }
+  }
+
   async getLeaderboardCount(timeframe?: string, language: string = "en"): Promise<number> {
-    const dateFilter = this.getTimeframeDateFilter(timeframe);
-    
-    const result = await db.execute(sql`
-      SELECT COUNT(DISTINCT user_id)::int as count
-      FROM test_results
-      WHERE created_at >= ${dateFilter}
-        AND (freestyle = false OR freestyle IS NULL)
-        AND language = ${language}
-    `);
-    
+    // Use materialized views for much faster count queries
+    const viewName = this.getMaterializedViewName(timeframe);
+
+    const result = await db.execute(sql.raw(`
+      SELECT COUNT(*)::int as count
+      FROM ${viewName}
+      WHERE language = '${language}'
+    `));
+
     return (result.rows[0] as any)?.count || 0;
   }
 
   async getLeaderboardAroundUser(userId: string, range: number = 5, timeframe?: string, language: string = "en"): Promise<{ userRank: number; entries: any[] }> {
-    const dateFilter = this.getTimeframeDateFilter(timeframe);
-    
-    const rankResult = await db.execute(sql`
-      WITH ranked_results AS (
-        SELECT 
-          tr.user_id,
-          tr.wpm,
-          ROW_NUMBER() OVER (
-            PARTITION BY tr.user_id 
-            ORDER BY tr.wpm DESC
-          ) as user_rank
-        FROM test_results tr
-        WHERE tr.created_at >= ${dateFilter}
-          AND (tr.freestyle = false OR tr.freestyle IS NULL)
-          AND tr.language = ${language}
-      ),
-      user_best AS (
-        SELECT user_id, wpm FROM ranked_results WHERE user_rank = 1
-      ),
-      final_ranking AS (
-        SELECT 
-          user_id,
-          wpm,
-          DENSE_RANK() OVER (ORDER BY wpm DESC) as rank
-        FROM user_best
-      )
-      SELECT rank FROM final_ranking WHERE user_id = ${userId}
-    `);
+    // Use materialized views for much faster lookups
+    const viewName = this.getMaterializedViewName(timeframe);
+
+    const rankResult = await db.execute(sql.raw(`
+      SELECT rank
+      FROM ${viewName}
+      WHERE user_id = '${userId}' AND language = '${language}'
+    `));
 
     const userRank = (rankResult.rows[0] as any)?.rank || -1;
-    
+
     if (userRank === -1) {
       return { userRank: -1, entries: [] };
     }
@@ -1603,59 +1588,23 @@ export class DatabaseStorage implements IStorage {
     const startRank = Math.max(1, userRank - range);
     const endRank = userRank + range;
 
-    const entries = await db.execute(sql`
-      WITH ranked_results AS (
+    const entries = await db.execute(sql.raw(`
         SELECT 
-          tr.user_id,
-          tr.wpm,
-          tr.accuracy,
-          tr.created_at,
-          tr.mode,
-          ROW_NUMBER() OVER (
-            PARTITION BY tr.user_id 
-            ORDER BY tr.wpm DESC, tr.created_at DESC
-          ) as user_rank
-        FROM test_results tr
-        WHERE tr.created_at >= ${dateFilter}
-          AND (tr.freestyle = false OR tr.freestyle IS NULL)
-          AND tr.language = ${language}
-      ),
-      test_counts AS (
-        SELECT user_id, COUNT(*)::int as total_tests 
-        FROM test_results 
-        WHERE created_at >= ${dateFilter}
-          AND (freestyle = false OR freestyle IS NULL)
-          AND language = ${language}
-        GROUP BY user_id
-      ),
-      final_ranking AS (
-        SELECT 
-          rr.user_id,
-          rr.wpm,
-          rr.accuracy,
-          rr.created_at,
-          rr.mode,
-          tc.total_tests,
-          DENSE_RANK() OVER (ORDER BY rr.wpm DESC) as rank
-        FROM ranked_results rr
-        LEFT JOIN test_counts tc ON rr.user_id = tc.user_id
-        WHERE rr.user_rank = 1
-      )
-      SELECT 
-        fr.user_id as "userId",
-        u.username,
-        fr.wpm,
-        fr.accuracy,
-        fr.created_at as "createdAt",
-        fr.mode,
-        u.avatar_color as "avatarColor",
-        COALESCE(fr.total_tests, 1) as "totalTests",
-        fr.rank
-      FROM final_ranking fr
-      INNER JOIN users u ON fr.user_id = u.id
-      WHERE fr.rank >= ${startRank} AND fr.rank <= ${endRank}
-      ORDER BY fr.rank ASC
-    `);
+        user_id as "userId",
+        username,
+        wpm,
+        accuracy,
+        created_at as "createdAt",
+        mode,
+        avatar_color as "avatarColor",
+        total_tests as "totalTests",
+        rank
+      FROM ${viewName}
+      WHERE language = '${language}'
+        AND rank >= ${startRank} 
+        AND rank <= ${endRank}
+      ORDER BY rank ASC
+    `));
 
     return { userRank, entries: entries.rows as any[] };
   }
@@ -1674,7 +1623,13 @@ export class DatabaseStorage implements IStorage {
     isVerified: boolean;
   }>> {
     const difficultyFilter = difficulty ? sql`AND st.difficulty = ${difficulty}` : sql``;
-    
+
+    // When difficulty is specified, partition by user_id AND difficulty (one best per difficulty)
+    // When showing all difficulties, partition by user_id only (one best overall)
+    const partitionClause = difficulty
+      ? sql`PARTITION BY st.user_id, st.difficulty`
+      : sql`PARTITION BY st.user_id`;
+
     const leaderboard = await db.execute(sql`
       WITH ranked_scores AS (
         SELECT 
@@ -1686,7 +1641,7 @@ export class DatabaseStorage implements IStorage {
           st.completion_rate,
           st.created_at,
           ROW_NUMBER() OVER (
-            PARTITION BY st.user_id, st.difficulty
+            ${partitionClause}
             ORDER BY st.stress_score DESC, st.wpm DESC, st.created_at DESC
           ) as user_rank
         FROM stress_tests st
@@ -1728,19 +1683,19 @@ export class DatabaseStorage implements IStorage {
 
   async getStressTestLeaderboardCount(difficulty?: string): Promise<number> {
     const difficultyFilter = difficulty ? sql`AND difficulty = ${difficulty}` : sql``;
-    
+
     const result = await db.execute(sql`
       SELECT COUNT(DISTINCT user_id)::int as count
       FROM stress_tests
       WHERE 1=1 ${difficultyFilter}
     `);
-    
+
     return (result.rows[0] as any)?.count || 0;
   }
 
   async getStressLeaderboardAroundUser(userId: string, difficulty: string | undefined, range: number = 5): Promise<{ userRank: number; entries: any[] }> {
     const difficultyFilter = difficulty ? sql`AND st.difficulty = ${difficulty}` : sql``;
-    
+
     const rankResult = await db.execute(sql`
       WITH ranked_scores AS (
         SELECT 
@@ -1767,7 +1722,7 @@ export class DatabaseStorage implements IStorage {
     `);
 
     const userRank = (rankResult.rows[0] as any)?.rank || -1;
-    
+
     if (userRank === -1) {
       return { userRank: -1, entries: [] };
     }
@@ -1899,19 +1854,19 @@ export class DatabaseStorage implements IStorage {
 
   async getCodeLeaderboardCount(language?: string): Promise<number> {
     const languageFilter = language ? sql`AND programming_language = ${language}` : sql``;
-    
+
     const result = await db.execute(sql`
       SELECT COUNT(DISTINCT user_id)::int as count
       FROM code_typing_tests
       WHERE 1=1 ${languageFilter}
     `);
-    
+
     return (result.rows[0] as any)?.count || 0;
   }
 
   async getCodeLeaderboardAroundUser(userId: string, language: string | undefined, range: number = 5): Promise<{ userRank: number; entries: any[] }> {
     const languageFilter = language ? sql`AND ct.programming_language = ${language}` : sql``;
-    
+
     const rankResult = await db.execute(sql`
       WITH ranked_results AS (
         SELECT 
@@ -1938,7 +1893,7 @@ export class DatabaseStorage implements IStorage {
     `);
 
     const userRank = (rankResult.rows[0] as any)?.rank || -1;
-    
+
     if (userRank === -1) {
       return { userRank: -1, entries: [] };
     }
@@ -2000,46 +1955,63 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRatingLeaderboardPaginated(tier: string | undefined, limit: number, offset: number): Promise<any[]> {
-    let query = db.select().from(userRatings);
-    
-    if (tier) {
-      query = query.where(eq(userRatings.tier, tier)) as typeof query;
-    }
-    
-    const ratings = await query
-      .orderBy(desc(userRatings.rating))
-      .limit(limit)
-      .offset(offset);
-    
-    const enrichedRatings = await Promise.all(
-      ratings.map(async (rating, index) => {
-        const user = await this.getUser(rating.userId);
-        return {
-          ...rating,
-          username: user?.username || "Unknown",
-          avatarColor: user?.avatarColor,
-          rank: offset + index + 1,
-        };
-      })
-    );
+    // Optimized single-query approach using SQL with JOIN and proper ranking
+    // Eliminates N+1 query problem (was fetching each user separately)
+    const tierFilter = tier ? sql`WHERE ur.tier = ${tier}` : sql``;
 
-    return enrichedRatings;
+    const leaderboard = await db.execute(sql`
+      WITH ranked_ratings AS (
+        SELECT 
+          ur.user_id,
+          ur.rating,
+          ur.tier,
+          ur.total_races,
+          ur.wins,
+          ur.losses,
+          ur.created_at,
+          ur.updated_at,
+          DENSE_RANK() OVER (ORDER BY ur.rating DESC, ur.updated_at ASC) as rank
+        FROM user_ratings ur
+        ${tierFilter}
+      )
+      SELECT 
+        rr.user_id as "userId",
+        u.username,
+        rr.rating,
+        rr.tier,
+        rr.total_races as "totalRaces",
+        rr.wins,
+        rr.losses,
+        rr.created_at as "createdAt",
+        rr.updated_at as "updatedAt",
+        u.avatar_color as "avatarColor",
+        rr.rank,
+        COALESCE(acc.certified_wpm IS NOT NULL, false) as "isVerified"
+      FROM ranked_ratings rr
+      INNER JOIN users u ON rr.user_id = u.id
+      LEFT JOIN anti_cheat_challenges acc ON rr.user_id = acc.user_id AND acc.passed = true
+      ORDER BY rr.rank ASC
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `);
+
+    return leaderboard.rows as any[];
   }
 
   async getRatingLeaderboardCount(tier?: string): Promise<number> {
     let query = db.select({ count: sql<number>`count(*)::int` }).from(userRatings);
-    
+
     if (tier) {
       query = query.where(eq(userRatings.tier, tier)) as typeof query;
     }
-    
+
     const result = await query;
     return result[0]?.count || 0;
   }
 
   async getRatingLeaderboardAroundUser(userId: string, tier: string | undefined, range: number = 5): Promise<{ userRank: number; entries: any[] }> {
     const tierFilter = tier ? sql`WHERE tier = ${tier}` : sql``;
-    
+
     const rankResult = await db.execute(sql`
       WITH ranked_ratings AS (
         SELECT 
@@ -2053,7 +2025,7 @@ export class DatabaseStorage implements IStorage {
     `);
 
     const userRank = (rankResult.rows[0] as any)?.rank || -1;
-    
+
     if (userRank === -1) {
       return { userRank: -1, entries: [] };
     }
@@ -2158,7 +2130,7 @@ export class DatabaseStorage implements IStorage {
     const result = await db.execute(sql`
       SELECT COUNT(DISTINCT user_id)::int as count FROM dictation_tests
     `);
-    
+
     return (result.rows[0] as any)?.count || 0;
   }
 
@@ -2188,7 +2160,7 @@ export class DatabaseStorage implements IStorage {
     `);
 
     const userRank = (rankResult.rows[0] as any)?.rank || -1;
-    
+
     if (userRank === -1) {
       return { userRank: -1, entries: [] };
     }
@@ -2245,6 +2217,196 @@ export class DatabaseStorage implements IStorage {
     return { userRank, entries: entries.rows as any[] };
   }
 
+  async getBookLeaderboardPaginated(topic: string | undefined, limit: number, offset: number): Promise<Array<{
+    userId: string;
+    username: string;
+    wpm: number;
+    accuracy: number;
+    wordsTyped: number;
+    booksCompleted: number;
+    createdAt: Date;
+    avatarColor: string | null;
+    totalTests: number;
+    rank: number;
+  }>> {
+    const topicFilter = topic ? sql`AND bp.topic = ${topic}` : sql``;
+
+    const leaderboard = await db.execute(sql`
+      WITH ranked_results AS (
+        SELECT 
+          bt.user_id,
+          bt.wpm,
+          bt.accuracy,
+          bt.created_at,
+          bp.topic,
+          ROW_NUMBER() OVER (
+            PARTITION BY bt.user_id
+            ORDER BY bt.wpm DESC, bt.created_at DESC
+          ) as user_rank
+        FROM book_typing_tests bt
+        INNER JOIN book_paragraphs bp ON bt.paragraph_id = bp.id
+        WHERE 1=1 ${topicFilter}
+      ),
+      test_counts AS (
+        SELECT bt.user_id, COUNT(*)::int as total_tests, SUM(bt.characters / 5)::int as words_typed
+        FROM book_typing_tests bt
+        INNER JOIN book_paragraphs bp ON bt.paragraph_id = bp.id
+        WHERE 1=1 ${topicFilter}
+        GROUP BY bt.user_id
+      ),
+      books_completed AS (
+        SELECT ubp.user_id, COUNT(CASE WHEN ubp.is_completed = true THEN 1 END)::int as completed_count
+        FROM user_book_progress ubp
+        GROUP BY ubp.user_id
+      ),
+      final_ranking AS (
+        SELECT 
+          rr.user_id,
+          rr.wpm,
+          rr.accuracy,
+          rr.created_at,
+          tc.total_tests,
+          COALESCE(tc.words_typed, 0) as words_typed,
+          COALESCE(bc.completed_count, 0) as books_completed,
+          DENSE_RANK() OVER (ORDER BY rr.wpm DESC) as rank
+        FROM ranked_results rr
+        LEFT JOIN test_counts tc ON rr.user_id = tc.user_id
+        LEFT JOIN books_completed bc ON rr.user_id = bc.user_id
+        WHERE rr.user_rank = 1
+      )
+      SELECT 
+        fr.user_id as "userId",
+        u.username,
+        fr.wpm,
+        fr.accuracy,
+        fr.words_typed as "wordsTyped",
+        fr.books_completed as "booksCompleted",
+        fr.created_at as "createdAt",
+        u.avatar_color as "avatarColor",
+        COALESCE(fr.total_tests, 1) as "totalTests",
+        fr.rank
+      FROM final_ranking fr
+      INNER JOIN users u ON fr.user_id = u.id
+      ORDER BY fr.rank ASC
+      LIMIT ${limit} OFFSET ${offset}
+    `);
+
+    return leaderboard.rows as any[];
+  }
+
+  async getBookLeaderboardCount(topic?: string): Promise<number> {
+    const topicFilter = topic ? sql`AND bp.topic = ${topic}` : sql``;
+
+    const result = await db.execute(sql`
+      SELECT COUNT(DISTINCT bt.user_id) as count
+      FROM book_typing_tests bt
+      INNER JOIN book_paragraphs bp ON bt.paragraph_id = bp.id
+      WHERE 1=1 ${topicFilter}
+    `);
+
+    return (result.rows[0] as any)?.count || 0;
+  }
+
+  async getBookLeaderboardAroundUser(userId: string, topic: string | undefined, range: number = 5): Promise<{ userRank: number; entries: any[] }> {
+    const topicFilter = topic ? sql`AND bp.topic = ${topic}` : sql``;
+
+    const rankResult = await db.execute(sql`
+      WITH ranked_results AS (
+        SELECT 
+          bt.user_id,
+          bt.wpm,
+          ROW_NUMBER() OVER (
+            PARTITION BY bt.user_id
+            ORDER BY bt.wpm DESC
+          ) as user_rank
+        FROM book_typing_tests bt
+        INNER JOIN book_paragraphs bp ON bt.paragraph_id = bp.id
+        WHERE 1=1 ${topicFilter}
+      ),
+      user_best AS (
+        SELECT user_id, wpm FROM ranked_results WHERE user_rank = 1
+      ),
+      final_ranking AS (
+        SELECT 
+          user_id,
+          wpm,
+          DENSE_RANK() OVER (ORDER BY wpm DESC) as rank
+        FROM user_best
+      )
+      SELECT rank FROM final_ranking WHERE user_id = ${userId}
+    `);
+
+    const userRank = (rankResult.rows[0] as any)?.rank || -1;
+
+    if (userRank === -1) {
+      return { userRank: -1, entries: [] };
+    }
+
+    const startRank = Math.max(1, userRank - range);
+    const endRank = userRank + range;
+
+    const entries = await db.execute(sql`
+      WITH ranked_results AS (
+        SELECT 
+          bt.user_id,
+          bt.wpm,
+          bt.accuracy,
+          bt.created_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY bt.user_id
+            ORDER BY bt.wpm DESC
+          ) as user_rank
+        FROM book_typing_tests bt
+        INNER JOIN book_paragraphs bp ON bt.paragraph_id = bp.id
+        WHERE 1=1 ${topicFilter}
+      ),
+      test_counts AS (
+        SELECT bt.user_id, COUNT(*)::int as total_tests, SUM(bt.characters / 5)::int as words_typed
+        FROM book_typing_tests bt
+        INNER JOIN book_paragraphs bp ON bt.paragraph_id = bp.id
+        WHERE 1=1 ${topicFilter}
+        GROUP BY bt.user_id
+      ),
+      books_completed AS (
+        SELECT ubp.user_id, COUNT(CASE WHEN ubp.is_completed = true THEN 1 END)::int as completed_count
+        FROM user_book_progress ubp
+        GROUP BY ubp.user_id
+      ),
+      final_ranking AS (
+        SELECT 
+          rr.user_id,
+          rr.wpm,
+          rr.accuracy,
+          rr.created_at,
+          tc.total_tests,
+          COALESCE(tc.words_typed, 0) as words_typed,
+          COALESCE(bc.completed_count, 0) as books_completed,
+          DENSE_RANK() OVER (ORDER BY rr.wpm DESC) as rank
+        FROM ranked_results rr
+        LEFT JOIN test_counts tc ON rr.user_id = tc.user_id
+        LEFT JOIN books_completed bc ON rr.user_id = bc.user_id
+        WHERE rr.user_rank = 1
+      )
+      SELECT 
+        fr.user_id as "userId",
+        u.username,
+        fr.wpm,
+        fr.accuracy,
+        fr.words_typed as "wordsTyped",
+        fr.books_completed as "booksCompleted",
+        fr.created_at as "createdAt",
+        u.avatar_color as "avatarColor",
+        COALESCE(fr.total_tests, 1) as "totalTests",
+        fr.rank
+      FROM final_ranking fr
+      INNER JOIN users u ON fr.user_id = u.id
+      WHERE fr.rank >= ${startRank} AND fr.rank <= ${endRank}
+      ORDER BY fr.rank ASC
+    `);
+
+    return { userRank, entries: entries.rows as any[] };
+  }
+
   async getTimeBasedLeaderboard(timeframe: "daily" | "weekly" | "monthly", limit: number, offset: number): Promise<Array<{
     userId: string;
     username: string;
@@ -2256,7 +2418,7 @@ export class DatabaseStorage implements IStorage {
     rank: number;
   }>> {
     const dateFilter = this.getTimeframeDateFilter(timeframe);
-    
+
     const leaderboard = await db.execute(sql`
       WITH period_results AS (
         SELECT 
@@ -2312,19 +2474,19 @@ export class DatabaseStorage implements IStorage {
 
   async getTimeBasedLeaderboardCount(timeframe: "daily" | "weekly" | "monthly"): Promise<number> {
     const dateFilter = this.getTimeframeDateFilter(timeframe);
-    
+
     const result = await db.execute(sql`
       SELECT COUNT(DISTINCT user_id)::int as count
       FROM test_results
       WHERE created_at >= ${dateFilter}
     `);
-    
+
     return (result.rows[0] as any)?.count || 0;
   }
 
   private getTimeframeDateFilter(timeframe?: string): Date {
     const now = new Date();
-    
+
     switch (timeframe) {
       case "daily":
         const today = new Date(now);
@@ -2350,11 +2512,11 @@ export class DatabaseStorage implements IStorage {
     const usersResult = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(users);
-    
+
     const testsResult = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(testResults);
-    
+
     const languagesResult = await db
       .select({ count: sql<number>`count(distinct language)::int` })
       .from(typingParagraphs);
@@ -2422,18 +2584,18 @@ export class DatabaseStorage implements IStorage {
       eq(typingParagraphs.mode, mode),
       eq(typingParagraphs.isTypingRelated, false)
     ];
-    
+
     if (difficulty) {
       conditions.push(eq(typingParagraphs.difficulty, difficulty));
     }
-    
+
     const [paragraph] = await db
       .select()
       .from(typingParagraphs)
       .where(and(...conditions))
       .orderBy(sql`RANDOM()`)
       .limit(1);
-    
+
     return paragraph;
   }
 
@@ -2446,23 +2608,23 @@ export class DatabaseStorage implements IStorage {
         eq(typingParagraphs.mode, mode),
         eq(typingParagraphs.isTypingRelated, false)
       ];
-      
+
       if (difficulty) {
         conditions.push(eq(typingParagraphs.difficulty, difficulty));
       }
-      
+
       const [paragraph] = await db
         .select()
         .from(typingParagraphs)
         .where(and(...conditions))
         .orderBy(sql`RANDOM()`)
         .limit(1);
-      
+
       if (paragraph) {
         return paragraph;
       }
     }
-    
+
     // Fallback to any paragraph in the requested language using SQL RANDOM() for better distribution
     const [languageParagraph] = await db
       .select()
@@ -2473,11 +2635,11 @@ export class DatabaseStorage implements IStorage {
       ))
       .orderBy(sql`RANDOM()`)
       .limit(1);
-    
+
     if (languageParagraph) {
       return languageParagraph;
     }
-    
+
     // Final fallback to any English paragraph
     const [englishParagraph] = await db
       .select()
@@ -2488,7 +2650,7 @@ export class DatabaseStorage implements IStorage {
       ))
       .orderBy(sql`RANDOM()`)
       .limit(1);
-    
+
     return englishParagraph;
   }
 
@@ -2498,15 +2660,15 @@ export class DatabaseStorage implements IStorage {
       eq(typingParagraphs.language, language),
       eq(typingParagraphs.isTypingRelated, false)
     ];
-    
+
     if (mode) {
       conditions.push(eq(typingParagraphs.mode, mode));
     }
-    
+
     if (difficulty) {
       conditions.push(eq(typingParagraphs.difficulty, difficulty));
     }
-    
+
     // Use SQL RANDOM() for efficient random selection without loading all rows
     const paragraphs = await db
       .select()
@@ -2514,11 +2676,11 @@ export class DatabaseStorage implements IStorage {
       .where(and(...conditions))
       .orderBy(sql`RANDOM()`)
       .limit(count);
-    
+
     if (paragraphs.length > 0) {
       return paragraphs;
     }
-    
+
     // Fallback to any paragraph in the requested language (exclude typing-related)
     const languageParagraphs = await db
       .select()
@@ -2529,11 +2691,11 @@ export class DatabaseStorage implements IStorage {
       ))
       .orderBy(sql`RANDOM()`)
       .limit(count);
-    
+
     if (languageParagraphs.length > 0) {
       return languageParagraphs;
     }
-    
+
     // Final fallback to English paragraphs (exclude typing-related)
     const englishParagraphs = await db
       .select()
@@ -2544,7 +2706,7 @@ export class DatabaseStorage implements IStorage {
       ))
       .orderBy(sql`RANDOM()`)
       .limit(count);
-    
+
     return englishParagraphs;
   }
 
@@ -2552,14 +2714,14 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .selectDistinct({ language: typingParagraphs.language })
       .from(typingParagraphs);
-    
+
     const languages = result.map(r => r.language);
-    
+
     // Sort languages: English first, Hindi second, Marathi third, then all others alphabetically
     const priorityOrder = ['en', 'hi', 'mr'];
     const priorityLanguages: string[] = [];
     const otherLanguages: string[] = [];
-    
+
     languages.forEach(lang => {
       if (priorityOrder.includes(lang)) {
         priorityLanguages.push(lang);
@@ -2567,13 +2729,13 @@ export class DatabaseStorage implements IStorage {
         otherLanguages.push(lang);
       }
     });
-    
+
     // Sort priority languages by their order in priorityOrder array
     priorityLanguages.sort((a, b) => priorityOrder.indexOf(a) - priorityOrder.indexOf(b));
-    
+
     // Sort other languages alphabetically
     otherLanguages.sort();
-    
+
     return [...priorityLanguages, ...otherLanguages];
   }
 
@@ -2612,14 +2774,20 @@ export class DatabaseStorage implements IStorage {
       maxWpm: number;
     };
     commonMistakes: Array<{ expectedKey: string; typedKey: string; count: number }>;
+    keyHeatmap: Record<string, number>;
+    fingerUsage: Record<string, number>;
+    handBalance: number;
+    topDigraphs: Array<{ digraph: string; avgTime: number; count: number }>;
+    bottomDigraphs: Array<{ digraph: string; avgTime: number; count: number }>;
   }> {
+
     // Validate and clamp days to safe range to prevent SQL injection
     const safeDays = Math.max(1, Math.min(365, Math.floor(days)));
-    
+
     // Calculate the cutoff date server-side (safer than using INTERVAL with sql.raw)
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - safeDays);
-    
+
     // Get WPM over time (grouped by date)
     const wpmDataQuery = await db.execute(sql`
       SELECT 
@@ -2630,10 +2798,14 @@ export class DatabaseStorage implements IStorage {
       FROM test_results
       WHERE user_id = ${userId}
         AND created_at >= ${cutoffDate}
+        AND wpm > 0
+        AND accuracy > 0
+        AND wpm > 0 
+        AND accuracy > 0
       GROUP BY DATE(created_at)
       ORDER BY date ASC
     `);
-    
+
     const wpmOverTime = wpmDataQuery.rows.map((row: any) => ({
       date: row.date,
       wpm: Number(row.wpm) || 0,
@@ -2695,6 +2867,8 @@ export class DatabaseStorage implements IStorage {
       FROM test_results
       WHERE user_id = ${userId}
         AND created_at >= ${cutoffDate}
+        AND wpm > 0
+        AND accuracy > 0
     `);
 
     const consistencyData = consistencyQuery.rows[0] as any;
@@ -2729,11 +2903,92 @@ export class DatabaseStorage implements IStorage {
       count: Number(row.count) || 0,
     }));
 
+    // Get aggregated Key Heatmap
+    const keyHeatmapQuery = await db.execute(sql`
+      SELECT key, SUM(value::int)::int as count
+      FROM typing_analytics, jsonb_each_text(key_heatmap)
+      WHERE user_id = ${userId} 
+        AND created_at >= ${cutoffDate}
+        AND key_heatmap IS NOT NULL
+      GROUP BY key
+    `);
+
+    const keyHeatmap: Record<string, number> = {};
+    keyHeatmapQuery.rows.forEach((row: any) => {
+      keyHeatmap[row.key] = Number(row.count);
+    });
+
+    // Get aggregated Finger Usage
+    const fingerUsageQuery = await db.execute(sql`
+      SELECT key, SUM(value::int)::int as count
+      FROM typing_analytics, jsonb_each_text(finger_usage)
+      WHERE user_id = ${userId} 
+        AND created_at >= ${cutoffDate}
+        AND finger_usage IS NOT NULL
+      GROUP BY key
+    `);
+
+    const fingerUsage: Record<string, number> = {};
+    fingerUsageQuery.rows.forEach((row: any) => {
+      fingerUsage[row.key] = Number(row.count);
+    });
+
+    // Get average Hand Balance
+    const handBalanceQuery = await db.execute(sql`
+      SELECT COALESCE(AVG(hand_balance), 50)::float as avg_hand_balance
+      FROM typing_analytics
+      WHERE user_id = ${userId} 
+        AND created_at >= ${cutoffDate} 
+        AND hand_balance IS NOT NULL
+    `);
+
+    const handBalance = Number(handBalanceQuery.rows[0]?.avg_hand_balance || 50);
+
+    // Get Aggregated Digraphs
+    // We combine top and bottom lists to get a full picture, then re-rank
+    const digraphsQuery = await db.execute(sql`
+      WITH all_digraphs AS (
+          SELECT 
+              value->>'digraph' as digraph,
+              (value->>'avgTime')::float as avg_time,
+              (value->>'count')::int as count
+          FROM typing_analytics,
+               jsonb_array_elements(COALESCE(top_digraphs, '[]'::jsonb) || COALESCE(bottom_digraphs, '[]'::jsonb)) as value
+          WHERE user_id = ${userId} 
+            AND created_at >= ${cutoffDate}
+      )
+      SELECT 
+          digraph,
+          SUM(avg_time * count) / NULLIF(SUM(count), 0) as weighted_avg_time,
+          SUM(count)::int as total_count
+      FROM all_digraphs
+      WHERE digraph IS NOT NULL
+      GROUP BY digraph
+      ORDER BY weighted_avg_time ASC
+    `);
+
+    const allDigraphs = digraphsQuery.rows.map((row: any) => ({
+      digraph: row.digraph,
+      avgTime: Math.round(Number(row.weighted_avg_time)),
+      count: Number(row.total_count)
+    }));
+
+    // Top 5 Fastest (lowest time)
+    const topDigraphs = allDigraphs.slice(0, 5);
+
+    // Bottom 5 Slowest (highest time) - Filter out low sample size if needed, but for now take raw slowest
+    const bottomDigraphs = [...allDigraphs].sort((a, b) => b.avgTime - a.avgTime).slice(0, 5);
+
     return {
       wpmOverTime,
       mistakesHeatmap,
       consistency,
       commonMistakes,
+      keyHeatmap,
+      fingerUsage,
+      handBalance,
+      topDigraphs,
+      bottomDigraphs
     };
   }
 
@@ -2775,6 +3030,8 @@ export class DatabaseStorage implements IStorage {
       FROM test_results
       WHERE user_id = ${userId}
         AND created_at >= NOW() - INTERVAL '12 weeks'
+        AND wpm > 0 
+        AND accuracy > 0
       GROUP BY DATE_TRUNC('week', created_at)
       ORDER BY week_start ASC
     `);
@@ -2833,8 +3090,8 @@ export class DatabaseStorage implements IStorage {
     const allTimeQuery = await db.execute(sql`
       WITH first_last AS (
         SELECT 
-          (SELECT wpm FROM test_results WHERE user_id = ${userId} ORDER BY created_at ASC LIMIT 1) as first_wpm,
-          (SELECT ROUND(AVG(wpm))::int FROM test_results WHERE user_id = ${userId} AND created_at >= NOW() - INTERVAL '7 days') as current_wpm
+          (SELECT wpm FROM test_results WHERE user_id = ${userId} AND wpm > 0 ORDER BY created_at ASC LIMIT 1) as first_wpm,
+          (SELECT ROUND(AVG(wpm))::int FROM (SELECT wpm FROM test_results WHERE user_id = ${userId} AND wpm > 0 ORDER BY created_at DESC LIMIT 10) as recent) as current_wpm
       )
       SELECT first_wpm, current_wpm FROM first_last
     `);
@@ -2905,9 +3162,9 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async updateUserStreak(userId: string): Promise<{ 
-    newStreak: number; 
-    previousStreak: number; 
+  async updateUserStreak(userId: string): Promise<{
+    newStreak: number;
+    previousStreak: number;
     isMilestone: boolean;
     milestoneReward?: number;
   } | null> {
@@ -2916,7 +3173,7 @@ export class DatabaseStorage implements IStorage {
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
+
     let newStreak = 1;
     let newBestStreak = user.bestStreak;
     const previousStreak = user.currentStreak;
@@ -3001,10 +3258,10 @@ export class DatabaseStorage implements IStorage {
   async extendRaceParagraph(id: number, additionalContent: string): Promise<Race | undefined> {
     const race = await this.getRace(id);
     if (!race) return undefined;
-    
+
     const newContent = race.paragraphContent + " " + additionalContent;
     await db.update(races).set({ paragraphContent: newContent }).where(eq(races.id, id));
-    
+
     return { ...race, paragraphContent: newContent };
   }
 
@@ -3075,8 +3332,8 @@ export class DatabaseStorage implements IStorage {
 
       await tx
         .update(raceParticipants)
-        .set({ 
-          isFinished: 1, 
+        .set({
+          isFinished: 1,
           finishPosition: position,
           finishedAt: new Date()
         })
@@ -3096,7 +3353,7 @@ export class DatabaseStorage implements IStorage {
   async reactivateRaceParticipant(id: number): Promise<RaceParticipant> {
     const result = await db
       .update(raceParticipants)
-      .set({ 
+      .set({
         isActive: 1,
         progress: 0,
         wpm: 0,
@@ -3117,19 +3374,19 @@ export class DatabaseStorage implements IStorage {
       eq(raceParticipants.raceId, raceId),
       eq(raceParticipants.isActive, 0)
     ];
-    
+
     if (userId) {
       conditions.push(eq(raceParticipants.userId, userId));
     } else if (guestName) {
       conditions.push(eq(raceParticipants.guestName, guestName));
     }
-    
+
     const result = await db
       .select()
       .from(raceParticipants)
       .where(and(...conditions))
       .limit(1);
-    
+
     return result[0];
   }
 
@@ -3142,19 +3399,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getStaleRaces(waitingTimeout: number, countdownTimeout: number, racingTimeout: number): Promise<Race[]> {
-    const now = new Date();
-    const waitingCutoff = new Date(now.getTime() - waitingTimeout);
-    const countdownCutoff = new Date(now.getTime() - countdownTimeout);
-    const racingCutoff = new Date(now.getTime() - racingTimeout);
+    // Use SQL interval comparison to avoid timezone issues between JS and PostgreSQL
+    // Convert milliseconds to seconds for PostgreSQL interval
+    const waitingSeconds = Math.floor(waitingTimeout / 1000);
+    const countdownSeconds = Math.floor(countdownTimeout / 1000);
+    const racingSeconds = Math.floor(racingTimeout / 1000);
 
     return await db
       .select()
       .from(races)
       .where(
         or(
-          and(eq(races.status, "waiting"), sql`${races.createdAt} < ${waitingCutoff}`),
-          and(eq(races.status, "countdown"), sql`${races.createdAt} < ${countdownCutoff}`),
-          and(eq(races.status, "racing"), sql`${races.startedAt} < ${racingCutoff}`)
+          and(
+            eq(races.status, "waiting"),
+            sql`${races.createdAt} < NOW() - INTERVAL '${sql.raw(waitingSeconds.toString())} seconds'`
+          ),
+          and(
+            eq(races.status, "countdown"),
+            sql`${races.createdAt} < NOW() - INTERVAL '${sql.raw(countdownSeconds.toString())} seconds'`
+          ),
+          and(
+            eq(races.status, "racing"),
+            sql`${races.startedAt} < NOW() - INTERVAL '${sql.raw(racingSeconds.toString())} seconds'`
+          )
         )
       )
       .limit(100);
@@ -3162,7 +3429,7 @@ export class DatabaseStorage implements IStorage {
 
   async cleanupOldFinishedRaces(retentionMs: number): Promise<number> {
     const cutoff = new Date(Date.now() - retentionMs);
-    
+
     const result = await db
       .delete(races)
       .where(
@@ -3172,7 +3439,7 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .returning({ id: races.id });
-    
+
     return result.length;
   }
 
@@ -3180,7 +3447,8 @@ export class DatabaseStorage implements IStorage {
     if (updates.size === 0) return;
 
     const entries = Array.from(updates.entries());
-    
+
+    // For single update, use simple query
     if (entries.length === 1) {
       const [id, data] = entries[0];
       await db
@@ -3195,30 +3463,38 @@ export class DatabaseStorage implements IStorage {
       return;
     }
 
-    const BATCH_SIZE = 10;
-    const MAX_CONCURRENT = 3;
+    // Use a single bulk UPDATE with CASE statements for true bulk operation
+    // This reduces N database roundtrips to just 1
+    try {
+      const ids = entries.map(([id]) => id);
+      const progressCases = entries.map(([id, data]) => `WHEN id = ${id} THEN ${data.progress}`).join(' ');
+      const wpmCases = entries.map(([id, data]) => `WHEN id = ${id} THEN ${data.wpm}`).join(' ');
+      const accuracyCases = entries.map(([id, data]) => `WHEN id = ${id} THEN ${Math.round(data.accuracy * 100) / 100}`).join(' ');
+      const errorsCases = entries.map(([id, data]) => `WHEN id = ${id} THEN ${data.errors}`).join(' ');
 
-    const batches: typeof entries[] = [];
-    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-      batches.push(entries.slice(i, i + BATCH_SIZE));
-    }
-
-    for (let i = 0; i < batches.length; i += MAX_CONCURRENT) {
-      const concurrentBatches = batches.slice(i, i + MAX_CONCURRENT);
-      
-      await Promise.all(concurrentBatches.map(async (batch) => {
-        for (const [id, data] of batch) {
-          await db
-            .update(raceParticipants)
-            .set({
-              progress: data.progress,
-              wpm: data.wpm,
-              accuracy: data.accuracy,
-              errors: data.errors,
-            })
-            .where(eq(raceParticipants.id, id));
-        }
-      }));
+      await db.execute(sql`
+        UPDATE race_participants 
+        SET 
+          progress = CASE ${sql.raw(progressCases)} END,
+          wpm = CASE ${sql.raw(wpmCases)} END,
+          accuracy = CASE ${sql.raw(accuracyCases)} END,
+          errors = CASE ${sql.raw(errorsCases)} END
+        WHERE id = ANY(${ids})
+      `);
+    } catch (error) {
+      // Fallback to individual updates if bulk fails
+      console.warn("[Storage] Bulk update failed, falling back to individual updates:", error);
+      for (const [id, data] of entries) {
+        await db
+          .update(raceParticipants)
+          .set({
+            progress: data.progress,
+            wpm: data.wpm,
+            accuracy: data.accuracy,
+            errors: data.errors,
+          })
+          .where(eq(raceParticipants.id, id));
+      }
     }
   }
 
@@ -3234,25 +3510,25 @@ export class DatabaseStorage implements IStorage {
 
   async getRandomCodeSnippet(language: string, difficulty?: string, framework?: string): Promise<CodeSnippet | undefined> {
     const conditions = [eq(codeSnippets.programmingLanguage, language)];
-    
+
     if (difficulty) {
       conditions.push(eq(codeSnippets.difficulty, difficulty));
     }
-    
+
     if (framework) {
       conditions.push(eq(codeSnippets.framework, framework));
     }
-    
+
     const snippets = await db
       .select()
       .from(codeSnippets)
       .where(and(...conditions));
-    
+
     if (snippets.length > 0) {
       const randomIndex = Math.floor(Math.random() * snippets.length);
       return snippets[randomIndex];
     }
-    
+
     return undefined;
   }
 
@@ -3265,7 +3541,7 @@ export class DatabaseStorage implements IStorage {
 
   async getAvailableFrameworks(language?: string): Promise<string[]> {
     let query = db.selectDistinct({ framework: codeSnippets.framework }).from(codeSnippets);
-    
+
     if (language) {
       query = query.where(and(
         eq(codeSnippets.programmingLanguage, language),
@@ -3274,7 +3550,7 @@ export class DatabaseStorage implements IStorage {
     } else {
       query = query.where(sql`${codeSnippets.framework} IS NOT NULL`) as any;
     }
-    
+
     const result = await query;
     return result.map(r => r.framework).filter(f => f !== null) as string[];
   }
@@ -3398,52 +3674,52 @@ export class DatabaseStorage implements IStorage {
 
   async getBookParagraphs(filters: { difficulty?: string; topic?: string; durationMode?: number; limit?: number }): Promise<BookParagraph[]> {
     const conditions = [];
-    
+
     if (filters.difficulty) {
       conditions.push(eq(bookParagraphs.difficulty, filters.difficulty));
     }
-    
+
     if (filters.topic) {
       conditions.push(eq(bookParagraphs.topic, filters.topic));
     }
-    
+
     if (filters.durationMode) {
       conditions.push(eq(bookParagraphs.durationMode, filters.durationMode));
     }
-    
+
     const limit = filters.limit || 10;
-    
+
     let query = db.select().from(bookParagraphs);
-    
+
     if (conditions.length > 0) {
       query = query.where(and(...conditions)) as any;
     }
-    
+
     const result = await query.orderBy(sql`RANDOM()`).limit(limit);
     return result;
   }
 
   async getRandomBookParagraph(filters?: { difficulty?: string; topic?: string; durationMode?: number }): Promise<BookParagraph | null> {
     const conditions = [];
-    
+
     if (filters?.difficulty) {
       conditions.push(eq(bookParagraphs.difficulty, filters.difficulty));
     }
-    
+
     if (filters?.topic) {
       conditions.push(eq(bookParagraphs.topic, filters.topic));
     }
-    
+
     if (filters?.durationMode) {
       conditions.push(eq(bookParagraphs.durationMode, filters.durationMode));
     }
-    
+
     let query = db.select().from(bookParagraphs);
-    
+
     if (conditions.length > 0) {
       query = query.where(and(...conditions)) as any;
     }
-    
+
     const result = await query.orderBy(sql`RANDOM()`).limit(1);
     return result[0] || null;
   }
@@ -3488,7 +3764,7 @@ export class DatabaseStorage implements IStorage {
 
   async insertBookParagraphs(paragraphs: InsertBookParagraph[]): Promise<void> {
     if (paragraphs.length === 0) return;
-    
+
     try {
       await db.insert(bookParagraphs).values(paragraphs);
     } catch (error) {
@@ -3524,7 +3800,7 @@ export class DatabaseStorage implements IStorage {
       .where(eq(bookParagraphs.bookId, bookId))
       .groupBy(bookParagraphs.chapter)
       .orderBy(bookParagraphs.chapter);
-    
+
     // Clean up noisy titles that look like content snippets instead of real chapter titles
     const isValidTitle = (title: string | null): boolean => {
       if (!title) return false;
@@ -3534,7 +3810,7 @@ export class DatabaseStorage implements IStorage {
       if (title.length > 80) return false; // Too long to be a chapter title
       return true;
     };
-    
+
     return result.map(r => ({
       chapter: r.chapter || 1,
       title: isValidTitle(r.title) ? r.title : null,
@@ -3569,25 +3845,25 @@ export class DatabaseStorage implements IStorage {
 
   async getRandomDictationSentence(difficulty?: string, category?: string, excludeIds?: number[]): Promise<DictationSentence | undefined> {
     const conditions = [];
-    
+
     if (difficulty) {
       conditions.push(eq(dictationSentences.difficulty, difficulty));
     }
-    
+
     if (category) {
       conditions.push(eq(dictationSentences.category, category));
     }
-    
+
     if (excludeIds && excludeIds.length > 0) {
       conditions.push(notInArray(dictationSentences.id, excludeIds));
     }
-    
+
     let query = db.select().from(dictationSentences);
-    
+
     if (conditions.length > 0) {
       query = query.where(and(...conditions)) as any;
     }
-    
+
     const result = await query.orderBy(sql`RANDOM()`).limit(1);
     return result[0];
   }
@@ -3680,7 +3956,7 @@ export class DatabaseStorage implements IStorage {
     // INSERT ON CONFLICT to optimize storage for leaderboard entries
     // For leaderboard: only keep best score per user per difficulty
     // For stats: we keep all records to track total tests, averages, etc.
-    
+
     // First, check if user already has an entry for this difficulty with a LOWER score
     // If so, and the new score is higher, we can optionally update or just insert
     // For now, we insert all records for accurate stats (total tests, avg score)
@@ -3688,12 +3964,12 @@ export class DatabaseStorage implements IStorage {
     const inserted = await db.insert(stressTests).values(test).returning();
     return inserted[0];
   }
-  
+
   async upsertStressTestBestScore(test: InsertStressTest): Promise<{ result: StressTest; isNewPersonalBest: boolean }> {
     // Production-ready atomic upsert using PostgreSQL's INSERT ON CONFLICT
     // Uses WHERE clause to compare EXCLUDED vs existing row at conflict time (not pre-insert)
     // This ensures race-safe atomic updates - only updates when new score beats existing
-    
+
     const result = await db.execute(sql`
       INSERT INTO stress_tests (
         user_id, difficulty, enabled_effects, wpm, accuracy, errors,
@@ -3724,7 +4000,7 @@ export class DatabaseStorage implements IStorage {
         OR (EXCLUDED.stress_score = stress_tests.stress_score AND EXCLUDED.wpm > stress_tests.wpm)
       RETURNING *, (xmax = 0) as is_insert
     `);
-    
+
     // If no rows returned, the WHERE condition failed (existing score is better)
     // Need to fetch the existing record
     if (result.rows.length === 0) {
@@ -3738,20 +4014,20 @@ export class DatabaseStorage implements IStorage {
           )
         )
         .limit(1);
-      
+
       return {
         result: existing[0],
         isNewPersonalBest: false,
       };
     }
-    
+
     const row = result.rows[0] as any;
     // If row was returned, it means either:
     // 1. New insert (is_insert = true, xmax = 0)
     // 2. Update occurred because WHERE condition passed (xmax != 0)
     // Either way, this is a new personal best
     const isNewPersonalBest = true;
-    
+
     return {
       result: {
         id: row.id,
@@ -3795,9 +4071,13 @@ export class DatabaseStorage implements IStorage {
     rank: number;
   }>> {
     // Production-ready leaderboard query using ROW_NUMBER() to guarantee exactly
-    // one entry per user per difficulty, with proper tiebreaking by WPM and date
+    // one entry per user. When difficulty is specified, partition by user_id AND difficulty.
+    // When showing all difficulties, partition by user_id only (one best overall).
     const difficultyFilter = difficulty ? sql`AND st.difficulty = ${difficulty}` : sql``;
-    
+    const partitionClause = difficulty
+      ? sql`PARTITION BY st.user_id, st.difficulty`
+      : sql`PARTITION BY st.user_id`;
+
     const leaderboard = await db.execute(sql`
       WITH ranked_scores AS (
         SELECT 
@@ -3809,7 +4089,7 @@ export class DatabaseStorage implements IStorage {
           st.completion_rate,
           st.created_at,
           ROW_NUMBER() OVER (
-            PARTITION BY st.user_id, st.difficulty
+            ${partitionClause}
             ORDER BY st.stress_score DESC, st.wpm DESC, st.created_at DESC
           ) as user_rank
         FROM stress_tests st
@@ -4084,24 +4364,24 @@ export class DatabaseStorage implements IStorage {
         .orderBy(notificationJobs.sendAtUtc)
         .limit(limit)
         .for('update', { skipLocked: true });
-      
+
       if (dueJobs.length === 0) return [];
-      
+
       const jobIds = dueJobs.map(j => j.id);
       const updated = await tx
         .update(notificationJobs)
-        .set({ 
-          status: 'claimed', 
+        .set({
+          status: 'claimed',
           claimedAt: new Date(),
           attemptCount: sql`${notificationJobs.attemptCount} + 1`,
           lastAttemptAt: new Date()
         })
         .where(inArray(notificationJobs.id, jobIds))
         .returning();
-      
+
       return updated;
     });
-    
+
     return claimed;
   }
 
@@ -4115,8 +4395,8 @@ export class DatabaseStorage implements IStorage {
   async markJobFailed(jobId: number, errorMessage: string): Promise<void> {
     await db
       .update(notificationJobs)
-      .set({ 
-        status: 'failed', 
+      .set({
+        status: 'failed',
         errorMessage,
         lastAttemptAt: new Date()
       })
@@ -4126,8 +4406,8 @@ export class DatabaseStorage implements IStorage {
   async rescheduleJob(jobId: number, newSendAtUtc: Date): Promise<void> {
     await db
       .update(notificationJobs)
-      .set({ 
-        status: 'pending', 
+      .set({
+        status: 'pending',
         sendAtUtc: newSendAtUtc,
         claimedAt: null,
         errorMessage: null
@@ -4138,7 +4418,7 @@ export class DatabaseStorage implements IStorage {
   async deleteCompletedJobsOlderThan(daysAgo: number): Promise<number> {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysAgo);
-    
+
     const deleted = await db
       .delete(notificationJobs)
       .where(
@@ -4148,7 +4428,7 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .returning({ id: notificationJobs.id });
-    
+
     return deleted.length;
   }
 
@@ -4158,12 +4438,12 @@ export class DatabaseStorage implements IStorage {
   }>> {
     const preferenceColumn = notificationType === 'daily_reminder' ? 'daily_reminder'
       : notificationType === 'streak_warning' ? 'streak_warning'
-      : notificationType === 'weekly_summary' ? 'weekly_summary'
-      : notificationType === 'tip_of_the_day' ? 'tip_of_the_day'
-      : null;
-    
+        : notificationType === 'weekly_summary' ? 'weekly_summary'
+          : notificationType === 'tip_of_the_day' ? 'tip_of_the_day'
+            : null;
+
     if (!preferenceColumn) return [];
-    
+
     const results = await db.execute<{
       u_id: string;
       u_username: string;
@@ -4171,6 +4451,7 @@ export class DatabaseStorage implements IStorage {
       u_password: string;
       u_email_verified: boolean;
       u_is_active: boolean;
+      u_is_test_data: boolean;
       u_avatar_color: string | null;
       u_bio: string | null;
       u_country: string | null;
@@ -4192,7 +4473,7 @@ export class DatabaseStorage implements IStorage {
       SELECT DISTINCT ON (u.id)
         u.id as u_id, u.username as u_username, u.email as u_email, 
         u.password as u_password, u.email_verified as u_email_verified, 
-        u.is_active as u_is_active, u.avatar_color as u_avatar_color,
+        u.is_active as u_is_active, u.is_test_data as u_is_test_data, u.avatar_color as u_avatar_color,
         u.bio as u_bio, u.country as u_country, u.keyboard_layout as u_keyboard_layout,
         u.timezone as u_timezone, u.current_streak as u_current_streak,
         u.best_streak as u_best_streak, u.last_test_date as u_last_test_date,
@@ -4210,7 +4491,7 @@ export class DatabaseStorage implements IStorage {
       OFFSET ${offset}
       LIMIT ${limit}
     `);
-    
+
     return results.rows.map(r => ({
       user: {
         id: r.u_id,
@@ -4219,6 +4500,7 @@ export class DatabaseStorage implements IStorage {
         password: r.u_password,
         emailVerified: r.u_email_verified,
         isActive: r.u_is_active,
+        isTestData: r.u_is_test_data || false,
         avatarColor: r.u_avatar_color,
         bio: r.u_bio,
         country: r.u_country,
@@ -4258,7 +4540,7 @@ export class DatabaseStorage implements IStorage {
 
   async getUsersForDailyReminders(currentHour: number): Promise<Array<{ id: string; username: string; currentStreak: number }>> {
     const currentHourStr = `${String(currentHour).padStart(2, '0')}:%`;
-    
+
     const results = await db
       .select({
         id: users.id,
@@ -4276,7 +4558,7 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .groupBy(users.id, users.username, users.currentStreak);
-    
+
     return results.map(r => ({
       id: r.id,
       username: r.username,
@@ -4289,7 +4571,7 @@ export class DatabaseStorage implements IStorage {
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
-    
+
     const results = await db
       .select({
         id: users.id,
@@ -4312,7 +4594,7 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .groupBy(users.id, users.username, users.currentStreak);
-    
+
     return results.map(r => ({
       id: r.id,
       username: r.username,
@@ -4336,7 +4618,7 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .groupBy(users.id, users.username);
-    
+
     return results;
   }
 
@@ -4347,7 +4629,7 @@ export class DatabaseStorage implements IStorage {
       })
       .from(testResults)
       .where(eq(testResults.userId, userId));
-    
+
     return results[0]?.avgWpm || 0;
   }
 
@@ -4361,12 +4643,12 @@ export class DatabaseStorage implements IStorage {
     const now = new Date();
     const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-    
+
     const currentWeekResults = await db
       .select({
         count: sql<number>`CAST(COUNT(*) AS INTEGER)`,
-        avgWpm: sql<number>`COALESCE(ROUND(AVG(${testResults.wpm})), 0)`,
-        avgAccuracy: sql<number>`COALESCE(ROUND(AVG(${testResults.accuracy}), 1), 0)`,
+        avgWpm: sql<number>`COALESCE(ROUND(CAST(AVG(${testResults.wpm}) AS NUMERIC)), 0)`,
+        avgAccuracy: sql<number>`COALESCE(ROUND(CAST(AVG(${testResults.accuracy}) AS NUMERIC), 1), 0)`,
       })
       .from(testResults)
       .where(
@@ -4375,11 +4657,11 @@ export class DatabaseStorage implements IStorage {
           sql`${testResults.createdAt} >= ${oneWeekAgo}`
         )
       );
-    
-    const testsCompleted = currentWeekResults[0]?.count || 0;
-    const avgWpm = currentWeekResults[0]?.avgWpm || 0;
-    const avgAccuracy = currentWeekResults[0]?.avgAccuracy || 0;
-    
+
+    const testsCompleted = Number(currentWeekResults[0]?.count) || 0;
+    const avgWpm = Number(currentWeekResults[0]?.avgWpm) || 0;
+    const avgAccuracy = Number(currentWeekResults[0]?.avgAccuracy) || 0;
+
     if (testsCompleted === 0) {
       return {
         testsCompleted: 0,
@@ -4389,10 +4671,10 @@ export class DatabaseStorage implements IStorage {
         rank: 0,
       };
     }
-    
+
     const previousWeekResults = await db
       .select({
-        avgWpm: sql<number>`COALESCE(ROUND(AVG(${testResults.wpm})), 0)`,
+        avgWpm: sql<number>`COALESCE(ROUND(CAST(AVG(${testResults.wpm}) AS NUMERIC)), 0)`,
       })
       .from(testResults)
       .where(
@@ -4402,7 +4684,7 @@ export class DatabaseStorage implements IStorage {
           sql`${testResults.createdAt} < ${oneWeekAgo}`
         )
       );
-    
+
     const weeklyRankResults = await db
       .select({
         rank: sql<number>`CAST(COUNT(DISTINCT ${users.id}) + 1 AS INTEGER)`,
@@ -4419,11 +4701,11 @@ export class DatabaseStorage implements IStorage {
       )
       .groupBy(users.id)
       .having(sql`AVG(${testResults.wpm}) > ${avgWpm}`);
-    
-    const previousWpm = previousWeekResults[0]?.avgWpm || avgWpm;
+
+    const previousWpm = Number(previousWeekResults[0]?.avgWpm) || avgWpm;
     const improvement = avgWpm - previousWpm;
-    const rank = weeklyRankResults[0]?.rank || 1;
-    
+    const rank = Number(weeklyRankResults[0]?.rank) || 1;
+
     return {
       testsCompleted,
       avgWpm,
@@ -4476,7 +4758,7 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(achievements, eq(userAchievements.achievementId, achievements.id))
       .where(eq(userAchievements.userId, userId))
       .orderBy(desc(userAchievements.unlockedAt));
-    
+
     return results.map(row => ({
       ...row.user_achievements,
       achievement: row.achievements!,
@@ -4518,7 +4800,7 @@ export class DatabaseStorage implements IStorage {
 
   async updateChallengeProgress(userId: string, challengeId: number, progress: number): Promise<UserChallenge> {
     const existing = await this.getUserChallengeProgress(userId, challengeId);
-    
+
     if (existing) {
       const updated = await db
         .update(userChallenges)
@@ -4684,13 +4966,13 @@ export class DatabaseStorage implements IStorage {
       .where(eq(persistentLogins.userId, userId))
       .orderBy(desc(persistentLogins.lastUsed));
   }
-  
+
   // OAuth States (CSRF protection - database persisted for multi-instance support)
   async createOAuthState(state: InsertOAuthState): Promise<OAuthState> {
     const inserted = await db.insert(oauthStates).values(state).returning();
     return inserted[0];
   }
-  
+
   async getOAuthState(state: string): Promise<OAuthState | undefined> {
     const result = await db
       .select()
@@ -4699,11 +4981,11 @@ export class DatabaseStorage implements IStorage {
       .limit(1);
     return result[0];
   }
-  
+
   async deleteOAuthState(state: string): Promise<void> {
     await db.delete(oauthStates).where(eq(oauthStates.state, state));
   }
-  
+
   async deleteExpiredOAuthStates(): Promise<number> {
     const now = new Date();
     const result = await db
@@ -4712,16 +4994,16 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return result.length;
   }
-  
+
   // Audit Logs (Security event tracking - database persisted for compliance)
   async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
     const inserted = await db.insert(auditLogs).values(log).returning();
     return inserted[0];
   }
-  
+
   async getAuditLogs(filters?: { userId?: string; eventType?: string; limit?: number }): Promise<AuditLog[]> {
     let query = db.select().from(auditLogs);
-    
+
     const conditions = [];
     if (filters?.userId) {
       conditions.push(eq(auditLogs.userId, filters.userId));
@@ -4729,16 +5011,16 @@ export class DatabaseStorage implements IStorage {
     if (filters?.eventType) {
       conditions.push(eq(auditLogs.eventType, filters.eventType));
     }
-    
+
     if (conditions.length > 0) {
       query = query.where(and(...conditions)) as typeof query;
     }
-    
+
     return await query
       .orderBy(desc(auditLogs.createdAt))
       .limit(filters?.limit || 100);
   }
-  
+
   async getUserAuditLogs(userId: string, limit: number = 50): Promise<AuditLog[]> {
     return await db
       .select()
@@ -4787,11 +5069,11 @@ export class DatabaseStorage implements IStorage {
 
   async getRatingLeaderboard(tier?: string, limit: number = 100): Promise<UserRating[]> {
     let query = db.select().from(userRatings);
-    
+
     if (tier) {
       query = query.where(eq(userRatings.tier, tier)) as typeof query;
     }
-    
+
     return await query
       .orderBy(desc(userRatings.rating))
       .limit(limit);
@@ -4800,16 +5082,16 @@ export class DatabaseStorage implements IStorage {
   async getUsersForMatchmaking(targetRating: number, tolerance: number, excludeUserIds: string[]): Promise<UserRating[]> {
     const minRating = targetRating - tolerance;
     const maxRating = targetRating + tolerance;
-    
+
     const baseCondition = and(
       sql`${userRatings.rating} >= ${minRating}`,
       sql`${userRatings.rating} <= ${maxRating}`
     );
-    
+
     const whereCondition = excludeUserIds.length > 0
       ? and(baseCondition, notInArray(userRatings.userId, excludeUserIds))
       : baseCondition;
-    
+
     return await db
       .select()
       .from(userRatings)
@@ -5005,7 +5287,7 @@ export class DatabaseStorage implements IStorage {
   async updateChallengePassed(challengeId: number, passed: boolean, wpm: number, certifiedWpm: number): Promise<void> {
     const certifiedUntil = new Date();
     certifiedUntil.setDate(certifiedUntil.getDate() + 7); // Certification valid for 7 days
-    
+
     await db
       .update(antiCheatChallenges)
       .set({
@@ -5121,10 +5403,10 @@ export class DatabaseStorage implements IStorage {
 
     // Determine sort order
     const sortColumn = options.sortBy === 'priority' ? feedback.priority :
-                       options.sortBy === 'status' ? feedback.status :
-                       options.sortBy === 'sentimentScore' ? feedback.sentimentScore :
-                       options.sortBy === 'upvotes' ? feedback.upvotes :
-                       feedback.createdAt;
+      options.sortBy === 'status' ? feedback.status :
+        options.sortBy === 'sentimentScore' ? feedback.sentimentScore :
+          options.sortBy === 'upvotes' ? feedback.upvotes :
+            feedback.createdAt;
     const order = options.sortOrder === 'asc' ? sql`ASC` : sql`DESC`;
 
     // Get paginated results
@@ -5286,28 +5568,28 @@ export class DatabaseStorage implements IStorage {
         await tx
           .delete(feedbackUpvotes)
           .where(eq(feedbackUpvotes.id, existing[0].id));
-        
+
         // Decrement count
         const updated = await tx
           .update(feedback)
           .set({ upvotes: sql`${feedback.upvotes} - 1` })
           .where(eq(feedback.id, feedbackId))
           .returning();
-        
+
         return { upvoted: false, newCount: updated[0]?.upvotes || 0 };
       } else {
         // Add upvote
         await tx
           .insert(feedbackUpvotes)
           .values({ feedbackId, userId });
-        
+
         // Increment count
         const updated = await tx
           .update(feedback)
           .set({ upvotes: sql`${feedback.upvotes} + 1` })
           .where(eq(feedback.id, feedbackId))
           .returning();
-        
+
         return { upvoted: true, newCount: updated[0]?.upvotes || 1 };
       }
     });
@@ -5411,7 +5693,7 @@ export class DatabaseStorage implements IStorage {
       });
     } else {
       const record = existing[0];
-      
+
       if (record.windowStart < windowStart) {
         // Reset window
         await db

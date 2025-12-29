@@ -241,6 +241,7 @@ class BotService {
   private activeBots: Map<number, NodeJS.Timeout> = new Map();
   private botProfiles: Map<number, BotProfile> = new Map();
   private botParagraphLengths: Map<number, number> = new Map();
+  private stoppedBots: Set<number> = new Set(); // Track bots that should stop
 
   async generateUniqueBotNames(count: number): Promise<string[]> {
     return botNamePool.getRandomNames(count);
@@ -437,6 +438,9 @@ class BotService {
     profile.lastCharacter = '';
     profile.currentMomentumWPM = 0; // Start at 0, will build up during warmup
     
+    // Clear stopped flag in case bot was stopped in a previous race
+    this.stoppedBots.delete(participantId);
+    
     console.log(`[Bot Typing] Bot ${profile.username} (${participantId}) starting: ${profile.skillLevel} level, target ${profile.targetWPM} WPM, paragraph ${paragraphLength} chars`);
 
     this.botParagraphLengths.set(participantId, paragraphLength);
@@ -447,9 +451,15 @@ class BotService {
     let startTime = Date.now();
     let accumulatedDelay = 0;
     let lastBroadcastTime = Date.now();
-    const BROADCAST_INTERVAL = 150; // Broadcast updates every 150ms for smooth UI
+    const BROADCAST_INTERVAL = 200; // Broadcast updates every 200ms (reduced from 150ms for performance)
 
     const simulate = async () => {
+      // Check if bot was stopped (race finished, cleanup, etc.)
+      if (this.stoppedBots.has(participantId)) {
+        this.stoppedBots.delete(participantId); // Clean up the stopped flag
+        return;
+      }
+      
       const currentProfile = this.botProfiles.get(participantId);
       if (!currentProfile) {
         console.log(`[Bot Typing] Bot ${participantId} profile removed, stopping simulation`);
@@ -588,6 +598,9 @@ class BotService {
   }
 
   stopBotTyping(participantId: number) {
+    // Mark bot as stopped to prevent race condition with ongoing simulate()
+    this.stoppedBots.add(participantId);
+    
     const timer = this.activeBots.get(participantId);
     if (timer) {
       clearTimeout(timer);

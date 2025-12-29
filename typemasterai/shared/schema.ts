@@ -10,6 +10,7 @@ export const users = pgTable("users", {
   password: text("password"),
   emailVerified: boolean("email_verified").default(false).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
+  isTestData: boolean("is_test_data").default(false).notNull(),
   avatarColor: text("avatar_color").default("bg-primary"),
   bio: text("bio"),
   country: text("country"),

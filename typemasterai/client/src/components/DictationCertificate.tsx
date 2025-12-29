@@ -167,6 +167,25 @@ export function DictationCertificate({
       ctx.fillStyle = "#888";
       ctx.fillText("TypeMasterAI - Dictation Mode", width / 2, 160);
 
+      // Mode badge (top right corner) - Dictation Mode indicator
+      const badgeText = "Dictation Mode";
+      ctx.font = "bold 18px system-ui, -apple-system, sans-serif";
+      const badgeWidth = ctx.measureText(badgeText).width + 40;
+      const badgeX = width - 60 - badgeWidth;
+      const badgeY = 55;
+      
+      ctx.fillStyle = "rgba(168, 85, 247, 0.3)";
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeWidth, 36, 18);
+      ctx.fill();
+      ctx.strokeStyle = "#a855f7";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      
+      ctx.fillStyle = "#e9d5ff";
+      ctx.textAlign = "center";
+      ctx.fillText(badgeText, badgeX + badgeWidth / 2, badgeY + 24);
+
       const iconSize = 80;
       const iconX = (width - iconSize) / 2;
       const iconY = 190;

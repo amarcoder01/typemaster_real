@@ -54,6 +54,10 @@ interface DictationState {
   showModeSelector: boolean;
   isWaitingToStart: boolean;
   
+  // Prefetched sentence for instant start (fetched during waiting phase)
+  prefetchedSentence: DictationSentence | null;
+  isPrefetching: boolean;
+  
   // Test Settings
   difficulty: DifficultyLevel;
   speedLevel: string;
@@ -99,12 +103,6 @@ interface DictationState {
   
   // Last saved test ID
   lastTestResultId: number | null;
-  
-  // Challenge Mode Time Limit
-  sessionTimeLimit: number | null;  // Total time limit in seconds (null = no limit)
-  remainingTime: number | null;     // Seconds remaining (null = not counting down)
-  isTimedOut: boolean;              // True when time runs out in challenge mode
-  challengeSentences: import('@shared/schema').DictationSentence[];  // Prefetched sentences for challenge mode
 }
 
 // ============================================================================
@@ -115,6 +113,8 @@ type DictationAction =
   | { type: 'SET_PRACTICE_MODE'; payload: PracticeMode }
   | { type: 'SET_SHOW_MODE_SELECTOR'; payload: boolean }
   | { type: 'SET_IS_WAITING_TO_START'; payload: boolean }
+  | { type: 'SET_PREFETCHED_SENTENCE'; payload: DictationSentence | null }
+  | { type: 'SET_IS_PREFETCHING'; payload: boolean }
   | { type: 'SET_DIFFICULTY'; payload: DifficultyLevel }
   | { type: 'SET_SPEED_LEVEL'; payload: string }
   | { type: 'SET_CATEGORY'; payload: string }
@@ -150,12 +150,7 @@ type DictationAction =
   | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'SET_LAST_TEST_RESULT_ID'; payload: number | null }
   | { type: 'RESET_SESSION' }
-  | { type: 'RESTORE_SESSION'; payload: Partial<DictationState> }
-  | { type: 'SET_SESSION_TIME_LIMIT'; payload: number | null }
-  | { type: 'SET_REMAINING_TIME'; payload: number | null }
-  | { type: 'DECREMENT_REMAINING_TIME' }
-  | { type: 'SET_IS_TIMED_OUT'; payload: boolean }
-  | { type: 'SET_CHALLENGE_SENTENCES'; payload: import('@shared/schema').DictationSentence[] };
+  | { type: 'RESTORE_SESSION'; payload: Partial<DictationState> };
 
 // ============================================================================
 // INITIAL STATE
@@ -165,6 +160,8 @@ const initialState: DictationState = {
   practiceMode: 'quick',
   showModeSelector: true,
   isWaitingToStart: false,
+  prefetchedSentence: null,
+  isPrefetching: false,
   difficulty: 'easy',
   speedLevel: '1.0',
   category: 'all',
@@ -191,10 +188,6 @@ const initialState: DictationState = {
   isLoading: false,
   error: null,
   lastTestResultId: null,
-  sessionTimeLimit: null,
-  remainingTime: null,
-  isTimedOut: false,
-  challengeSentences: [],
 };
 
 // ============================================================================
@@ -209,6 +202,10 @@ function dictationReducer(state: DictationState, action: DictationAction): Dicta
       return { ...state, showModeSelector: action.payload };
     case 'SET_IS_WAITING_TO_START':
       return { ...state, isWaitingToStart: action.payload };
+    case 'SET_PREFETCHED_SENTENCE':
+      return { ...state, prefetchedSentence: action.payload };
+    case 'SET_IS_PREFETCHING':
+      return { ...state, isPrefetching: action.payload };
     case 'SET_DIFFICULTY':
       return { ...state, difficulty: action.payload };
     case 'SET_SPEED_LEVEL':
@@ -301,27 +298,12 @@ function dictationReducer(state: DictationState, action: DictationAction): Dicta
         currentCoachingTip: null,
         showModeSelector: true,
         isWaitingToStart: false,
+        prefetchedSentence: null,
+        isPrefetching: false,
         lastTestResultId: null,
-        sessionTimeLimit: null,
-        remainingTime: null,
-        isTimedOut: false,
-        challengeSentences: [],
       };
     case 'RESTORE_SESSION':
       return { ...state, ...action.payload };
-    case 'SET_SESSION_TIME_LIMIT':
-      return { ...state, sessionTimeLimit: action.payload };
-    case 'SET_REMAINING_TIME':
-      return { ...state, remainingTime: action.payload };
-    case 'DECREMENT_REMAINING_TIME':
-      if (state.remainingTime === null || state.remainingTime <= 0) {
-        return state;
-      }
-      return { ...state, remainingTime: state.remainingTime - 1 };
-    case 'SET_IS_TIMED_OUT':
-      return { ...state, isTimedOut: action.payload };
-    case 'SET_CHALLENGE_SENTENCES':
-      return { ...state, challengeSentences: action.payload };
     default:
       return state;
   }
@@ -384,10 +366,15 @@ export function DictationProvider({ children }: DictationProviderProps) {
     dispatch({ type: 'SET_DIFFICULTY', payload: config.defaultDifficulty });
     dispatch({ type: 'SET_SPEED_LEVEL', payload: '0.8' });
     dispatch({ type: 'SET_SESSION_LENGTH', payload: 1 });
+    dispatch({ type: 'SET_SESSION_PROGRESS', payload: 0 }); // Reset progress for new session
+    dispatch({ type: 'SET_SESSION_COMPLETE', payload: false }); // Reset session complete flag
+    dispatch({ type: 'CLEAR_SESSION_HISTORY' }); // Clear previous session history
     dispatch({ type: 'CLEAR_SHOWN_SENTENCE_IDS' });
     dispatch({ type: 'RESET_TEST_STATE' });
     dispatch({ type: 'SET_SHOW_MODE_SELECTOR', payload: false });
     dispatch({ type: 'SET_IS_WAITING_TO_START', payload: true });
+    // Reset session stats for fresh start
+    dispatch({ type: 'SET_SESSION_STATS', payload: { ...INITIAL_SESSION_STATS } });
   }, []);
   
   const beginSession = useCallback(() => {
@@ -477,12 +464,16 @@ export function DictationProvider({ children }: DictationProviderProps) {
     };
     dispatch({ type: 'ADD_SESSION_HISTORY', payload: historyItem });
     
-    // Update session stats
+    // Update session stats (preserve challenge-specific fields, they are updated separately)
     const newStats: SessionStats = {
       totalWpm: state.sessionStats.totalWpm + result.wpm,
       totalAccuracy: state.sessionStats.totalAccuracy + result.accuracy,
       totalErrors: state.sessionStats.totalErrors + result.errors,
       count: state.sessionStats.count + 1,
+      challengeStreak: state.sessionStats.challengeStreak,
+      maxChallengeStreak: state.sessionStats.maxChallengeStreak,
+      completedInTime: state.sessionStats.completedInTime,
+      timedOut: state.sessionStats.timedOut,
     };
     dispatch({ type: 'SET_SESSION_STATS', payload: newStats });
     

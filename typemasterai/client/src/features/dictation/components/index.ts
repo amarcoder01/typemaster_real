@@ -10,3 +10,4 @@ export { DictationSessionComplete } from './DictationSessionComplete';
 export { DictationSettings } from './DictationSettings';
 export { DictationProgressBar } from './DictationProgressBar';
 export { DictationSetupPanel } from './DictationSetupPanel';
+export { ChallengeTimePreview } from './ChallengeTimePreview';

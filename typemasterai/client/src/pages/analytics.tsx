@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
 import { format, parseISO, isValid } from "date-fns";
 import { useAuth } from "@/lib/auth-context";
 import { Link } from "wouter";
@@ -23,13 +24,13 @@ const ANALYTICS_CONFIG = {
   // Time range options (in days) - sorted ascending
   timeRangeOptions: [7, 14, 30, 60, 90] as const,
   defaultTimeRange: 30,
-  
+
   // AI Configuration
   ai: {
     timeoutMs: 45000,
     maxRetries: 2,
   },
-  
+
   // Display limits - how many items to show in various contexts
   limits: {
     insightsDisplay: 10,
@@ -42,13 +43,13 @@ const ANALYTICS_CONFIG = {
     keystrokeAnalyticsDepth: 10,
     digraphsInPrompt: 5,
   },
-  
+
   // Query caching
   cache: {
     staleTimeMs: 30000,
     retryCount: 2,
   },
-  
+
   // Skill level thresholds (WPM) - configurable speed tiers
   // Based on industry research from typing.com, keybr.com, and Ratatype
   skillThresholds: {
@@ -58,7 +59,7 @@ const ANALYTICS_CONFIG = {
     advanced: 70,       // 50-70 WPM
     expert: 90,         // 70+ WPM = expert
   },
-  
+
   // Skill level profiles with improvement rates and descriptions
   skillProfiles: {
     beginner: {
@@ -87,7 +88,7 @@ const ANALYTICS_CONFIG = {
       improvementRates: { week1: 2, week2: 4, week3: 5 },
     },
   },
-  
+
   // Consistency thresholds
   consistency: {
     coefficientOfVariationThreshold: 15, // CV% above this = inconsistent
@@ -95,7 +96,7 @@ const ANALYTICS_CONFIG = {
     minStdDevAbsolute: 10, // Minimum absolute std dev threshold
     excellentCV: 10, // CV% below this = excellent consistency
   },
-  
+
   // Industry-standard benchmarks for professional-grade insights
   // Based on research from Typing.com, Monkeytype, and academic typing studies
   benchmarks: {
@@ -152,7 +153,7 @@ const ANALYTICS_CONFIG = {
       erratic: 60,           // Very inconsistent
     },
   },
-  
+
   // Finger names mapping for readable output
   fingerNames: {
     L_Pinky: "Left Pinky",
@@ -172,15 +173,15 @@ const calculateDynamicThresholds = (analytics: AnalyticsData) => {
   const avgWpm = analytics.consistency.avgWpm;
   const stdDev = analytics.consistency.stdDeviation;
   const wpmRange = analytics.consistency.maxWpm - analytics.consistency.minWpm;
-  
+
   // Use configurable thresholds and profiles from config
   const { skillThresholds, skillProfiles, consistency: consistencyConfig } = ANALYTICS_CONFIG;
-  
+
   // Consistency calculation using config thresholds
   const coefficientOfVariation = avgWpm > 0 ? (stdDev / avgWpm) * 100 : 0;
-  const isInconsistent = coefficientOfVariation > consistencyConfig.coefficientOfVariationThreshold 
+  const isInconsistent = coefficientOfVariation > consistencyConfig.coefficientOfVariationThreshold
     || stdDev > Math.max(consistencyConfig.minStdDevAbsolute, avgWpm * consistencyConfig.minStdDevFactor);
-  
+
   // Determine skill profile key based on WPM thresholds
   const getSkillProfileKey = (): keyof typeof skillProfiles => {
     if (avgWpm < skillThresholds.beginner) return 'beginner';
@@ -189,10 +190,10 @@ const calculateDynamicThresholds = (analytics: AnalyticsData) => {
     if (avgWpm < skillThresholds.advanced) return 'advanced';
     return 'expert';
   };
-  
+
   const profileKey = getSkillProfileKey();
   const currentProfile = skillProfiles[profileKey];
-  
+
   return {
     speedThresholds: skillThresholds,
     isInconsistent,
@@ -480,32 +481,46 @@ const sanitizeMistakeEntry = (entry: Record<string, unknown>): { key: string; er
 
 const sanitizeAnalyticsData = (data: Partial<AnalyticsData> | undefined): AnalyticsData | null => {
   if (!data) return null;
-  
+
   try {
-    const wpmOverTime = Array.isArray(data.wpmOverTime) 
+    const wpmOverTime = Array.isArray(data.wpmOverTime)
       ? data.wpmOverTime.map(p => sanitizeWpmDataPoint(p as Record<string, unknown>)).filter(p => p.wpm > 0)
       : [];
-    
+
     const mistakesHeatmap = Array.isArray(data.mistakesHeatmap)
-      ? data.mistakesHeatmap.map(m => sanitizeMistakeEntry(m as Record<string, unknown>))
+      ? data.mistakesHeatmap
+          .map(m => sanitizeMistakeEntry(m as Record<string, unknown>))
+          .filter(m => m.key.trim() !== '' && m.errorCount > 0)
       : [];
-    
+
     const commonMistakes = Array.isArray(data.commonMistakes)
-      ? data.commonMistakes.map(m => ({
-          expectedKey: safeString((m as Record<string, unknown>)?.expectedKey, '?'),
-          typedKey: safeString((m as Record<string, unknown>)?.typedKey, '?'),
-          count: safeNumber((m as Record<string, unknown>)?.count, 0),
-        }))
+      ? data.commonMistakes
+          .map(m => ({
+            expectedKey: safeString((m as Record<string, unknown>)?.expectedKey, ''),
+            typedKey: safeString((m as Record<string, unknown>)?.typedKey, ''),
+            count: safeNumber((m as Record<string, unknown>)?.count, 0),
+          }))
+          .filter(m => m.expectedKey.trim() !== '' && m.count > 0)
       : [];
-    
+
     const consistency = {
       avgWpm: safeNumber(data.consistency?.avgWpm, 0),
       stdDeviation: safeNumber(data.consistency?.stdDeviation, 0),
       minWpm: safeNumber(data.consistency?.minWpm, 0),
       maxWpm: safeNumber(data.consistency?.maxWpm, 0),
     };
-    
-    return { wpmOverTime, mistakesHeatmap, commonMistakes, consistency };
+
+    return { 
+      wpmOverTime, 
+      mistakesHeatmap, 
+      commonMistakes, 
+      consistency,
+      keyHeatmap: data.keyHeatmap,
+      fingerUsage: data.fingerUsage,
+      handBalance: data.handBalance,
+      topDigraphs: data.topDigraphs,
+      bottomDigraphs: data.bottomDigraphs
+    };
   } catch {
     return null;
   }
@@ -522,9 +537,9 @@ const PartialDataWarning = ({ hasWpmData, hasMistakeData, hasCommonMistakes }: P
   if (!hasWpmData) missingParts.push('WPM history');
   if (!hasMistakeData) missingParts.push('mistake patterns');
   if (!hasCommonMistakes) missingParts.push('common errors');
-  
+
   if (missingParts.length === 0) return null;
-  
+
   return (
     <Alert className="mb-4" data-testid="partial-data-warning">
       <Info className="h-4 w-4" />
@@ -541,6 +556,70 @@ const EmptyDataState = ({ message }: { message: string }) => (
     <Target className="w-12 h-12 text-muted-foreground mb-4" />
     <h3 className="text-lg font-medium text-muted-foreground mb-2">No Data Available</h3>
     <p className="text-sm text-muted-foreground max-w-md">{message}</p>
+  </div>
+);
+
+const MistakesTabSkeleton = () => (
+  <div className="space-y-4">
+    <div className="flex items-center justify-between mb-4 px-1">
+      <Skeleton className="h-5 w-48" />
+      <Skeleton className="h-6 w-24" />
+    </div>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Mistake Heatmap Skeleton */}
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-40 mb-2" />
+          <Skeleton className="h-4 w-56" />
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex items-end gap-2">
+                <Skeleton className="h-3 w-8" />
+                <Skeleton className={`w-full`} style={{ height: `${Math.random() * 100 + 50}px` }} />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+      
+      {/* Problematic Keys Skeleton */}
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-36 mb-2" />
+          <Skeleton className="h-4 w-48" />
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-7 w-12" />
+                  <Skeleton className="h-4 w-24" />
+                </div>
+                <Skeleton className="h-5 w-10" />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+    
+    {/* Detailed Error Analysis Skeleton */}
+    <Card>
+      <CardHeader>
+        <Skeleton className="h-6 w-48 mb-2" />
+        <Skeleton className="h-4 w-64" />
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          {Array.from({ length: 24 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 w-full" />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   </div>
 );
 
@@ -562,7 +641,7 @@ const buildComprehensiveAnalyticsPayload = (
       slowestDigraph: string | null;
       topDigraphs: Array<{ digraph: string; avgTime: number; count: number }> | null;
       bottomDigraphs: Array<{ digraph: string; avgTime: number; count: number }> | null;
-      slowestWords: Array<{ word: string; time: number }> | null;
+      slowestWords: Array<{ word: string; avgTime: number }> | null;
     };
   } | null,
   dynamicThresholds: ReturnType<typeof calculateDynamicThresholds>,
@@ -745,6 +824,7 @@ function AnalyticsContent() {
   const [loadingDailyPlan, setLoadingDailyPlan] = useState(false);
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyGoal[]>([]);
   const [loadingWeeklyPlan, setLoadingWeeklyPlan] = useState(false);
+  const [showAllErrorKeys, setShowAllErrorKeys] = useState(false);
 
   const { data: analyticsData, isLoading, isError, error, refetch } = useQuery<{ analytics: AnalyticsData }>({
     queryKey: [`/api/analytics?days=${selectedDays}`],
@@ -756,14 +836,15 @@ function AnalyticsContent() {
   const { data: keystrokeData } = useQuery({
     queryKey: [`/api/analytics/user?limit=${ANALYTICS_CONFIG.limits.keystrokeAnalyticsDepth}`],
     queryFn: async () => {
+
       const response = await fetch(`/api/analytics/user?limit=${ANALYTICS_CONFIG.limits.keystrokeAnalyticsDepth}`, {
         credentials: "include",
       });
       if (!response.ok) return null;
       const data = await response.json();
-      
+
       if (!data.analytics || data.analytics.length === 0) return null;
-      
+
       const analyticsArray = data.analytics as Array<{
         avgDwellTime: number | null;
         avgFlightTime: number | null;
@@ -776,54 +857,34 @@ function AnalyticsContent() {
         totalErrors: number;
         fastestDigraph: string | null;
         slowestDigraph: string | null;
-        wpmByPosition: Array<{position: number; wpm: number}> | null;
-        slowestWords: Array<{word: string; time: number}> | null;
+        wpmByPosition: Array<{ position: number; wpm: number }> | null;
+        slowestWords: Array<{ word: string; time: number }> | null;
         burstWpm: number | null;
         adjustedWpm: number | null;
         consistencyRating: number | null;
         rollingAccuracy: number[] | null;
-        topDigraphs: Array<{digraph: string; avgTime: number; count: number}> | null;
-        bottomDigraphs: Array<{digraph: string; avgTime: number; count: number}> | null;
+        topDigraphs: Array<{ digraph: string; avgTime: number; count: number }> | null;
+        bottomDigraphs: Array<{ digraph: string; avgTime: number; count: number }> | null;
         typingRhythm: number | null;
-        peakPerformanceWindow: {startPos: number; endPos: number; wpm: number} | null;
+        peakPerformanceWindow: { startPos: number; endPos: number; wpm: number } | null;
         fatigueIndicator: number | null;
         errorBurstCount: number | null;
       }>;
-      
+
       // Find the first record with valid keystroke data (wpm > 0 and has avgFlightTime)
       // This ensures we display complete analytics, not data from incomplete tests
       const validRecord = analyticsArray.find(a => a.wpm > 0 && a.avgFlightTime !== null);
       const latest = validRecord || analyticsArray[0];
-      
-      // Aggregate finger usage across all tests for comprehensive view
-      const aggregatedFingerUsage: Record<string, number> = {};
-      analyticsArray.forEach(a => {
-        if (a.fingerUsage) {
-          Object.entries(a.fingerUsage).forEach(([finger, count]) => {
-            aggregatedFingerUsage[finger] = (aggregatedFingerUsage[finger] || 0) + (count as number);
-          });
-        }
-      });
-      
-      // Aggregate key heatmap across all tests for comprehensive view
-      const aggregatedKeyHeatmap: Record<string, number> = {};
-      analyticsArray.forEach(a => {
-        if (a.keyHeatmap) {
-          Object.entries(a.keyHeatmap).forEach(([key, count]) => {
-            aggregatedKeyHeatmap[key] = (aggregatedKeyHeatmap[key] || 0) + (count as number);
-          });
-        }
-      });
-      
-      // Use latest record metrics but aggregated heatmap/finger data
+
+      // Use latest record metrics
       return {
         analytics: {
           avgDwellTime: latest.avgDwellTime,
           avgFlightTime: latest.avgFlightTime,
           consistency: latest.consistency,
           handBalance: latest.handBalance,
-          fingerUsage: Object.keys(aggregatedFingerUsage).length > 0 ? aggregatedFingerUsage : latest.fingerUsage,
-          keyHeatmap: Object.keys(aggregatedKeyHeatmap).length > 0 ? aggregatedKeyHeatmap : latest.keyHeatmap,
+          fingerUsage: latest.fingerUsage,
+          keyHeatmap: latest.keyHeatmap,
           totalTests: analyticsArray.length,
           fastestDigraph: latest.fastestDigraph,
           slowestDigraph: latest.slowestDigraph,
@@ -853,25 +914,27 @@ function AnalyticsContent() {
   });
 
   const rawAnalytics = analyticsData?.analytics;
-  
+
   const analytics = useMemo(() => {
     if (!rawAnalytics) return undefined;
-    return sanitizeAnalyticsData(rawAnalytics) ?? undefined;
+    const sanitized = sanitizeAnalyticsData(rawAnalytics) ?? undefined;
+
+    return sanitized;
   }, [rawAnalytics]);
-  
+
   const isDataValid = validateAnalyticsData(analytics);
-  
+
   const partialDataFlags = useMemo(() => ({
     hasWpmData: (analytics?.wpmOverTime?.length ?? 0) > 0,
     hasMistakeData: (analytics?.mistakesHeatmap?.length ?? 0) > 0,
     hasCommonMistakes: (analytics?.commonMistakes?.length ?? 0) > 0,
   }), [analytics]);
-  
+
   const hasPartialData = useMemo(() => {
     const { hasWpmData, hasMistakeData, hasCommonMistakes } = partialDataFlags;
     return hasWpmData && (!hasMistakeData || !hasCommonMistakes);
   }, [partialDataFlags]);
-  
+
   const dynamicThresholds = useMemo(() => {
     if (!isDataValid || !analytics) return null;
     return calculateDynamicThresholds(analytics);
@@ -898,10 +961,10 @@ function AnalyticsContent() {
     const insights: AIInsight[] = [];
     const lines = text.split(/\n/).map(l => l.trim()).filter(l => l.length > 10);
     const thresholds = calculateDynamicThresholds(analyticsParam);
-    
+
     const structuredPattern = /\[(\w+)\|(\w+)\|(\w+)\]\s*(.+?)(?:\s*ACTION:\s*(.+))?$/i;
     const stripLeadingPattern = /^[\d.)\-*•\s]+/;
-    
+
     const typeMap: Record<string, AIInsight["type"]> = {
       improvement: "improvement",
       strength: "strength",
@@ -909,7 +972,7 @@ function AnalyticsContent() {
       warning: "warning",
       milestone: "milestone",
     };
-    
+
     const categoryMap: Record<string, AIInsight["category"]> = {
       speed: "speed",
       accuracy: "accuracy",
@@ -919,50 +982,50 @@ function AnalyticsContent() {
       endurance: "endurance",
       general: "general",
     };
-    
+
     const priorityMap: Record<string, AIInsight["priority"]> = {
       critical: "critical",
       high: "high",
       medium: "medium",
       low: "low",
     };
-    
+
     for (const line of lines) {
       const cleanedLine = line.replace(stripLeadingPattern, '');
       const structuredMatch = cleanedLine.match(structuredPattern);
-      
+
       if (structuredMatch) {
         const [, typeRaw, categoryRaw, priorityRaw, messageRaw, actionRaw] = structuredMatch;
         const type = typeMap[typeRaw.toLowerCase()] || "practice";
         const category = categoryMap[categoryRaw.toLowerCase()] || "general";
         const priority = priorityMap[priorityRaw.toLowerCase()] || "medium";
-        
+
         let message = sanitizeText(messageRaw);
         const actionItem = actionRaw ? sanitizeText(actionRaw) : undefined;
-        
+
         const dataPointMatch = message.match(/\(([^)]+(?:WPM|%|ms|CV)[^)]*)\)/i);
         const dataPoint = dataPointMatch ? dataPointMatch[1] : undefined;
-        
+
         const benchmarkMatch = message.match(/(?:vs|compared to|benchmark:?\s*)([^.]+)/i);
         const benchmark = benchmarkMatch ? benchmarkMatch[1].trim() : undefined;
-        
+
         insights.push({ type, category, message, priority, dataPoint, benchmark, actionItem });
       } else {
         const cleanLine = sanitizeText(line.replace(/^[\d.)\-*•]+\s*/, ''));
         if (cleanLine.length < 15) continue;
-        
+
         const lowerLine = cleanLine.toLowerCase();
-        
+
         const warningKeywords = ['warning', 'caution', 'alert', 'critical', 'fatigue', 'strain'];
         const milestoneKeywords = ['milestone', 'achieved', 'reached', 'congratulations', 'breakthrough'];
         const improvementKeywords = ['improve', 'focus', 'work on', 'reduce', 'avoid', 'weakness', 'error', 'mistake'];
         const strengthKeywords = ['strength', 'good', 'excellent', 'strong', 'well', 'consistent', 'above average'];
         const practiceKeywords = ['practice', 'exercise', 'drill', 'try', 'recommend', 'suggest', 'action'];
-        
+
         let type: AIInsight["type"] = "practice";
         let priority: AIInsight["priority"] = "medium";
         let category: AIInsight["category"] = "general";
-        
+
         if (warningKeywords.some(kw => lowerLine.includes(kw))) {
           type = "warning";
           priority = "critical";
@@ -985,20 +1048,20 @@ function AnalyticsContent() {
           priority = "medium";
           category = "technique";
         }
-        
+
         const actionMatch = cleanLine.match(/ACTION:\s*(.+)/i);
         const actionItem = actionMatch ? actionMatch[1].trim() : undefined;
         const message = actionMatch ? cleanLine.replace(/ACTION:\s*.+/i, '').trim() : cleanLine;
-        
+
         insights.push({ type, category, message, priority, actionItem });
       }
     }
-    
+
     if (insights.length === 0) {
       const topMistakeKeys = analyticsParam.mistakesHeatmap
         .slice(0, ANALYTICS_CONFIG.limits.mistakeKeysInFallback)
         .map(m => m.key);
-      
+
       if (topMistakeKeys.length > 0) {
         insights.push({
           type: "improvement",
@@ -1008,7 +1071,7 @@ function AnalyticsContent() {
           actionItem: `Practice typing words containing ${topMistakeKeys[0]} for 5 minutes daily`,
         });
       }
-      
+
       if (thresholds.isInconsistent) {
         insights.push({
           type: "improvement",
@@ -1019,7 +1082,7 @@ function AnalyticsContent() {
           actionItem: "Complete 5 tests at 80% of your max speed to build consistency",
         });
       }
-      
+
       const { skillLevel } = thresholds;
       if (skillLevel.level === "Beginner" || skillLevel.level === "Developing") {
         insights.push({
@@ -1047,7 +1110,7 @@ function AnalyticsContent() {
         });
       }
     }
-    
+
     return deduplicateInsights(insights).slice(0, ANALYTICS_CONFIG.limits.insightsDisplay);
   }, []);
 
@@ -1056,19 +1119,19 @@ function AnalyticsContent() {
 
     const abortController = new AbortController();
     const timeoutId = setTimeout(() => abortController.abort(), ANALYTICS_CONFIG.ai.timeoutMs);
-    
+
     const payload = buildComprehensiveAnalyticsPayload(analytics, keystrokeData ?? null, dynamicThresholds, trendsData);
     const { benchmarks } = ANALYTICS_CONFIG;
-    
+
     const formatDigraphs = (digraphs: Array<{ digraph: string; avgTime: number }>) =>
       digraphs.map(d => `"${d.digraph}" (${d.avgTime.toFixed(0)}ms)`).join(", ");
-    
+
     const formatMistakeKeys = (keys: Array<{ key: string; errorRate: number }>) =>
       keys.map(k => `"${k.key}" (${k.errorRate.toFixed(1)}% error rate)`).join(", ");
-    
+
     const formatCommonMistakes = (mistakes: Array<{ expected: string; typed: string; count: number }>) =>
       mistakes.map(m => `"${m.expected}"→"${m.typed}" (${m.count}x)`).join(", ");
-    
+
     setLoadingInsights(true);
     try {
       const promptMessage = `You are an expert typing coach analyzing detailed keystroke analytics. Provide research-backed, actionable insights.
@@ -1156,21 +1219,23 @@ EXAMPLE OUTPUT:
       });
 
       clearTimeout(timeoutId);
-      
+
       if (!response.ok) throw new Error("Failed to generate insights");
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let fullResponse = "";
+      let chunkCount = 0;
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          
+
+          chunkCount++;
           const chunk = decoder.decode(value);
           const lines = chunk.split("\n");
-          
+
           for (const line of lines) {
             if (line.startsWith("data: ")) {
               const data = line.slice(6);
@@ -1189,16 +1254,18 @@ EXAMPLE OUTPUT:
       }
 
       const insights = parseInsightsFromText(fullResponse, analytics);
+
       setAiInsights(insights);
       toast.success("AI insights generated successfully!");
     } catch (error) {
+
       if (error instanceof Error && error.name === 'AbortError') {
         toast.error("AI request timed out. Please try again.");
       } else {
         console.error("AI insights error:", error);
         toast.error("Failed to generate AI insights");
       }
-      
+
       const fallbackInsights = parseInsightsFromText("", analytics);
       if (fallbackInsights.length > 0) {
         setAiInsights(fallbackInsights);
@@ -1216,10 +1283,10 @@ EXAMPLE OUTPUT:
       .slice(0, ANALYTICS_CONFIG.limits.mistakeKeysInFallback)
       .map(m => m.key)
       .join(", ");
-    
+
     // Generate exercises based on skill level and problem areas
     const exercises: DailyExercise[] = [];
-    
+
     // Exercise 1: Always address problem keys if they exist
     if (topMistakeKeys) {
       exercises.push({
@@ -1234,7 +1301,7 @@ EXAMPLE OUTPUT:
         duration: "10 min",
       });
     }
-    
+
     // Exercise 2: Based on whether user needs accuracy or speed focus
     if (accuracyFocus || isInconsistent) {
       exercises.push({
@@ -1249,7 +1316,7 @@ EXAMPLE OUTPUT:
         duration: "5 min",
       });
     }
-    
+
     // Exercise 3: Skill-level appropriate challenge
     if (skillLevel.level === "Beginner" || skillLevel.level === "Developing") {
       exercises.push({
@@ -1264,7 +1331,7 @@ EXAMPLE OUTPUT:
         duration: "5 min",
       });
     }
-    
+
     return exercises.slice(0, ANALYTICS_CONFIG.limits.dailyExercises);
   }, []);
 
@@ -1274,22 +1341,22 @@ EXAMPLE OUTPUT:
     const abortController = new AbortController();
     const timeoutId = setTimeout(() => abortController.abort(), ANALYTICS_CONFIG.ai.timeoutMs);
     const { skillLevel, accuracyFocus, isInconsistent } = dynamicThresholds;
-    
+
     // Build contextual data for the prompt
     const topMistakeKeys = analytics.mistakesHeatmap
       .slice(0, ANALYTICS_CONFIG.limits.mistakeKeysInPrompt)
       .map(m => sanitizeText(m.key))
       .join(", ");
-    
+
     const commonMistakes = analytics.commonMistakes
       .slice(0, ANALYTICS_CONFIG.limits.commonMistakesInPrompt)
       .map(m => `${sanitizeText(m.expectedKey)}→${sanitizeText(m.typedKey)}`)
       .join(", ");
-    
-    const latestAccuracy = analytics.wpmOverTime.length > 0 
-      ? safeNumber(analytics.wpmOverTime[analytics.wpmOverTime.length - 1].accuracy) 
+
+    const latestAccuracy = analytics.wpmOverTime.length > 0
+      ? safeNumber(analytics.wpmOverTime[analytics.wpmOverTime.length - 1].accuracy)
       : 0;
-    
+
     setLoadingDailyPlan(true);
     try {
       const promptMessage = `Create a personalized daily practice plan for a ${skillLevel.level.toLowerCase()} typist.
@@ -1334,10 +1401,10 @@ Tailor exercises to ${skillLevel.level.toLowerCase()} level - ${accuracyFocus ? 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          
+
           const chunk = decoder.decode(value);
           const lines = chunk.split("\n");
-          
+
           for (const line of lines) {
             if (line.startsWith("data: ")) {
               const data = line.slice(6);
@@ -1357,7 +1424,7 @@ Tailor exercises to ${skillLevel.level.toLowerCase()} level - ${accuracyFocus ? 
 
       const exercises: DailyExercise[] = [];
       const exerciseLines = fullResponse.split("\n").filter(l => l.includes("Exercise") || l.match(/^\d+[.:)]/));
-      
+
       for (const line of exerciseLines) {
         const parts = line.split("|").map(p => sanitizeText(p));
         if (parts.length >= 3) {
@@ -1393,10 +1460,10 @@ Tailor exercises to ${skillLevel.level.toLowerCase()} level - ${accuracyFocus ? 
       .slice(0, ANALYTICS_CONFIG.limits.mistakeKeysInWeeklyFallback)
       .map(m => m.key)
       .join(", ");
-    
+
     // Build skill-level appropriate weekly goals with dynamic targets
     const goals: WeeklyGoal[] = [];
-    
+
     // Week 1: Foundation based on skill level
     if (skillLevel.level === "Beginner" || skillLevel.level === "Developing") {
       goals.push({
@@ -1423,7 +1490,7 @@ Tailor exercises to ${skillLevel.level.toLowerCase()} level - ${accuracyFocus ? 
         status: "current",
       });
     }
-    
+
     // Week 2: Progressive improvement
     goals.push({
       week: "Week 2",
@@ -1436,7 +1503,7 @@ Tailor exercises to ${skillLevel.level.toLowerCase()} level - ${accuracyFocus ? 
       target: `${Math.ceil(avgWpm + improvementRates.week2)} WPM`,
       status: "next",
     });
-    
+
     // Week 3-4: Consolidation
     goals.push({
       week: "Week 3-4",
@@ -1449,7 +1516,7 @@ Tailor exercises to ${skillLevel.level.toLowerCase()} level - ${accuracyFocus ? 
       target: `${Math.ceil(avgWpm + improvementRates.week3)} WPM`,
       status: "later",
     });
-    
+
     return goals.slice(0, ANALYTICS_CONFIG.limits.weeklyGoals);
   }, []);
 
@@ -1459,13 +1526,13 @@ Tailor exercises to ${skillLevel.level.toLowerCase()} level - ${accuracyFocus ? 
     const abortController = new AbortController();
     const timeoutId = setTimeout(() => abortController.abort(), ANALYTICS_CONFIG.ai.timeoutMs);
     const { skillLevel, improvementRates, isInconsistent, accuracyFocus } = dynamicThresholds;
-    
+
     // Build contextual data for the prompt
     const topMistakeKeys = analytics.mistakesHeatmap
       .slice(0, ANALYTICS_CONFIG.limits.mistakeKeysInPrompt)
       .map(m => sanitizeText(m.key))
       .join(", ");
-    
+
     setLoadingWeeklyPlan(true);
     try {
       const promptMessage = `Create a personalized 4-week improvement roadmap for a ${skillLevel.level.toLowerCase()} typist.
@@ -1514,10 +1581,10 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          
+
           const chunk = decoder.decode(value);
           const lines = chunk.split("\n");
-          
+
           for (const line of lines) {
             if (line.startsWith("data: ")) {
               const data = line.slice(6);
@@ -1537,7 +1604,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
 
       const goals: WeeklyGoal[] = [];
       const goalLines = fullResponse.split("\n").filter(l => l.includes("Week"));
-      
+
       for (let i = 0; i < goalLines.length && i < ANALYTICS_CONFIG.limits.weeklyGoals; i++) {
         const line = goalLines[i];
         const parts = line.split("|").map(p => sanitizeText(p));
@@ -1547,7 +1614,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
           const title = weekPart.replace(/Week\s+[\d-]+:\s*/, "").trim();
           const tasks = parts[1].split(",").map(t => t.trim()).filter(t => t.length > 0);
           const target = parts[2].trim();
-          
+
           goals.push({
             week,
             title,
@@ -1655,7 +1722,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
 
   if (isError) {
     const isNetworkError = error instanceof Error && (
-      error.message.includes('network') || 
+      error.message.includes('network') ||
       error.message.includes('fetch') ||
       error.message.includes('Failed to fetch') ||
       error.message.includes('NetworkError')
@@ -1670,20 +1737,20 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
       error.message.includes('unauthorized') ||
       error.message.includes('Unauthorized')
     );
-    
+
     const getErrorIcon = () => {
       if (isNetworkError) return <WifiOff className="h-4 w-4" />;
       if (isTimeoutError) return <Clock className="h-4 w-4" />;
       return <AlertTriangle className="h-4 w-4" />;
     };
-    
+
     const getErrorTitle = () => {
       if (isNetworkError) return "Connection Problem";
       if (isTimeoutError) return "Request Timed Out";
       if (isAuthError) return "Authentication Required";
       return "Failed to Load Analytics";
     };
-    
+
     const getErrorMessage = () => {
       if (isNetworkError) {
         return "Unable to connect to the server. Please check your internet connection and try again.";
@@ -1696,7 +1763,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
       }
       return error instanceof Error ? error.message : 'Unable to load your analytics data. Please try again.';
     };
-    
+
     const getErrorHelp = () => {
       if (isNetworkError) {
         return "Tip: Try refreshing the page or checking if other websites are loading.";
@@ -1706,7 +1773,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
       }
       return null;
     };
-    
+
     return (
       <div className="container mx-auto p-6 max-w-7xl">
         <Alert variant="destructive" data-testid="error-alert">
@@ -1721,9 +1788,9 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
               </span>
             )}
             <div className="flex gap-2 mt-1">
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => refetch()}
                 data-testid="button-retry"
               >
@@ -1731,9 +1798,9 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                 Retry
               </Button>
               {isAuthError && (
-                <Button 
-                  variant="default" 
-                  size="sm" 
+                <Button
+                  variant="default"
+                  size="sm"
                   onClick={() => (window.location.href = "/login")}
                   data-testid="button-login"
                 >
@@ -1844,8 +1911,8 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
               </CardDescription>
               <CardTitle className="text-3xl" data-testid="stat-consistency">
                 {dynamicThresholds ? (
-                  dynamicThresholds.isInconsistent ? "Needs Work" : 
-                  dynamicThresholds.coefficientOfVariation < ANALYTICS_CONFIG.consistency.excellentCV ? "Excellent" : "Good"
+                  dynamicThresholds.isInconsistent ? "Needs Work" :
+                    dynamicThresholds.coefficientOfVariation < ANALYTICS_CONFIG.consistency.excellentCV ? "Excellent" : "Good"
                 ) : "Loading..."}
               </CardTitle>
             </CardHeader>
@@ -1926,14 +1993,14 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                 <AreaChart data={analytics.wpmOverTime} aria-label="WPM Progress Chart">
                   <defs>
                     <linearGradient id="colorWpm" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#00ffff" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#00ffff" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#00ffff" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#00ffff" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                  <XAxis 
-                    dataKey="date" 
-                    stroke="#888" 
+                  <XAxis
+                    dataKey="date"
+                    stroke="#888"
                     tickFormatter={formatChartDate}
                     tick={{ fontSize: 12 }}
                     angle={-45}
@@ -1942,11 +2009,11 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                   />
                   <YAxis stroke="#888" domain={['dataMin - 5', 'dataMax + 5']} />
                   <ChartTooltip content={<WPMTooltip />} />
-                  <Area 
-                    type="monotone" 
-                    dataKey="wpm" 
-                    stroke="#00ffff" 
-                    fillOpacity={1} 
+                  <Area
+                    type="monotone"
+                    dataKey="wpm"
+                    stroke="#00ffff"
+                    fillOpacity={1}
                     fill="url(#colorWpm)"
                     name="WPM"
                   />
@@ -1965,17 +2032,17 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                 <ResponsiveContainer width="100%" height={250}>
                   <LineChart data={analytics.wpmOverTime} aria-label="Accuracy Trend Chart">
                     <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis 
-                      dataKey="date" 
-                      stroke="#888" 
+                    <XAxis
+                      dataKey="date"
+                      stroke="#888"
                       tickFormatter={formatChartDate}
                       tick={{ fontSize: 12 }}
                       angle={-45}
                       textAnchor="end"
                       height={60}
                     />
-                    <YAxis 
-                      stroke="#888" 
+                    <YAxis
+                      stroke="#888"
                       domain={[
                         (dataMin: number) => Math.max(0, Math.floor(dataMin - 5)),
                         (dataMax: number) => Math.min(100, Math.ceil(dataMax + 2))
@@ -2016,10 +2083,10 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                   <p className="text-sm text-muted-foreground">
                     {dynamicThresholds ? (
                       dynamicThresholds.coefficientOfVariation < ANALYTICS_CONFIG.consistency.excellentCV
-                        ? "Excellent consistency! Your typing speed is very stable." 
+                        ? "Excellent consistency! Your typing speed is very stable."
                         : !dynamicThresholds.isInconsistent
-                        ? "Good consistency. Minor variations in speed."
-                        : "Variable performance. Focus on maintaining steady speed."
+                          ? "Good consistency. Minor variations in speed."
+                          : "Variable performance. Focus on maintaining steady speed."
                     ) : "Loading consistency analysis..."}
                   </p>
                 </div>
@@ -2056,36 +2123,54 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700" data-testid="trend-card-wow">
                       <p className="text-sm text-muted-foreground mb-1">Week-over-Week</p>
-                      <div className="flex items-center gap-2">
-                        {(trendsData.trends.improvement?.weekOverWeek?.wpm ?? 0) >= 0 ? (
-                          <TrendingUp className="w-5 h-5 text-green-400" />
-                        ) : (
-                          <TrendingDown className="w-5 h-5 text-red-400" />
-                        )}
-                        <span className={`text-2xl font-bold ${(trendsData.trends.improvement?.weekOverWeek?.wpm ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`} data-testid="trend-wow-wpm">
-                          {(trendsData.trends.improvement?.weekOverWeek?.wpm ?? 0) >= 0 ? '+' : ''}{(trendsData.trends.improvement?.weekOverWeek?.wpm ?? 0).toFixed(1)} WPM
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1" data-testid="trend-wow-accuracy">
-                        Accuracy: {(trendsData.trends.improvement?.weekOverWeek?.accuracy ?? 0) >= 0 ? '+' : ''}{(trendsData.trends.improvement?.weekOverWeek?.accuracy ?? 0).toFixed(1)}%
-                      </p>
+                      {(trendsData.trends.weeklyAggregates?.length ?? 0) < 2 ? (
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-5 h-5 text-muted-foreground" />
+                          <span className="text-lg text-muted-foreground" data-testid="trend-wow-wpm">Need more data</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2">
+                            {(trendsData.trends.improvement?.weekOverWeek?.wpm ?? 0) >= 0 ? (
+                              <TrendingUp className="w-5 h-5 text-green-400" />
+                            ) : (
+                              <TrendingDown className="w-5 h-5 text-red-400" />
+                            )}
+                            <span className={`text-2xl font-bold ${(trendsData.trends.improvement?.weekOverWeek?.wpm ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`} data-testid="trend-wow-wpm">
+                              {(trendsData.trends.improvement?.weekOverWeek?.wpm ?? 0) >= 0 ? '+' : ''}{(trendsData.trends.improvement?.weekOverWeek?.wpm ?? 0).toFixed(1)} WPM
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1" data-testid="trend-wow-accuracy">
+                            Accuracy: {(trendsData.trends.improvement?.weekOverWeek?.accuracy ?? 0) >= 0 ? '+' : ''}{(trendsData.trends.improvement?.weekOverWeek?.accuracy ?? 0).toFixed(1)}%
+                          </p>
+                        </>
+                      )}
                     </div>
 
                     <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700" data-testid="trend-card-mom">
                       <p className="text-sm text-muted-foreground mb-1">Month-over-Month</p>
-                      <div className="flex items-center gap-2">
-                        {(trendsData.trends.improvement?.monthOverMonth?.wpm ?? 0) >= 0 ? (
-                          <TrendingUp className="w-5 h-5 text-green-400" />
-                        ) : (
-                          <TrendingDown className="w-5 h-5 text-red-400" />
-                        )}
-                        <span className={`text-2xl font-bold ${(trendsData.trends.improvement?.monthOverMonth?.wpm ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`} data-testid="trend-mom-wpm">
-                          {(trendsData.trends.improvement?.monthOverMonth?.wpm ?? 0) >= 0 ? '+' : ''}{(trendsData.trends.improvement?.monthOverMonth?.wpm ?? 0).toFixed(1)} WPM
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1" data-testid="trend-mom-accuracy">
-                        Accuracy: {(trendsData.trends.improvement?.monthOverMonth?.accuracy ?? 0) >= 0 ? '+' : ''}{(trendsData.trends.improvement?.monthOverMonth?.accuracy ?? 0).toFixed(1)}%
-                      </p>
+                      {(trendsData.trends.monthlyAggregates?.length ?? 0) < 2 ? (
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-5 h-5 text-muted-foreground" />
+                          <span className="text-lg text-muted-foreground" data-testid="trend-mom-wpm">Need more data</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2">
+                            {(trendsData.trends.improvement?.monthOverMonth?.wpm ?? 0) >= 0 ? (
+                              <TrendingUp className="w-5 h-5 text-green-400" />
+                            ) : (
+                              <TrendingDown className="w-5 h-5 text-red-400" />
+                            )}
+                            <span className={`text-2xl font-bold ${(trendsData.trends.improvement?.monthOverMonth?.wpm ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`} data-testid="trend-mom-wpm">
+                              {(trendsData.trends.improvement?.monthOverMonth?.wpm ?? 0) >= 0 ? '+' : ''}{(trendsData.trends.improvement?.monthOverMonth?.wpm ?? 0).toFixed(1)} WPM
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1" data-testid="trend-mom-accuracy">
+                            Accuracy: {(trendsData.trends.improvement?.monthOverMonth?.accuracy ?? 0) >= 0 ? '+' : ''}{(trendsData.trends.improvement?.monthOverMonth?.accuracy ?? 0).toFixed(1)}%
+                          </p>
+                        </>
+                      )}
                     </div>
 
                     <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700" data-testid="trend-card-alltime">
@@ -2113,17 +2198,18 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       <ResponsiveContainer width="100%" height={200}>
                         <BarChart data={trendsData.trends.weeklyAggregates} aria-label="Weekly WPM Chart">
                           <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                          <XAxis 
-                            dataKey="weekStart" 
-                            stroke="#888" 
+                          <XAxis
+                            dataKey="weekStart"
+                            stroke="#888"
                             tickFormatter={(val) => {
                               try { return format(parseISO(val), 'MMM d'); } catch { return val; }
                             }}
                             tick={{ fontSize: 11 }}
                           />
                           <YAxis stroke="#888" domain={['dataMin - 5', 'dataMax + 5']} />
-                          <ChartTooltip 
-                            content={({ active, payload }) => {
+                          <ChartTooltip
+                          cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }}
+                          content={({ active, payload }) => {
                               if (!active || !payload || !payload.length) return null;
                               const data = payload[0].payload;
                               const weekStartStr = data?.weekStart ? (() => { try { return format(parseISO(data.weekStart), 'MMM d'); } catch { return data.weekStart; } })() : 'N/A';
@@ -2228,11 +2314,11 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground">
-                      {keystrokeData.analytics.avgDwellTime && keystrokeData.analytics.avgDwellTime < 100 
-                        ? "✓ Quick key release" 
-                        : keystrokeData.analytics.avgDwellTime && keystrokeData.analytics.avgDwellTime > 150 
-                        ? "⚠️ Keys held too long" 
-                        : "Time keys are held down"}
+                      {keystrokeData.analytics.avgDwellTime && keystrokeData.analytics.avgDwellTime < 100
+                        ? "✓ Quick key release"
+                        : keystrokeData.analytics.avgDwellTime && keystrokeData.analytics.avgDwellTime > 150
+                          ? "⚠️ Keys held too long"
+                          : "Time keys are held down"}
                     </p>
                   </CardContent>
                 </Card>
@@ -2257,12 +2343,12 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-sm text-muted-foreground">
-                      {keystrokeData.analytics.avgFlightTime && keystrokeData.analytics.avgFlightTime < 100 
-                        ? "✓ Fast transitions" 
-                        : keystrokeData.analytics.avgFlightTime && keystrokeData.analytics.avgFlightTime > 180 
-                        ? "⚠️ Slow key transitions" 
-                        : "Time between keystrokes"}
+                    <p className="text-sm text-muted-foreground flex items-center gap-1">
+                      {keystrokeData.analytics.avgFlightTime && keystrokeData.analytics.avgFlightTime < 100
+                        ? <><Sparkles className="w-3 h-3 text-green-400" /> Fast transitions</>
+                        : keystrokeData.analytics.avgFlightTime && keystrokeData.analytics.avgFlightTime > 180
+                          ? <><AlertTriangle className="w-3 h-3 text-orange-400" /> Slow key transitions</>
+                          : "Time between keystrokes"}
                     </p>
                   </CardContent>
                 </Card>
@@ -2288,11 +2374,11 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground">
-                      {keystrokeData.analytics.consistency && keystrokeData.analytics.consistency >= 80 
-                        ? "✓ Excellent rhythm" 
-                        : keystrokeData.analytics.consistency && keystrokeData.analytics.consistency < 60 
-                        ? "⚠️ Rhythm needs work" 
-                        : "Typing rhythm stability"}
+                      {keystrokeData.analytics.consistency && keystrokeData.analytics.consistency >= 80
+                        ? "✓ Excellent rhythm"
+                        : keystrokeData.analytics.consistency && keystrokeData.analytics.consistency < 60
+                          ? "⚠️ Rhythm needs work"
+                          : "Typing rhythm stability"}
                     </p>
                   </CardContent>
                 </Card>
@@ -2385,11 +2471,11 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground">
-                      {keystrokeData.analytics.fatigueIndicator !== null && keystrokeData.analytics.fatigueIndicator > 5 
-                        ? 'Slowing down' 
-                        : keystrokeData.analytics.fatigueIndicator !== null && keystrokeData.analytics.fatigueIndicator < -5 
-                        ? 'Warming up' 
-                        : 'Steady pace'}
+                      {keystrokeData.analytics.fatigueIndicator !== null && keystrokeData.analytics.fatigueIndicator > 5
+                        ? 'Slowing down'
+                        : keystrokeData.analytics.fatigueIndicator !== null && keystrokeData.analytics.fatigueIndicator < -5
+                          ? 'Warming up'
+                          : 'Steady pace'}
                     </p>
                   </CardContent>
                 </Card>
@@ -2411,8 +2497,8 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       </Tooltip>
                     </CardDescription>
                     <CardTitle className="text-2xl" data-testid="stat-rhythm-rating">
-                      {keystrokeData.analytics.consistencyRating !== null 
-                        ? `${keystrokeData.analytics.consistencyRating}/100` 
+                      {keystrokeData.analytics.consistencyRating !== null
+                        ? `${keystrokeData.analytics.consistencyRating}/100`
                         : 'N/A'}
                     </CardTitle>
                   </CardHeader>
@@ -2479,7 +2565,8 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                         <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                         <XAxis dataKey="chunk" stroke="#888" />
                         <YAxis stroke="#888" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                        <ChartTooltip 
+                        <ChartTooltip
+                          cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }}
                           contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155" }}
                           content={({ active, payload }) => {
                             if (!active || !payload || !payload.length) return null;
@@ -2492,8 +2579,8 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                                 <p className={`text-sm ${isGood ? 'text-green-400' : isOkay ? 'text-yellow-400' : 'text-red-400'}`}>
                                   Accuracy: {data.accuracy.toFixed(1)}%
                                 </p>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  {isGood ? '✓ Excellent accuracy' : isOkay ? '⚠️ Could improve' : '⚠️ Focus on accuracy here'}
+                                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                                  {isGood ? <><Sparkles className="w-3 h-3 text-green-400" /> Excellent accuracy</> : isOkay ? <><AlertTriangle className="w-3 h-3 text-yellow-400" /> Could improve</> : <><AlertTriangle className="w-3 h-3 text-red-400" /> Focus on accuracy here</>}
                                 </p>
                               </div>
                             );
@@ -2556,7 +2643,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                     </Card>
                   )}
 
-                  {keystrokeData.analytics.bottomDigraphs && keystrokeData.analytics.bottomDigraphs.length > 0 && (
+                  {(analytics?.bottomDigraphs || keystrokeData.analytics.bottomDigraphs) && (analytics?.bottomDigraphs || keystrokeData.analytics.bottomDigraphs).length > 0 && (
                     <Card>
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2 text-red-400">
@@ -2576,7 +2663,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-2">
-                          {keystrokeData.analytics.bottomDigraphs.map((d, idx) => (
+                          {(analytics?.bottomDigraphs || keystrokeData.analytics.bottomDigraphs).map((d, idx) => (
                             <TooltipProvider key={idx}>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -2593,7 +2680,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                                 </TooltipTrigger>
                                 <TooltipContent side="left">
                                   <p>You typed "{d.digraph}" {d.count} times with an average speed of {d.avgTime}ms</p>
-                                  <p className="text-xs text-orange-400 mt-1">⚠️ Focus practice on this combination</p>
+                                  <p className="text-xs text-orange-400 mt-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Focus practice on this combination</p>
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
@@ -2635,7 +2722,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                           <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                           <XAxis dataKey="finger" stroke="#888" angle={-45} textAnchor="end" height={80} />
                           <YAxis stroke="#888" />
-                          <ChartTooltip 
+                          <ChartTooltip
                             contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155" }}
                             content={({ active, payload }) => {
                               if (!active || !payload || !payload.length) return null;
@@ -2682,31 +2769,31 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                     <CardDescription>Left vs Right hand usage</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    {keystrokeData.analytics.handBalance !== null && keystrokeData.analytics.handBalance !== undefined ? (
+                    {(analytics?.handBalance ?? keystrokeData.analytics.handBalance) !== null && (analytics?.handBalance ?? keystrokeData.analytics.handBalance) !== undefined ? (
                       <div className="space-y-4">
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <div className="flex items-center justify-between cursor-help">
                                 <span className="text-sm font-medium">Left Hand</span>
-                                <Badge variant="outline" className={`text-lg ${keystrokeData.analytics.handBalance > 55 ? 'border-blue-500 text-blue-400' : ''}`}>
-                                  {keystrokeData.analytics.handBalance.toFixed(1)}%
+                                <Badge variant="outline" className={`text-lg ${(analytics?.handBalance ?? keystrokeData.analytics.handBalance)! > 55 ? 'border-blue-500 text-blue-400' : ''}`}>
+                                  {(analytics?.handBalance ?? keystrokeData.analytics.handBalance)!.toFixed(1)}%
                                 </Badge>
                               </div>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p>Left hand performed {keystrokeData.analytics.handBalance.toFixed(1)}% of all keystrokes</p>
+                              <p>Left hand performed {(analytics?.handBalance ?? keystrokeData.analytics.handBalance)!.toFixed(1)}% of all keystrokes</p>
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
                         <div className="w-full h-8 bg-secondary rounded-full overflow-hidden flex">
-                          <div 
+                          <div
                             className="bg-blue-500 transition-all duration-500"
-                            style={{ width: `${keystrokeData.analytics.handBalance}%` }}
+                            style={{ width: `${(analytics?.handBalance ?? keystrokeData.analytics.handBalance)}%` }}
                           />
-                          <div 
+                          <div
                             className="bg-purple-500 transition-all duration-500"
-                            style={{ width: `${100 - keystrokeData.analytics.handBalance}%` }}
+                            style={{ width: `${100 - (analytics?.handBalance ?? keystrokeData.analytics.handBalance)!}%` }}
                           />
                         </div>
                         <TooltipProvider>
@@ -2714,25 +2801,25 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                             <TooltipTrigger asChild>
                               <div className="flex items-center justify-between cursor-help">
                                 <span className="text-sm font-medium">Right Hand</span>
-                                <Badge variant="outline" className={`text-lg ${(100 - keystrokeData.analytics.handBalance) > 55 ? 'border-purple-500 text-purple-400' : ''}`}>
-                                  {(100 - keystrokeData.analytics.handBalance).toFixed(1)}%
+                                <Badge variant="outline" className={`text-lg ${(100 - (analytics?.handBalance ?? keystrokeData.analytics.handBalance)!) > 55 ? 'border-purple-500 text-purple-400' : ''}`}>
+                                  {(100 - (analytics?.handBalance ?? keystrokeData.analytics.handBalance)!).toFixed(1)}%
                                 </Badge>
                               </div>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p>Right hand performed {(100 - keystrokeData.analytics.handBalance).toFixed(1)}% of all keystrokes</p>
+                              <p>Right hand performed {(100 - (analytics?.handBalance ?? keystrokeData.analytics.handBalance)!).toFixed(1)}% of all keystrokes</p>
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
                         <Separator />
-                        <p className={`text-sm text-center ${Math.abs(keystrokeData.analytics.handBalance - 50) < 10 ? 'text-green-400' : 'text-orange-400'}`}>
-                          {Math.abs(keystrokeData.analytics.handBalance - 50) < 5 
-                            ? "✓ Excellent hand balance" 
-                            : Math.abs(keystrokeData.analytics.handBalance - 50) < 10 
-                            ? "🎯 Well balanced hand usage" 
-                            : Math.abs(keystrokeData.analytics.handBalance - 50) < 20
-                            ? "⚠️ Slight imbalance - consider practicing with your weaker hand"
-                            : "⚠️ Significant imbalance - focus on weaker hand exercises"}
+                        <p className={`text-sm text-center ${Math.abs((analytics?.handBalance ?? keystrokeData.analytics.handBalance)! - 50) < 10 ? 'text-green-400' : 'text-orange-400'}`}>
+                          {Math.abs((analytics?.handBalance ?? keystrokeData.analytics.handBalance)! - 50) < 5
+                            ? "✓ Excellent hand balance"
+                            : Math.abs((analytics?.handBalance ?? keystrokeData.analytics.handBalance)! - 50) < 10
+                              ? "🎯 Well balanced hand usage"
+                              : Math.abs((analytics?.handBalance ?? keystrokeData.analytics.handBalance)! - 50) < 20
+                                ? "⚠️ Slight imbalance - consider practicing with your weaker hand"
+                                : "⚠️ Significant imbalance - focus on weaker hand exercises"}
                         </p>
                       </div>
                     ) : (
@@ -2762,22 +2849,24 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       </Tooltip>
                     </TooltipProvider>
                   </CardTitle>
-                  <CardDescription>Visual representation of key usage frequency</CardDescription>
+                  <CardDescription>Keys glow brighter based on how frequently you use them</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {keystrokeData.analytics.keyHeatmap ? (
-                    <div className="overflow-x-auto">
-                      <div className="min-w-[600px] space-y-1">
+                  {(analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap) ? (
+                    <div className="overflow-x-auto relative">
+                      <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-card to-transparent pointer-events-none md:hidden z-10" />
+                      <p className="text-xs text-muted-foreground mb-2 md:hidden">← Scroll to see all keys →</p>
+                      <div className="min-w-[520px] md:min-w-0 space-y-1">
                         {/* Number row */}
                         <div className="flex gap-1 justify-center">
                           {['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map(key => {
-                            const count = keystrokeData.analytics.keyHeatmap?.[key] || 0;
-                            const maxCount = Math.max(...(Object.values(keystrokeData.analytics.keyHeatmap || {}) as number[]));
+                            const count = (analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap)?.[key] || 0;
+                            const maxCount = Math.max(...(Object.values((analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap) || {}) as number[]));
                             const intensity = maxCount > 0 ? (count / maxCount) * 100 : 0;
                             return (
                               <div
                                 key={key}
-                                className="w-12 h-12 rounded border border-border flex items-center justify-center font-mono text-sm transition-all hover:scale-110"
+                                className="w-10 h-10 sm:w-12 sm:h-12 rounded border border-border flex items-center justify-center font-mono text-xs sm:text-sm transition-all hover:scale-110"
                                 style={{
                                   backgroundColor: `rgba(0, 255, 255, ${intensity / 100 * 0.5})`,
                                   boxShadow: intensity > 50 ? '0 0 10px rgba(0, 255, 255, 0.3)' : 'none'
@@ -2792,13 +2881,14 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                         {/* QWERTY row */}
                         <div className="flex gap-1 justify-center">
                           {['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'].map(key => {
-                            const count = keystrokeData.analytics.keyHeatmap?.[key.toLowerCase()] || keystrokeData.analytics.keyHeatmap?.[key] || 0;
-                            const maxCount = Math.max(...(Object.values(keystrokeData.analytics.keyHeatmap || {}) as number[]));
+                            const heatmap = analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap || {};
+                            const count = heatmap?.[key.toLowerCase()] || heatmap?.[key] || 0;
+                            const maxCount = Math.max(...(Object.values(heatmap) as number[]));
                             const intensity = maxCount > 0 ? (count / maxCount) * 100 : 0;
                             return (
                               <div
                                 key={key}
-                                className="w-12 h-12 rounded border border-border flex items-center justify-center font-mono text-sm transition-all hover:scale-110"
+                                className="w-10 h-10 sm:w-12 sm:h-12 rounded border border-border flex items-center justify-center font-mono text-xs sm:text-sm transition-all hover:scale-110"
                                 style={{
                                   backgroundColor: `rgba(0, 255, 255, ${intensity / 100 * 0.5})`,
                                   boxShadow: intensity > 50 ? '0 0 10px rgba(0, 255, 255, 0.3)' : 'none'
@@ -2811,7 +2901,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                           })}
                         </div>
                         {/* ASDF row */}
-                        <div className="flex gap-1 justify-center ml-6">
+                        <div className="flex gap-1 justify-center ml-3 sm:ml-6">
                           {['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'].map(key => {
                             const count = keystrokeData.analytics.keyHeatmap?.[key.toLowerCase()] || keystrokeData.analytics.keyHeatmap?.[key] || 0;
                             const maxCount = Math.max(...(Object.values(keystrokeData.analytics.keyHeatmap || {}) as number[]));
@@ -2819,7 +2909,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                             return (
                               <div
                                 key={key}
-                                className="w-12 h-12 rounded border border-border flex items-center justify-center font-mono text-sm transition-all hover:scale-110"
+                                className="w-10 h-10 sm:w-12 sm:h-12 rounded border border-border flex items-center justify-center font-mono text-xs sm:text-sm transition-all hover:scale-110"
                                 style={{
                                   backgroundColor: `rgba(0, 255, 255, ${intensity / 100 * 0.5})`,
                                   boxShadow: intensity > 50 ? '0 0 10px rgba(0, 255, 255, 0.3)' : 'none'
@@ -2832,7 +2922,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                           })}
                         </div>
                         {/* ZXCV row */}
-                        <div className="flex gap-1 justify-center ml-12">
+                        <div className="flex gap-1 justify-center ml-6 sm:ml-12">
                           {['Z', 'X', 'C', 'V', 'B', 'N', 'M'].map(key => {
                             const count = keystrokeData.analytics.keyHeatmap?.[key.toLowerCase()] || keystrokeData.analytics.keyHeatmap?.[key] || 0;
                             const maxCount = Math.max(...(Object.values(keystrokeData.analytics.keyHeatmap || {}) as number[]));
@@ -2840,7 +2930,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                             return (
                               <div
                                 key={key}
-                                className="w-12 h-12 rounded border border-border flex items-center justify-center font-mono text-sm transition-all hover:scale-110"
+                                className="w-10 h-10 sm:w-12 sm:h-12 rounded border border-border flex items-center justify-center font-mono text-xs sm:text-sm transition-all hover:scale-110"
                                 style={{
                                   backgroundColor: `rgba(0, 255, 255, ${intensity / 100 * 0.5})`,
                                   boxShadow: intensity > 50 ? '0 0 10px rgba(0, 255, 255, 0.3)' : 'none'
@@ -2854,21 +2944,48 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                         </div>
                         {/* Spacebar */}
                         <div className="flex gap-1 justify-center mt-1">
-                          <div className="w-64 h-12 rounded border border-border flex items-center justify-center font-mono text-sm transition-all hover:scale-105"
+                          <div className="w-48 sm:w-64 h-10 sm:h-12 rounded border border-border flex items-center justify-center font-mono text-xs sm:text-sm transition-all hover:scale-105"
                             style={{
-                              backgroundColor: `rgba(0, 255, 255, ${((keystrokeData.analytics.keyHeatmap?.[' '] || 0) / Math.max(...(Object.values(keystrokeData.analytics.keyHeatmap || {}) as number[]))) * 0.5})`,
+                              backgroundColor: `rgba(0, 255, 255, ${(((analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap)?.[' '] || 0) / Math.max(...(Object.values((analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap) || {}) as number[]))) * 0.5})`,
                             }}
-                            title={`SPACE: ${keystrokeData.analytics.keyHeatmap?.[' '] || 0} times`}
+                            title={`SPACE: ${(analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap)?.[' '] || 0} times`}
                           >
                             SPACE
                           </div>
                         </div>
                         <div className="flex items-center justify-center gap-4 mt-4 text-sm text-muted-foreground">
                           <span>Less Used</span>
-                          <div className="flex gap-1">
-                            <div className="w-8 h-4 rounded" style={{ backgroundColor: 'rgba(0, 255, 255, 0.1)' }} />
-                            <div className="w-8 h-4 rounded" style={{ backgroundColor: 'rgba(0, 255, 255, 0.25)' }} />
-                            <div className="w-8 h-4 rounded" style={{ backgroundColor: 'rgba(0, 255, 255, 0.5)' }} />
+                          <div className="flex gap-1" role="img" aria-label="Heatmap legend showing low, medium, and high usage intensities">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="w-8 h-4 rounded cursor-help" style={{ backgroundColor: 'rgba(0, 255, 255, 0.1)' }} />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Low Usage</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="w-8 h-4 rounded cursor-help" style={{ backgroundColor: 'rgba(0, 255, 255, 0.25)' }} />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Medium Usage</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="w-8 h-4 rounded cursor-help" style={{ backgroundColor: 'rgba(0, 255, 255, 0.5)' }} />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>High Usage</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           </div>
                           <span>Most Used</span>
                         </div>
@@ -2904,17 +3021,17 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       <ResponsiveContainer width="100%" height={250}>
                         <LineChart data={
                           Array.isArray(keystrokeData.analytics.wpmByPosition)
-                            ? keystrokeData.analytics.wpmByPosition.map((item: {position: number; wpm: number} | number, idx: number) => ({
-                                position: `${typeof item === 'object' ? item.position : idx * 10}%`,
-                                wpm: typeof item === 'object' ? item.wpm : item,
-                                rawPosition: typeof item === 'object' ? item.position : idx * 10
-                              }))
+                            ? keystrokeData.analytics.wpmByPosition.map((item: { position: number; wpm: number } | number, idx: number) => ({
+                              position: `${typeof item === 'object' ? item.position : idx * 10}%`,
+                              wpm: typeof item === 'object' ? item.wpm : item,
+                              rawPosition: typeof item === 'object' ? item.position : idx * 10
+                            }))
                             : []
                         }>
                           <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                           <XAxis dataKey="position" stroke="#888" />
                           <YAxis stroke="#888" />
-                          <ChartTooltip 
+                          <ChartTooltip
                             contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155" }}
                             content={({ active, payload }) => {
                               if (!active || !payload || !payload.length) return null;
@@ -2959,7 +3076,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                           </Tooltip>
                         </TooltipProvider>
                       </CardTitle>
-                      <CardDescription>Words that slow you down</CardDescription>
+                      <CardDescription>Words typed significantly slower (&gt;30%) than your average pace</CardDescription>
                     </CardHeader>
                     <CardContent>
                       <ScrollArea className="h-[250px]">
@@ -2973,11 +3090,10 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <div
-                                      className={`flex items-center justify-between p-3 rounded-lg transition-colors cursor-help ${
-                                        isVerySlow ? 'bg-red-500/10 border border-red-500/20 hover:bg-red-500/20' :
+                                      className={`flex items-center justify-between p-3 rounded-lg transition-colors cursor-help ${isVerySlow ? 'bg-red-500/10 border border-red-500/20 hover:bg-red-500/20' :
                                         isSlow ? 'bg-orange-500/10 border border-orange-500/20 hover:bg-orange-500/20' :
-                                        'bg-secondary/50 hover:bg-secondary/70'
-                                      }`}
+                                          'bg-secondary/50 hover:bg-secondary/70'
+                                        }`}
                                       data-testid={`slow-word-${idx}`}
                                     >
                                       <span className="font-mono font-medium">{item.word}</span>
@@ -2988,10 +3104,10 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                                   </TooltipTrigger>
                                   <TooltipContent side="left">
                                     <p>Time to type: {avgTime?.toFixed(0)}ms</p>
-                                    <p className={`text-xs mt-1 ${isVerySlow ? 'text-red-400' : isSlow ? 'text-orange-400' : 'text-muted-foreground'}`}>
-                                      {isVerySlow ? '⚠️ Very slow - practice this word' : 
-                                       isSlow ? '⚠️ Slower than average' : 
-                                       'Normal speed'}
+                                    <p className={`text-xs mt-1 flex items-center gap-1 ${isVerySlow ? 'text-red-400' : isSlow ? 'text-orange-400' : 'text-muted-foreground'}`}>
+                                      {isVerySlow ? <><AlertTriangle className="w-3 h-3" /> Very slow - practice this word</> :
+                                        isSlow ? <><AlertTriangle className="w-3 h-3" /> Slower than average</> :
+                                          <><Sparkles className="w-3 h-3 text-green-400" /> Normal speed</>}
                                     </p>
                                   </TooltipContent>
                                 </Tooltip>
@@ -3041,15 +3157,38 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
         </TabsContent>
 
         <TabsContent value="mistakes" className="space-y-4">
-          {(!analytics.mistakesHeatmap || analytics.mistakesHeatmap.length === 0) && 
-           (!analytics.commonMistakes || analytics.commonMistakes.length === 0) ? (
+          {isLoading ? (
+            <MistakesTabSkeleton />
+          ) : (!analytics.mistakesHeatmap || analytics.mistakesHeatmap.length === 0) &&
+            (!analytics.commonMistakes || analytics.commonMistakes.length === 0) ? (
             <Card>
               <CardContent className="py-12">
-                <EmptyDataState message="No mistake data available yet. Complete more typing tests with the advanced keystroke tracking enabled to see your error patterns and areas for improvement." />
+                <div className="flex flex-col items-center justify-center text-center" data-testid="empty-state">
+                  <Target className="w-12 h-12 text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-medium text-muted-foreground mb-2">No Mistake Data Available</h3>
+                  <p className="text-sm text-muted-foreground max-w-md mb-6">
+                    Complete more typing tests with advanced keystroke tracking enabled to see your error patterns and areas for improvement.
+                  </p>
+                  <Link href="/">
+                    <Button variant="default" className="gap-2">
+                      <Keyboard className="w-4 h-4" />
+                      Start a Typing Test
+                    </Button>
+                  </Link>
+                </div>
               </CardContent>
             </Card>
           ) : (
             <>
+              <div className="flex items-center justify-between mb-4 px-1">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Clock className="w-4 h-4" />
+                  <span>Showing data from the last {selectedDays} days</span>
+                </div>
+                <Badge variant="secondary" className="text-xs">
+                  {analytics.mistakesHeatmap.length} keys tracked
+                </Badge>
+              </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <Card>
                   <CardHeader>
@@ -3060,7 +3199,12 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <HelpCircle className="w-4 h-4 text-muted-foreground cursor-help" />
+                                <button
+                                  aria-label="Information about mistake heatmap"
+                                  className="inline-flex items-center"
+                                >
+                                  <HelpCircle className="w-4 h-4 text-muted-foreground cursor-help" />
+                                </button>
                               </TooltipTrigger>
                               <TooltipContent side="right" className="max-w-xs">
                                 <p>Shows which keys you mistype most often. Higher bars indicate keys that need more practice. Error rate = (errors / total presses) × 100%</p>
@@ -3072,7 +3216,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       </div>
                       {analytics.mistakesHeatmap.length > 0 && (
                         <Badge variant="outline" className="text-xs">
-                          {analytics.mistakesHeatmap.length} keys tracked
+                          Showing top 10 of {analytics.mistakesHeatmap.length}
                         </Badge>
                       )}
                     </div>
@@ -3081,16 +3225,35 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                     {analytics.mistakesHeatmap.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-[300px] text-center">
                         <Keyboard className="w-10 h-10 text-muted-foreground mb-3" />
-                        <p className="text-sm text-muted-foreground">No keystroke errors recorded yet.</p>
-                        <p className="text-xs text-muted-foreground mt-1">Complete typing tests to see your error patterns.</p>
+                        <p className="text-sm text-muted-foreground mb-4">No keystroke errors recorded yet.</p>
+                        <Link href="/">
+                          <Button variant="outline" size="sm">
+                            Take a Test
+                          </Button>
+                        </Link>
                       </div>
                     ) : (
                       <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={analytics.mistakesHeatmap.slice(0, 10)}>
+                        <BarChart 
+                          data={analytics.mistakesHeatmap.slice(0, 10)} 
+                          aria-label="Mistake heatmap bar chart"
+                          margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                        >
                           <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                          <XAxis dataKey="key" stroke="#888" />
-                          <YAxis stroke="#888" label={{ value: 'Error Rate (%)', angle: -90, position: 'insideLeft' }} />
-                          <ChartTooltip 
+                          <XAxis 
+                            dataKey="key" 
+                            stroke="#888" 
+                            aria-label="Keys"
+                            tick={{ fontSize: 12 }}
+                            interval={0}
+                          />
+                          <YAxis 
+                            stroke="#888" 
+                            label={{ value: 'Error Rate (%)', angle: -90, position: 'insideLeft' }} 
+                            aria-label="Error rate percentage"
+                            tick={{ fontSize: 12 }}
+                          />
+                          <ChartTooltip
                             contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155" }}
                             content={({ active, payload, label }) => {
                               if (!active || !payload || !payload.length) return null;
@@ -3103,9 +3266,9 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                                     {data?.errorCount} errors out of {data?.totalCount} presses
                                   </p>
                                   <p className="text-xs text-cyan-400 mt-2">
-                                    {data?.errorRate > 10 ? "⚠️ High error rate - focus practice here" : 
-                                     data?.errorRate > 5 ? "📊 Moderate - room for improvement" : 
-                                     "✓ Good accuracy on this key"}
+                                    {data?.errorRate > 10 ? "⚠️ High error rate - focus practice here" :
+                                      data?.errorRate > 5 ? "📊 Moderate - room for improvement" :
+                                        "✓ Good accuracy on this key"}
                                   </p>
                                 </div>
                               );
@@ -3123,19 +3286,24 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                     <div className="flex items-center justify-between">
                       <div>
                         <CardTitle className="flex items-center gap-2">
-                          Common Typing Errors
+                          Problematic Keys
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <HelpCircle className="w-4 h-4 text-muted-foreground cursor-help" />
+                                <button
+                                  aria-label="Information about problematic keys"
+                                  className="inline-flex items-center"
+                                >
+                                  <HelpCircle className="w-4 h-4 text-muted-foreground cursor-help" />
+                                </button>
                               </TooltipTrigger>
                               <TooltipContent side="right" className="max-w-xs">
-                                <p>Shows which keys you frequently substitute for others. The red badge is what you should have typed, and the outlined badge is what you actually typed.</p>
+                                <p>Shows which keys you frequently mistype. These keys need extra practice to improve your accuracy.</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                         </CardTitle>
-                        <CardDescription>Most frequent mistakes you make</CardDescription>
+                        <CardDescription>Keys you struggle with most</CardDescription>
                       </div>
                       {analytics.commonMistakes.length > 0 && (
                         <Badge variant="outline" className="text-xs">
@@ -3148,8 +3316,12 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                     {analytics.commonMistakes.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-[300px] text-center">
                         <Target className="w-10 h-10 text-muted-foreground mb-3" />
-                        <p className="text-sm text-muted-foreground">No substitution errors recorded yet.</p>
-                        <p className="text-xs text-muted-foreground mt-1">Great job! Or complete more tests to track patterns.</p>
+                        <p className="text-sm text-muted-foreground mb-4">No error patterns recorded yet.</p>
+                        <Link href="/">
+                          <Button variant="outline" size="sm">
+                            Take a Test
+                          </Button>
+                        </Link>
                       </div>
                     ) : (
                       <ScrollArea className="h-[300px]">
@@ -3161,27 +3333,27 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                                   <div
                                     className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 hover:bg-secondary/70 transition-colors cursor-help"
                                     data-testid={`mistake-${idx}`}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`Key ${mistake.expectedKey} with ${mistake.count} errors`}
                                   >
                                     <div className="flex items-center gap-3">
-                                      <Badge variant="destructive" className="font-mono">
+                                      <Badge variant="destructive" className="font-mono text-lg px-3 py-1">
                                         {mistake.expectedKey}
                                       </Badge>
-                                      <span className="text-muted-foreground">→</span>
-                                      <Badge variant="outline" className="font-mono">
-                                        {mistake.typedKey}
-                                      </Badge>
+                                      <span className="text-xs text-muted-foreground">Problematic Key</span>
                                     </div>
-                                    <span className="text-sm text-muted-foreground">{mistake.count}x</span>
+                                    <span className="text-sm font-semibold text-muted-foreground">{mistake.count}x errors</span>
                                   </div>
                                 </TooltipTrigger>
                                 <TooltipContent side="left" className="max-w-xs">
                                   <p className="text-sm">
-                                    You typed "{mistake.typedKey}" instead of "{mistake.expectedKey}" {mistake.count} time{mistake.count > 1 ? 's' : ''}.
+                                    You made {mistake.count} error{mistake.count > 1 ? 's' : ''} on the "{mistake.expectedKey}" key.
                                   </p>
                                   <p className="text-xs text-muted-foreground mt-1">
-                                    {mistake.count >= 10 ? "⚠️ Frequent mistake - practice this key pair" :
-                                     mistake.count >= 5 ? "📊 Moderate occurrence" :
-                                     "✓ Minor issue"}
+                                    {mistake.count >= 10 ? "⚠️ High error rate - focus practice here" :
+                                      mistake.count >= 5 ? "📊 Moderate errors - needs improvement" :
+                                        "✓ Minor issue - occasional mistakes"}
                                   </p>
                                 </TooltipContent>
                               </Tooltip>
@@ -3203,7 +3375,12 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <HelpCircle className="w-4 h-4 text-muted-foreground cursor-help" />
+                              <button
+                                aria-label="Information about detailed error analysis"
+                                className="inline-flex items-center"
+                              >
+                                <HelpCircle className="w-4 h-4 text-muted-foreground cursor-help" />
+                              </button>
                             </TooltipTrigger>
                             <TooltipContent side="right" className="max-w-xs">
                               <p>Visual grid of all tracked keys. Keys with higher error rates are highlighted. Hover over each key for detailed statistics.</p>
@@ -3211,7 +3388,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                           </Tooltip>
                         </TooltipProvider>
                       </CardTitle>
-                      <CardDescription>Keys sorted by total errors - hover for details</CardDescription>
+                      <CardDescription>Top keys by error count - color-coded by severity</CardDescription>
                     </div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-500/20 border border-red-500/50"></span> High</span>
@@ -3224,11 +3401,17 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                   {analytics.mistakesHeatmap.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
                       <Keyboard className="w-10 h-10 text-muted-foreground mb-3" />
-                      <p className="text-sm text-muted-foreground">No detailed error data available yet.</p>
+                      <p className="text-sm text-muted-foreground mb-4">No detailed error data available yet.</p>
+                      <Link href="/">
+                        <Button variant="outline" size="sm">
+                          Start Typing
+                        </Button>
+                      </Link>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                      {analytics.mistakesHeatmap.slice(0, 24).map((item, idx) => {
+                    <>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                        {analytics.mistakesHeatmap.slice(0, showAllErrorKeys ? analytics.mistakesHeatmap.length : 24).map((item, idx) => {
                         const severity = item.errorRate > 10 ? 'high' : item.errorRate > 5 ? 'medium' : 'low';
                         const severityStyles = {
                           high: 'border-red-500/50 bg-red-500/10 hover:bg-red-500/20',
@@ -3242,6 +3425,9 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                                 <div
                                   className={`flex flex-col items-center justify-center p-4 rounded-lg border transition-colors cursor-help ${severityStyles[severity]}`}
                                   data-testid={`heatmap-key-${item.key}`}
+                                  role="button"
+                                  tabIndex={0}
+                                  aria-label={`Key ${item.key}: ${item.errorRate.toFixed(1)}% error rate, ${item.errorCount} errors`}
                                 >
                                   <div className="text-2xl font-mono font-bold mb-2">{item.key}</div>
                                   <div className={`text-xs font-semibold ${severity === 'high' ? 'text-red-400' : severity === 'medium' ? 'text-yellow-400' : 'text-green-400'}`}>
@@ -3257,8 +3443,8 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                                   <p className="text-sm">{item.errorCount} errors / {item.totalCount} presses</p>
                                   <p className={`text-xs mt-1 ${severity === 'high' ? 'text-red-400' : severity === 'medium' ? 'text-yellow-400' : 'text-green-400'}`}>
                                     {severity === 'high' ? '⚠️ Priority practice recommended' :
-                                     severity === 'medium' ? '📊 Some room for improvement' :
-                                     '✓ Good accuracy'}
+                                      severity === 'medium' ? '📊 Some room for improvement' :
+                                        '✓ Good accuracy'}
                                   </p>
                                 </div>
                               </TooltipContent>
@@ -3266,7 +3452,24 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                           </TooltipProvider>
                         );
                       })}
-                    </div>
+                      </div>
+                      {analytics.mistakesHeatmap.length > 24 && (
+                        <div className="mt-4 text-center">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowAllErrorKeys(!showAllErrorKeys)}
+                            className="gap-2"
+                          >
+                            {showAllErrorKeys ? (
+                              <>Show Less</>
+                            ) : (
+                              <>Show All {analytics.mistakesHeatmap.length} Keys</>
+                            )}
+                          </Button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </CardContent>
               </Card>
@@ -3344,7 +3547,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       endurance: "💪",
                       general: "📊",
                     };
-                    
+
                     return (
                       <div
                         key={idx}
@@ -3359,8 +3562,8 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                             >
                               {typeIcons[insight.type]} {typeLabels[insight.type]}
                             </Badge>
-                            <Badge 
-                              variant="outline" 
+                            <Badge
+                              variant="outline"
                               className={`text-[10px] px-1.5 py-0 ${priorityColors[insight.priority]}`}
                             >
                               {insight.priority.toUpperCase()}

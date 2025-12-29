@@ -10,6 +10,7 @@ import { metricsCollector } from "./metrics";
 import { eloRatingService } from "./elo-rating-service";
 import { antiCheatService } from "./anticheat-service";
 import type { Server } from "http";
+import type { RaceParticipant } from "@shared/schema";
 
 const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
@@ -132,6 +133,68 @@ class RaceWebSocketServer {
     return enrichedResults;
   }
 
+  // Check if a race has active WebSocket connections
+  hasActiveConnections(raceId: number): boolean {
+    const raceRoom = this.races.get(raceId);
+    if (!raceRoom) return false;
+    
+    // Check for any connected clients (including bots)
+    return raceRoom.clients.size > 0;
+  }
+
+  // Check if a race room is locked (prevents new players from joining)
+  isRoomLocked(raceId: number): boolean {
+    const raceRoom = this.races.get(raceId);
+    if (!raceRoom) return false;
+    return raceRoom.isLocked === true;
+  }
+
+  // Check if a participant was kicked from a race
+  isParticipantKicked(raceId: number, participantId: number): boolean {
+    const raceRoom = this.races.get(raceId);
+    if (!raceRoom) return false;
+    return raceRoom.kickedPlayers.has(participantId);
+  }
+
+  // Broadcast new participant to all connected clients when someone joins via HTTP
+  // This ensures real-time updates even before the new player connects via WebSocket
+  broadcastNewParticipant(raceId: number, participant: RaceParticipant, allParticipants: RaceParticipant[]): void {
+    const raceRoom = this.races.get(raceId);
+    if (!raceRoom) {
+      console.log(`[WS] Cannot broadcast new participant - no room for race ${raceId}`);
+      return;
+    }
+
+    console.log(`[WS] Broadcasting new participant ${participant.username} to ${raceRoom.clients.size} clients in race ${raceId}`);
+
+    this.broadcastToRace(raceId, {
+      type: "participant_joined",
+      participant,
+      participants: allParticipants,
+      hostParticipantId: raceRoom.hostParticipantId,
+    });
+
+    // Also send a full sync to ensure everyone is in sync
+    this.broadcastToRace(raceId, {
+      type: "participants_sync",
+      participants: allParticipants,
+      hostParticipantId: raceRoom.hostParticipantId,
+    });
+  }
+
+  // Broadcast when a bot is removed to make room for a human player
+  broadcastParticipantRemoved(raceId: number, removedParticipantId: number, allParticipants: RaceParticipant[]): void {
+    const raceRoom = this.races.get(raceId);
+    if (!raceRoom) return;
+
+    this.broadcastToRace(raceId, {
+      type: "participant_removed",
+      participantId: removedParticipantId,
+      participants: allParticipants,
+      hostParticipantId: raceRoom.hostParticipantId,
+    });
+  }
+
   initialize(server: Server) {
     this.wss = new WebSocketServer({ server, path: "/ws/race" });
 
@@ -140,6 +203,9 @@ class RaceWebSocketServer {
     });
 
     wsRateLimiter.initialize();
+    
+    // Register callback so cleanup scheduler can check for active connections
+    raceCleanupScheduler.setActiveConnectionsChecker((raceId) => this.hasActiveConnections(raceId));
     raceCleanupScheduler.initialize();
 
     this.wss.on("connection", (ws: WebSocket) => {
@@ -208,17 +274,18 @@ class RaceWebSocketServer {
     console.log(`[WS] Shards: ${NUM_SHARDS}, Heartbeat: ${HEARTBEAT_INTERVAL_MS}ms`);
   }
 
-  shutdown() {
+  async shutdown(): Promise<void> {
+    console.log("[WS] Starting graceful shutdown...");
+    
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
     
-    raceCache.shutdown();
-    wsRateLimiter.shutdown();
-    raceCleanupScheduler.shutdown();
-    
+    // Stop all active bots and update race statuses
     const raceRooms = Array.from(this.races.values());
+    const shutdownPromises: Promise<void>[] = [];
+    
     for (const raceRoom of raceRooms) {
       if (raceRoom.countdownTimer) {
         clearInterval(raceRoom.countdownTimer);
@@ -226,9 +293,40 @@ class RaceWebSocketServer {
       if (raceRoom.timedRaceTimer) {
         clearTimeout(raceRoom.timedRaceTimer);
       }
+      
+      // Stop all bots in this race
+      const cachedRace = raceCache.getRace(raceRoom.raceId);
+      if (cachedRace?.participants) {
+        botService.stopAllBotsInRace(raceRoom.raceId, cachedRace.participants);
+      }
+      
+      // Mark active races as interrupted (not finished cleanly)
+      if (cachedRace?.race?.status === "racing" || cachedRace?.race?.status === "countdown") {
+        shutdownPromises.push(
+          storage.updateRaceStatus(raceRoom.raceId, "finished")
+            .catch(err => console.error(`[WS Shutdown] Failed to update race ${raceRoom.raceId} status:`, err))
+        );
+      }
+      
+      // Notify connected clients of shutdown
+      this.broadcastToRace(raceRoom.raceId, {
+        type: "server_shutdown",
+        message: "Server is shutting down. Your progress has been saved."
+      });
     }
     
+    // Wait for all race status updates to complete
+    if (shutdownPromises.length > 0) {
+      console.log(`[WS Shutdown] Waiting for ${shutdownPromises.length} race status updates...`);
+      await Promise.all(shutdownPromises);
+    }
+    
+    raceCache.shutdown();
+    wsRateLimiter.shutdown();
+    raceCleanupScheduler.shutdown();
+    
     this.races.clear();
+    console.log("[WS] Graceful shutdown complete");
   }
 
   private async flushProgressToDatabase(updates: Map<number, { progress: number; wpm: number; accuracy: number; errors: number; lastUpdate: number; dirty: boolean }>): Promise<void> {
@@ -342,7 +440,13 @@ class RaceWebSocketServer {
         const cachedRace = raceCache.getRace(raceId);
         const currentStatus = cachedRace?.race?.status;
         
-        if (currentStatus === "countdown" && connectedHumans.length < 2) {
+        // Check for bots to determine minimum required humans
+        const participants = cachedRace?.participants || [];
+        const botParticipants = participants.filter(p => p.isBot === 1);
+        const hasBots = botParticipants.length > 0;
+        const requiredHumans = hasBots ? 1 : 2; // With bots: 1 human can race. Without: need 2 humans.
+        
+        if (currentStatus === "countdown" && connectedHumans.length < requiredHumans) {
           if (raceRoom.countdownTimer) {
             clearInterval(raceRoom.countdownTimer);
             raceRoom.countdownTimer = undefined;
@@ -358,11 +462,13 @@ class RaceWebSocketServer {
           
           this.broadcastToRace(raceId, {
             type: "countdown_cancelled",
-            reason: "Not enough players - need at least 2 to start",
+            reason: hasBots 
+              ? "Not enough players connected - waiting for reconnection"
+              : `Not enough players - need at least ${requiredHumans} to start`,
             code: "INSUFFICIENT_PLAYERS"
           });
           
-          console.log(`[WS Heartbeat] Countdown cancelled for race ${raceId} - timeout caused insufficient players`);
+          console.log(`[WS Heartbeat] Countdown cancelled for race ${raceId} - timeout caused insufficient players (need ${requiredHumans})`);
         }
       }
 
@@ -472,7 +578,8 @@ class RaceWebSocketServer {
         await this.handleReady(message);
         break;
       case "progress":
-        await this.handleProgress(message);
+        // Pass authenticated raceId for O(1) lookup instead of O(n) scan
+        await this.handleProgress(message, (ws as any).authenticatedRaceId);
         break;
       case "finish":
         await this.handleFinish(message);
@@ -516,9 +623,6 @@ class RaceWebSocketServer {
       case "rematch":
         await this.handleRematch(ws, message);
         break;
-      case "add_bots":
-        await this.handleAddBots(ws, message);
-        break;
       default:
         console.warn("Unknown message type:", message.type);
     }
@@ -550,11 +654,24 @@ class RaceWebSocketServer {
     }
 
     // SECURITY: Verify participant exists and belongs to this race
-    const participant = participants.find(p => p.id === participantId);
+    let participant = participants.find(p => p.id === participantId);
+    
+    // If not found in cache, the participant might have just been created via HTTP join
+    // Fetch fresh data from database to ensure we have the latest state
     if (!participant) {
-      console.warn(`[WS Security] Join rejected: participant ${participantId} not found in race ${raceId}`);
-      ws.send(JSON.stringify({ type: "error", message: "Invalid participant" }));
-      return;
+      console.log(`[WS] Participant ${participantId} not in cache, fetching fresh from database...`);
+      participants = await storage.getRaceParticipants(raceId);
+      participant = participants.find(p => p.id === participantId);
+      
+      if (participant) {
+        // Update cache with fresh data
+        raceCache.updateParticipants(raceId, participants, race);
+        console.log(`[WS] Found participant ${participantId} in database, cache updated`);
+      } else {
+        console.warn(`[WS Security] Join rejected: participant ${participantId} not found in race ${raceId}`);
+        ws.send(JSON.stringify({ type: "error", message: "Invalid participant" }));
+        return;
+      }
     }
 
     // SECURITY: Verify username matches (prevents impersonation)
@@ -690,7 +807,11 @@ class RaceWebSocketServer {
     }));
 
     this.updateStats();
-    // No automatic bot joining - private rooms are for real human players only
+    
+    // Start spontaneous bot chat when a human joins a race with bots
+    if (!client.isBot && participants.some(p => p.isBot === 1)) {
+      this.startSpontaneousBotChat(raceId);
+    }
   }
 
   private async handleReady(message: any) {
@@ -725,16 +846,36 @@ class RaceWebSocketServer {
     if (cachedRace) {
       race = cachedRace.race;
       participants = cachedRace.participants;
+      console.log(`[WS] handleReady: Got race ${raceId} from cache, status: ${race?.status}, participants: ${participants?.length}`);
     } else {
+      console.log(`[WS] handleReady: Race ${raceId} not in cache, fetching from DB...`);
       race = await storage.getRace(raceId);
       participants = await storage.getRaceParticipants(raceId);
+      console.log(`[WS] handleReady: Got race ${raceId} from DB, status: ${race?.status}, participants: ${participants?.length}`);
       if (race) {
         raceCache.setRace(race, participants);
       }
     }
     
     if (!race || race.status !== "waiting") {
-      console.log(`[WS] handleReady: Race ${raceId} is not in waiting status (current: ${race?.status})`);
+      console.log(`[WS] handleReady: Race ${raceId} invalid - race exists: ${!!race}, status: ${race?.status}`);
+      // Send error to client instead of silently returning
+      const client = raceRoom.clients.get(participantId);
+      if (client && client.ws.readyState === WebSocket.OPEN) {
+        const message = !race 
+          ? "This race no longer exists. Please join a new race."
+          : race.status === "finished" 
+            ? "This race has ended. Please join a new race."
+            : race.status === "racing"
+              ? "This race is already in progress."
+              : "Unable to start the race. Please try again.";
+        client.ws.send(JSON.stringify({
+          type: "error",
+          message,
+          code: "RACE_UNAVAILABLE",
+          raceStatus: race?.status || "not_found"
+        }));
+      }
       return;
     }
 
@@ -799,11 +940,48 @@ class RaceWebSocketServer {
 
   private async handleReadyToggle(ws: WebSocket, message: any) {
     const { raceId, participantId } = message;
+    
+    // Validate required fields
+    if (!raceId || !participantId) {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Missing required fields",
+        code: "INVALID_REQUEST"
+      }));
+      return;
+    }
+    
     const raceRoom = this.races.get(raceId);
-    if (!raceRoom) return;
+    if (!raceRoom) {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Race room not found",
+        code: "ROOM_NOT_FOUND"
+      }));
+      return;
+    }
+    
+    // Only allow ready toggle during waiting status
+    const cachedRace = raceCache.getRace(raceId);
+    const raceStatus = cachedRace?.race?.status;
+    if (raceStatus && raceStatus !== "waiting") {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Cannot change ready state after race has started",
+        code: "INVALID_RACE_STATUS"
+      }));
+      return;
+    }
 
     const client = raceRoom.clients.get(participantId);
-    if (!client) return;
+    if (!client) {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "You are not connected to this race",
+        code: "NOT_IN_RACE"
+      }));
+      return;
+    }
 
     // Toggle ready state
     client.isReady = !client.isReady;
@@ -828,8 +1006,47 @@ class RaceWebSocketServer {
 
   private async handleKickPlayer(ws: WebSocket, message: any) {
     const { raceId, participantId, targetParticipantId } = message;
+    
+    // Validate required fields
+    if (!raceId || !participantId || !targetParticipantId) {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Missing required fields for kick",
+        code: "INVALID_REQUEST"
+      }));
+      return;
+    }
+    
     const raceRoom = this.races.get(raceId);
-    if (!raceRoom) return;
+    if (!raceRoom) {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Race room not found",
+        code: "ROOM_NOT_FOUND"
+      }));
+      return;
+    }
+
+    // Check race status - can only kick during waiting or countdown, not during active racing
+    const cachedRace = raceCache.getRace(raceId);
+    const raceStatus = cachedRace?.race?.status;
+    if (raceStatus === "racing") {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Cannot kick players during an active race",
+        code: "RACE_IN_PROGRESS"
+      }));
+      return;
+    }
+    
+    if (raceStatus === "finished") {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Cannot kick players from a finished race",
+        code: "RACE_FINISHED"
+      }));
+      return;
+    }
 
     // Only host can kick players
     if (raceRoom.hostParticipantId !== participantId) {
@@ -850,24 +1067,64 @@ class RaceWebSocketServer {
       }));
       return;
     }
-
-    const targetClient = raceRoom.clients.get(targetParticipantId);
-    if (!targetClient) {
+    
+    // Check if player was already kicked (prevent duplicate processing)
+    if (raceRoom.kickedPlayers.has(targetParticipantId)) {
       ws.send(JSON.stringify({
         type: "error",
-        message: "Player not found",
+        message: "Player has already been kicked",
+        code: "ALREADY_KICKED"
+      }));
+      return;
+    }
+
+    // Look for the target player in both WebSocket clients AND cache/database
+    // This handles cases where player is shown in UI but not connected via WebSocket
+    const targetClient = raceRoom.clients.get(targetParticipantId);
+    
+    // Also check cache/database for the participant
+    let kickedUsername: string | undefined = targetClient?.username;
+    let targetParticipant: any = null;
+    let isBot = false;
+    
+    // Try to find participant in cache first
+    if (cachedRace?.participants) {
+      targetParticipant = cachedRace.participants.find(p => p.id === targetParticipantId);
+      if (targetParticipant) {
+        if (!kickedUsername) kickedUsername = targetParticipant.username;
+        isBot = targetParticipant.isBot === 1;
+      }
+    }
+    
+    // If not found in cache, check database
+    if (!targetParticipant && !targetClient) {
+      try {
+        const dbParticipants = await storage.getRaceParticipants(raceId);
+        targetParticipant = dbParticipants.find(p => p.id === targetParticipantId);
+        if (targetParticipant) {
+          if (!kickedUsername) kickedUsername = targetParticipant.username;
+          isBot = targetParticipant.isBot === 1;
+        }
+      } catch (error) {
+        console.error(`[WS Kick] Error fetching participants for kick in race ${raceId}:`, error);
+      }
+    }
+
+    // If player not found anywhere, return error
+    if (!targetClient && !targetParticipant) {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Player not found in this race",
         code: "PLAYER_NOT_FOUND"
       }));
       return;
     }
 
-    const kickedUsername = targetClient.username;
-
     // Add to kicked list so they can't rejoin
     raceRoom.kickedPlayers.add(targetParticipantId);
 
-    // Notify the kicked player
-    if (targetClient.ws.readyState === WebSocket.OPEN) {
+    // If the player is connected via WebSocket, notify them and close connection
+    if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
       targetClient.ws.send(JSON.stringify({
         type: "kicked",
         message: "You have been kicked from the room by the host"
@@ -875,23 +1132,113 @@ class RaceWebSocketServer {
       targetClient.ws.close();
     }
 
-    // Remove from clients
+    // Remove from WebSocket clients map if present
     raceRoom.clients.delete(targetParticipantId);
+    
+    // Clean up any disconnected player entry for this participant
+    const disconnectedMap = this.disconnectedPlayers.get(raceId);
+    if (disconnectedMap) {
+      disconnectedMap.delete(targetParticipantId);
+    }
 
-    // Broadcast player kicked to remaining clients
+    // Mark participant as inactive in database (soft delete)
+    try {
+      await storage.deleteRaceParticipant(targetParticipantId);
+      console.log(`[WS Kick] Marked participant ${targetParticipantId} as inactive in database`);
+    } catch (error) {
+      console.error(`[WS Kick] Error marking participant ${targetParticipantId} as inactive:`, error);
+      // Continue with the kick even if database update fails
+    }
+
+    // Update the race cache with the new participant list
+    let updatedParticipants: any[] = [];
+    try {
+      updatedParticipants = await storage.getRaceParticipants(raceId);
+      raceCache.updateParticipants(raceId, updatedParticipants);
+      console.log(`[WS Kick] Updated race cache after kicking player from race ${raceId}`);
+    } catch (error) {
+      console.error(`[WS Kick] Error updating race cache after kick in race ${raceId}:`, error);
+    }
+    
+    // Check if countdown should be cancelled due to insufficient players after kick
+    const connectedHumans = Array.from(raceRoom.clients.values()).filter(c => !c.isBot);
+    const botParticipants = updatedParticipants.filter(p => p.isBot === 1);
+    const hasBots = botParticipants.length > 0;
+    const requiredHumans = hasBots ? 1 : 2;
+    
+    if (raceStatus === "countdown" && connectedHumans.length < requiredHumans) {
+      // Cancel countdown - not enough players after kick
+      if (raceRoom.countdownTimer) {
+        clearInterval(raceRoom.countdownTimer);
+        raceRoom.countdownTimer = undefined;
+      }
+      
+      raceRoom.isStarting = false;
+      
+      // Revert race status to waiting
+      raceCache.updateRaceStatus(raceId, "waiting");
+      storage.updateRaceStatus(raceId, "waiting").catch(err => 
+        console.error(`[WS Kick] Failed to revert race status:`, err)
+      );
+      
+      this.broadcastToRace(raceId, {
+        type: "countdown_cancelled",
+        reason: hasBots 
+          ? "Host left - waiting for new players"
+          : `Not enough players - need at least ${requiredHumans} to start`,
+        code: "INSUFFICIENT_PLAYERS"
+      });
+      
+      console.log(`[WS Kick] Countdown cancelled for race ${raceId} after kicking - only ${connectedHumans.length} human player(s) remaining`);
+    }
+
+    // Broadcast player kicked to remaining clients with updated participant list
+    const finalParticipants = raceCache.getRace(raceId)?.participants || updatedParticipants;
     this.broadcastToRace(raceId, {
       type: "player_kicked",
       participantId: targetParticipantId,
-      username: kickedUsername,
+      username: kickedUsername || "Unknown",
+      participants: finalParticipants,
+      isBot,
     });
 
-    console.log(`[WS] Player kicked: ${kickedUsername} (${targetParticipantId}) from race ${raceId} by host`);
+    console.log(`[WS Kick] Player kicked: ${kickedUsername || targetParticipantId} (${targetParticipantId}) from race ${raceId} by host${isBot ? ' [BOT]' : ''}`);
   }
 
   private async handleLockRoom(ws: WebSocket, message: any) {
     const { raceId, participantId, locked } = message;
+    
+    // Validate required fields
+    if (!raceId || !participantId || typeof locked !== 'boolean') {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Missing required fields for lock room",
+        code: "INVALID_REQUEST"
+      }));
+      return;
+    }
+    
     const raceRoom = this.races.get(raceId);
-    if (!raceRoom) return;
+    if (!raceRoom) {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Race room not found",
+        code: "ROOM_NOT_FOUND"
+      }));
+      return;
+    }
+    
+    // Check race status - can only lock/unlock during waiting
+    const cachedRace = raceCache.getRace(raceId);
+    const raceStatus = cachedRace?.race?.status;
+    if (raceStatus && raceStatus !== "waiting") {
+      ws.send(JSON.stringify({
+        type: "error",
+        message: "Can only lock/unlock room while waiting for players",
+        code: "INVALID_RACE_STATUS"
+      }));
+      return;
+    }
 
     // Only host can lock/unlock room
     if (raceRoom.hostParticipantId !== participantId) {
@@ -900,6 +1247,11 @@ class RaceWebSocketServer {
         message: "Only the host can lock/unlock the room",
         code: "NOT_HOST"
       }));
+      return;
+    }
+    
+    // No-op if already in desired state
+    if (raceRoom.isLocked === locked) {
       return;
     }
 
@@ -912,99 +1264,6 @@ class RaceWebSocketServer {
     });
 
     console.log(`[WS] Room ${raceId} ${locked ? 'locked' : 'unlocked'} by host`);
-  }
-
-  private async handleAddBots(ws: WebSocket, message: any) {
-    const { raceId, participantId, botCount } = message;
-    const raceRoom = this.races.get(raceId);
-    if (!raceRoom) {
-      ws.send(JSON.stringify({
-        type: "error",
-        message: "Race room not found",
-        code: "ROOM_NOT_FOUND"
-      }));
-      return;
-    }
-
-    // Only host can add bots
-    if (raceRoom.hostParticipantId !== participantId) {
-      ws.send(JSON.stringify({
-        type: "error",
-        message: "Only the host can add bots",
-        code: "NOT_HOST"
-      }));
-      return;
-    }
-
-    // Get current race state
-    let cachedRace = raceCache.getRace(raceId);
-    let race;
-    let participants;
-
-    if (cachedRace) {
-      race = cachedRace.race;
-      participants = cachedRace.participants;
-    } else {
-      race = await storage.getRace(raceId);
-      if (!race) {
-        ws.send(JSON.stringify({
-          type: "error",
-          message: "Race not found",
-          code: "RACE_NOT_FOUND"
-        }));
-        return;
-      }
-      participants = await storage.getRaceParticipants(raceId);
-    }
-
-    // Can only add bots while waiting
-    if (race.status !== "waiting") {
-      ws.send(JSON.stringify({
-        type: "error",
-        message: "Can only add bots while the race is waiting to start",
-        code: "RACE_NOT_WAITING"
-      }));
-      return;
-    }
-
-    // Check how many slots are available
-    const currentCount = participants.length;
-    const availableSlots = race.maxPlayers - currentCount;
-    const botsToAdd = Math.min(botCount || 1, availableSlots);
-
-    if (botsToAdd <= 0) {
-      ws.send(JSON.stringify({
-        type: "error",
-        message: "Race is full, cannot add more players",
-        code: "RACE_FULL"
-      }));
-      return;
-    }
-
-    try {
-      // Add bots using the bot service
-      const newBots = await botService.addBotsToRace(raceId, botsToAdd);
-      
-      // Update the cache with new participants
-      const updatedParticipants = await storage.getRaceParticipants(raceId);
-      raceCache.updateParticipants(raceId, updatedParticipants);
-
-      // Broadcast to all clients that bots have been added
-      this.broadcastToRace(raceId, {
-        type: "bots_added",
-        bots: newBots,
-        participants: updatedParticipants,
-      });
-
-      console.log(`[WS] Added ${newBots.length} bots to race ${raceId}: ${newBots.map(b => b.username).join(', ')}`);
-    } catch (error) {
-      console.error(`[WS] Failed to add bots to race ${raceId}:`, error);
-      ws.send(JSON.stringify({
-        type: "error",
-        message: "Failed to add bots",
-        code: "BOT_ADD_FAILED"
-      }));
-    }
   }
 
   private async handleRematch(ws: WebSocket, message: any) {
@@ -1045,8 +1304,9 @@ class RaceWebSocketServer {
       paragraphContent: race.paragraphContent || "",
       maxPlayers: race.maxPlayers,
       isPrivate: race.isPrivate || 1,
-      raceType: race.raceType as "standard" | "timed" | undefined,
-      timeLimitSeconds: race.timeLimitSeconds,
+      raceType: race.raceType as "standard" | "timed",
+      timeLimitSeconds: race.timeLimitSeconds || undefined,
+      paragraphId: race.paragraphId || null,
     });
 
     // Broadcast rematch available to all players in the room
@@ -1118,6 +1378,9 @@ class RaceWebSocketServer {
         await storage.updateRaceStatus(raceId, "racing", startedAt);
         raceCache.updateRaceStatus(raceId, "racing", startedAt);
         
+        // Stop spontaneous bot chat when race starts (bots are now typing)
+        this.stopSpontaneousBotChat(raceId);
+        
         // Store race start time for server-side timer validation
         raceRoom.raceStartTime = Date.now();
         
@@ -1165,12 +1428,13 @@ class RaceWebSocketServer {
     }, 1000);
   }
 
-  private async handleProgress(message: any) {
+  private async handleProgress(message: any, authenticatedRaceId?: number) {
     const { participantId, progress, wpm, accuracy, errors } = message;
 
     raceCache.bufferProgress(participantId, progress, wpm, accuracy, errors);
 
-    const raceId = this.findRaceIdByParticipant(participantId);
+    // Use authenticated raceId for O(1) lookup, fallback to O(n) scan only if not available
+    const raceId = authenticatedRaceId || this.findRaceIdByParticipant(participantId);
     if (raceId) {
       const raceRoom = this.races.get(raceId);
       if (raceRoom) {
@@ -1264,6 +1528,9 @@ class RaceWebSocketServer {
         results: enrichedResults,
       });
 
+      // Trigger post-race bot chat (gg, nice race, etc.) with a short delay
+      this.triggerPostRaceBotChat(raceId, sortedResults);
+
       this.processRaceCompletion(raceId, sortedResults).catch(err => {
         console.error(`[RaceFinish] Error processing race completion:`, err);
       });
@@ -1294,6 +1561,7 @@ class RaceWebSocketServer {
     }
 
     if (!race || race.status === "finished") {
+      console.log(`[Timed Finish] Race ${raceId} already finished or not found, skipping participant ${participantId}`);
       return;
     }
 
@@ -1331,9 +1599,11 @@ class RaceWebSocketServer {
     const { position, isNewFinish } = await storage.finishParticipant(participantId);
 
     if (!isNewFinish) {
+      console.log(`[Timed Finish] Participant ${participantId} was already finished, skipping`);
       return;
     }
 
+    console.log(`[Timed Finish] Participant ${participantId} finished at position ${position}`);
     raceCache.finishParticipant(raceId, participantId, position);
 
     this.broadcastToRace(raceId, {
@@ -1350,74 +1620,113 @@ class RaceWebSocketServer {
     
     console.log(`[Timed Finish] All finished check: ${allFinished}, participants: ${freshParticipants.map(p => `${p.username}:${p.isFinished}`).join(', ')}`);
 
-    if (allFinished) {
-      // Clear server-side timed race timer if it exists
+    // For timed races, we should finish the race when the human finishes (timer expired on client)
+    // Bots might still be "racing" but that's fine - the timer is the source of truth
+    const connectedClients = raceRoom ? raceRoom.clients.size : 0;
+    console.log(`[Timed Finish] Race room has ${connectedClients} connected clients`);
+
+    // For timed races: Force-finish any bots that haven't finished yet
+    // The human's timer is the source of truth - when it expires, the race ends for everyone
+    if (!allFinished) {
+      console.log(`[Timed Finish] Not all finished - force-finishing remaining bots for timed race ${raceId}`);
+      const elapsedSeconds = race.timeLimitSeconds || 60;
+      
+      for (const p of freshParticipants) {
+        if (p.isFinished === 0 && p.isBot === 1) {
+          // Calculate WPM based on bot's current progress
+          const correctChars = Math.max(0, p.progress - p.errors);
+          const calculatedWpm = elapsedSeconds > 0 
+            ? Math.round((correctChars / 5) / (elapsedSeconds / 60)) 
+            : 0;
+          const calculatedAccuracy = p.progress > 0 
+            ? Math.round((correctChars / p.progress) * 100 * 100) / 100
+            : 100;
+          
+          console.log(`[Timed Finish] Force finishing bot ${p.username}: progress=${p.progress}, WPM=${calculatedWpm}`);
+          
+          await storage.updateParticipantProgress(p.id, p.progress, calculatedWpm, calculatedAccuracy, p.errors);
+          await storage.finishParticipant(p.id);
+          
+          // Update local object for sorting
+          p.wpm = calculatedWpm;
+          p.accuracy = calculatedAccuracy;
+          p.isFinished = 1;
+        }
+      }
+    }
+
+    // Now all participants should be finished - proceed with race completion
+    // Clear server-side timed race timer if it exists
+    if (raceRoom) {
+      // Mark as finishing BEFORE any async operations to prevent heartbeat cleanup
+      raceRoom.isFinishing = true;
+      
+      if (raceRoom.timedRaceTimer) {
+        clearTimeout(raceRoom.timedRaceTimer);
+        raceRoom.timedRaceTimer = undefined;
+      }
+    }
+    
+    const finishedAt = new Date();
+    await storage.updateRaceStatus(raceId, "finished", undefined, finishedAt);
+    raceCache.updateRaceStatus(raceId, "finished", undefined, finishedAt);
+    
+    botService.stopAllBotsInRace(raceId, freshParticipants);
+    this.cleanupExtensionState(raceId);
+    
+    // Sort by WPM for timed races with proper tie-breaking:
+    // 1. Higher WPM wins
+    // 2. If WPM tied: higher accuracy wins
+    // 3. If accuracy tied: more progress (characters typed) wins
+    // 4. If still tied: lower ID (joined first) wins
+    const sortedResults = freshParticipants.sort((a, b) => {
+      // Primary: Higher WPM
+      if (b.wpm !== a.wpm) return b.wpm - a.wpm;
+      // Secondary: Higher accuracy
+      if (b.accuracy !== a.accuracy) return b.accuracy - a.accuracy;
+      // Tertiary: More progress (characters typed)
+      if (b.progress !== a.progress) return b.progress - a.progress;
+      // Final: Lower ID (joined first)
+      return a.id - b.id;
+    });
+    
+    // Update and persist positions based on WPM ranking for timed races
+    for (let i = 0; i < sortedResults.length; i++) {
+      sortedResults[i].finishPosition = i + 1;
+      await storage.updateParticipantFinishPosition(sortedResults[i].id, i + 1);
+    }
+    
+    const enrichedResults = await this.enrichResultsWithRatings(sortedResults);
+    
+    const clientCount = raceRoom?.clients.size || 0;
+    console.log(`[Timed Finish] Broadcasting race_finished for race ${raceId} with ${enrichedResults.length} results to ${clientCount} clients`);
+    
+    this.broadcastToRace(raceId, {
+      type: "race_finished",
+      results: enrichedResults,
+      isTimedRace: true,
+    });
+    
+    console.log(`[Timed Finish] race_finished broadcast sent successfully`);
+
+    // Trigger post-race bot chat (gg, nice race, etc.)
+    this.triggerPostRaceBotChat(raceId, sortedResults);
+
+    this.processRaceCompletion(raceId, sortedResults).catch(err => {
+      console.error(`[TimedRaceFinish] Error processing race completion:`, err);
+    });
+    
+    // Clean up race room AFTER broadcasting results
+    // Delay cleanup to allow any reconnecting clients to receive the results
+    setTimeout(() => {
       const raceRoom = this.races.get(raceId);
       if (raceRoom) {
-        // Mark as finishing BEFORE any async operations to prevent heartbeat cleanup
-        raceRoom.isFinishing = true;
-        
-        if (raceRoom.timedRaceTimer) {
-          clearTimeout(raceRoom.timedRaceTimer);
-          raceRoom.timedRaceTimer = undefined;
-        }
+        console.log(`[Timed Finish] Cleaning up race room ${raceId} after results broadcast`);
+        this.races.delete(raceId);
+        this.cleanupExtensionState(raceId);
+        this.updateStats();
       }
-      
-      const finishedAt = new Date();
-      await storage.updateRaceStatus(raceId, "finished", undefined, finishedAt);
-      raceCache.updateRaceStatus(raceId, "finished", undefined, finishedAt);
-      
-      botService.stopAllBotsInRace(raceId, freshParticipants);
-      this.cleanupExtensionState(raceId);
-      
-      // Sort by WPM for timed races with proper tie-breaking:
-      // 1. Higher WPM wins
-      // 2. If WPM tied: higher accuracy wins
-      // 3. If accuracy tied: more progress (characters typed) wins
-      // 4. If still tied: lower ID (joined first) wins
-      const sortedResults = freshParticipants.sort((a, b) => {
-        // Primary: Higher WPM
-        if (b.wpm !== a.wpm) return b.wpm - a.wpm;
-        // Secondary: Higher accuracy
-        if (b.accuracy !== a.accuracy) return b.accuracy - a.accuracy;
-        // Tertiary: More progress (characters typed)
-        if (b.progress !== a.progress) return b.progress - a.progress;
-        // Final: Lower ID (joined first)
-        return a.id - b.id;
-      });
-      
-      // Update and persist positions based on WPM ranking for timed races
-      for (let i = 0; i < sortedResults.length; i++) {
-        sortedResults[i].finishPosition = i + 1;
-        await storage.updateParticipantFinishPosition(sortedResults[i].id, i + 1);
-      }
-      
-      const enrichedResults = await this.enrichResultsWithRatings(sortedResults);
-      
-      console.log(`[Timed Finish] Broadcasting race_finished for race ${raceId} with ${enrichedResults.length} results`);
-      
-      this.broadcastToRace(raceId, {
-        type: "race_finished",
-        results: enrichedResults,
-        isTimedRace: true,
-      });
-
-      this.processRaceCompletion(raceId, sortedResults).catch(err => {
-        console.error(`[TimedRaceFinish] Error processing race completion:`, err);
-      });
-      
-      // Clean up race room AFTER broadcasting results
-      // Delay cleanup to allow any reconnecting clients to receive the results
-      setTimeout(() => {
-        const raceRoom = this.races.get(raceId);
-        if (raceRoom) {
-          console.log(`[Timed Finish] Cleaning up race room ${raceId} after results broadcast`);
-          this.races.delete(raceId);
-          this.cleanupExtensionState(raceId);
-          this.updateStats();
-        }
-      }, 5000); // 5 second delay to allow reconnecting clients
-    }
+    }, 5000); // 5 second delay to allow reconnecting clients
   }
 
   // Force finish a timed race when server timer expires (anti-cheat: don't trust client timer)
@@ -1522,6 +1831,9 @@ class RaceWebSocketServer {
       isTimedRace: true,
       serverEnforced: true,
     });
+
+    // Trigger post-race bot chat (gg, nice race, etc.)
+    this.triggerPostRaceBotChat(raceId, sortedResults);
 
     this.processRaceCompletion(raceId, sortedResults).catch(err => {
       console.error(`[TimedRaceFinish] Error processing race completion:`, err);
@@ -1653,6 +1965,11 @@ class RaceWebSocketServer {
       }
     } else {
       // For waiting or finished races, just delete the participant
+      // Get username before deleting for notifications
+      const participants = await storage.getRaceParticipants(raceId);
+      const leavingParticipant = participants.find(p => p.id === participantId);
+      const leavingUsername = leavingParticipant?.username;
+      
       await storage.deleteRaceParticipant(participantId);
       raceCache.removeParticipant(raceId, participantId);
       
@@ -1660,6 +1977,7 @@ class RaceWebSocketServer {
         this.broadcastToRace(raceId, {
           type: "participant_left",
           participantId,
+          username: leavingUsername, // Include username for notifications
         });
       }
     }
@@ -1669,18 +1987,63 @@ class RaceWebSocketServer {
     if (raceRoom) {
       raceRoom.clients.delete(participantId);
       
-      // Host transfer: If the leaving player was the host, transfer to next available player
+      // Host transfer: If the leaving player was the host, transfer to next available HUMAN player
       if (raceRoom.hostParticipantId === participantId && raceRoom.clients.size > 0) {
-        const nextHostId = Array.from(raceRoom.clients.keys())[0];
-        raceRoom.hostParticipantId = nextHostId;
-        const newHostClient = raceRoom.clients.get(nextHostId);
-        console.log(`[WS] Host transferred to ${newHostClient?.username || nextHostId} for race ${raceId}`);
+        // Find next human player (exclude bots) sorted by join order
+        const humanClients = Array.from(raceRoom.clients.entries())
+          .filter(([_, c]) => !c.isBot)
+          .sort((a, b) => a[0] - b[0]); // Sort by participantId (join order)
+        
+        if (humanClients.length > 0) {
+          const [nextHostId, newHostClient] = humanClients[0];
+          raceRoom.hostParticipantId = nextHostId;
+          console.log(`[WS Leave] Host transferred to ${newHostClient.username} (${nextHostId}) for race ${raceId}`);
+          
+          this.broadcastToRace(raceId, {
+            type: "host_changed",
+            newHostParticipantId: nextHostId,
+            newHostUsername: newHostClient.username,
+            message: `${newHostClient.username} is now the host`,
+          });
+        } else {
+          // No human players left, clear host
+          raceRoom.hostParticipantId = undefined;
+          console.log(`[WS Leave] No human players left in race ${raceId}, host cleared`);
+        }
+      }
+      
+      // Check if countdown should be cancelled due to insufficient players after leave
+      const connectedHumans = Array.from(raceRoom.clients.values()).filter(c => !c.isBot);
+      const participants = cachedRace?.participants || [];
+      const botParticipants = participants.filter(p => p.isBot === 1);
+      const hasBots = botParticipants.length > 0;
+      const requiredHumans = hasBots ? 1 : 2;
+      const currentStatus = race?.status;
+      
+      if (currentStatus === "countdown" && connectedHumans.length < requiredHumans) {
+        // Cancel countdown - not enough players after leave
+        if (raceRoom.countdownTimer) {
+          clearInterval(raceRoom.countdownTimer);
+          raceRoom.countdownTimer = undefined;
+        }
+        
+        raceRoom.isStarting = false;
+        
+        // Revert race status to waiting
+        raceCache.updateRaceStatus(raceId, "waiting");
+        storage.updateRaceStatus(raceId, "waiting").catch(err => 
+          console.error(`[WS Leave] Failed to revert race status:`, err)
+        );
         
         this.broadcastToRace(raceId, {
-          type: "host_changed",
-          newHostParticipantId: nextHostId,
-          message: `${newHostClient?.username || 'A player'} is now the host`,
+          type: "countdown_cancelled",
+          reason: hasBots 
+            ? "Not enough players connected"
+            : `Not enough players - need at least ${requiredHumans} to start`,
+          code: "INSUFFICIENT_PLAYERS"
         });
+        
+        console.log(`[WS Leave] Countdown cancelled for race ${raceId} - only ${connectedHumans.length} human player(s) remaining`);
       }
       
       if (raceRoom.clients.size === 0) {
@@ -1799,6 +2162,8 @@ class RaceWebSocketServer {
 
   private cleanupExtensionState(raceId: number) {
     this.extensionStates.delete(raceId);
+    // Also stop any spontaneous bot chat for this race
+    this.stopSpontaneousBotChat(raceId);
   }
 
   // ============================================================================
@@ -1929,9 +2294,286 @@ class RaceWebSocketServer {
 
   private botChatCooldowns: Map<number, number> = new Map(); // per-bot cooldowns
   private raceBurstWindow: Map<number, { count: number; expiresAt: number }> = new Map();
+  private spontaneousChatTimers: Map<number, NodeJS.Timeout> = new Map(); // raceId -> timer
   private readonly BOT_CHAT_COOLDOWN_MS = 6000; // 6 seconds per bot
   private readonly RACE_BURST_LIMIT = 5; // max 5 bot messages per window
   private readonly RACE_BURST_WINDOW_MS = 8000; // 8 second window
+  private readonly SPONTANEOUS_CHAT_MIN_DELAY_MS = 8000; // Minimum 8 seconds between spontaneous messages
+  private readonly SPONTANEOUS_CHAT_MAX_DELAY_MS = 25000; // Maximum 25 seconds between spontaneous messages
+
+  // Start spontaneous bot chat for a race (bots initiate messages without human prompting)
+  private startSpontaneousBotChat(raceId: number) {
+    // Don't start if already running
+    if (this.spontaneousChatTimers.has(raceId)) {
+      return;
+    }
+
+    const scheduleNext = () => {
+      // Random delay between min and max
+      const delay = this.SPONTANEOUS_CHAT_MIN_DELAY_MS + 
+        Math.random() * (this.SPONTANEOUS_CHAT_MAX_DELAY_MS - this.SPONTANEOUS_CHAT_MIN_DELAY_MS);
+      
+      const timer = setTimeout(async () => {
+        await this.sendSpontaneousBotMessage(raceId);
+        
+        // Schedule next message if race is still active
+        const cachedRace = raceCache.getRace(raceId);
+        if (cachedRace?.race?.status !== "finished" && cachedRace?.race?.status !== "abandoned") {
+          scheduleNext();
+        } else {
+          this.stopSpontaneousBotChat(raceId);
+        }
+      }, delay);
+      
+      this.spontaneousChatTimers.set(raceId, timer);
+    };
+
+    // Start with a shorter initial delay (3-8 seconds)
+    const initialDelay = 3000 + Math.random() * 5000;
+    const timer = setTimeout(async () => {
+      await this.sendSpontaneousBotMessage(raceId);
+      scheduleNext();
+    }, initialDelay);
+    
+    this.spontaneousChatTimers.set(raceId, timer);
+    console.log(`[Bot Chat] Started spontaneous chat for race ${raceId}`);
+  }
+
+  private stopSpontaneousBotChat(raceId: number) {
+    const timer = this.spontaneousChatTimers.get(raceId);
+    if (timer) {
+      clearTimeout(timer);
+      this.spontaneousChatTimers.delete(raceId);
+      console.log(`[Bot Chat] Stopped spontaneous chat for race ${raceId}`);
+    }
+  }
+
+  private async sendSpontaneousBotMessage(raceId: number) {
+    try {
+      const race = await storage.getRace(raceId);
+      if (!race) return;
+
+      // Only send during waiting or countdown phases (not during racing or after finish)
+      if (race.status !== "waiting" && race.status !== "countdown") {
+        return;
+      }
+
+      const participants = await storage.getRaceParticipants(raceId);
+      const botParticipants = participants.filter(p => p.isBot === 1);
+      const humanParticipants = participants.filter(p => p.isBot !== 1);
+
+      if (botParticipants.length === 0 || humanParticipants.length === 0) {
+        return; // Need at least one bot and one human
+      }
+
+      // Check burst limit
+      const now = Date.now();
+      const burst = this.raceBurstWindow.get(raceId);
+      if (burst && now < burst.expiresAt && burst.count >= this.RACE_BURST_LIMIT) {
+        return;
+      }
+
+      // 40% chance to send a spontaneous message each cycle
+      if (Math.random() > 0.40) {
+        return;
+      }
+
+      // Pick a random eligible bot
+      const eligibleBots = botParticipants.filter(bot => {
+        const lastChat = this.botChatCooldowns.get(bot.id) || 0;
+        return (now - lastChat) >= this.BOT_CHAT_COOLDOWN_MS;
+      });
+
+      if (eligibleBots.length === 0) return;
+
+      const bot = eligibleBots[Math.floor(Math.random() * eligibleBots.length)];
+      
+      // Generate a contextual spontaneous message
+      const spontaneousMessages = this.getSpontaneousMessages(race.status);
+      const message = spontaneousMessages[Math.floor(Math.random() * spontaneousMessages.length)];
+
+      // Update cooldown
+      this.botChatCooldowns.set(bot.id, now);
+
+      // Update burst counter
+      if (!burst || now >= burst.expiresAt) {
+        this.raceBurstWindow.set(raceId, { count: 1, expiresAt: now + this.RACE_BURST_WINDOW_MS });
+      } else {
+        burst.count++;
+      }
+
+      // Save and broadcast the message
+      const chatMessage = await storage.createRaceChatMessage({
+        raceId,
+        participantId: bot.id,
+        messageType: "text",
+        content: message,
+      });
+
+      this.broadcastToRace(raceId, {
+        type: "chat_message",
+        message: {
+          id: chatMessage.id,
+          participantId: bot.id,
+          username: bot.username,
+          content: message,
+          messageType: "text",
+          createdAt: chatMessage.createdAt,
+        },
+      });
+
+      console.log(`[Bot Chat] Spontaneous: ${bot.username}: "${message}"`);
+
+      // Small chance to trigger another bot to respond (30%)
+      if (Math.random() < 0.30) {
+        setTimeout(() => {
+          this.triggerBotChatResponses(raceId, message, true, 0);
+        }, 1500 + Math.random() * 2000);
+      }
+
+    } catch (error) {
+      console.error("[Bot Chat] Spontaneous message error:", error);
+    }
+  }
+
+  private getSpontaneousMessages(status: string): string[] {
+    if (status === "waiting") {
+      return [
+        "yo when we starting",
+        "lets gooo",
+        "im so ready",
+        "anyone else nervous lol",
+        "first race today",
+        "fingers warmed up 🔥",
+        "gonna get that W",
+        "gl everyone",
+        "lets get it",
+        "who else is hyped",
+        "this is gonna be fun",
+        "ready when yall are",
+        "start start start",
+        "im feeling fast today",
+        "anyone wanna bet whos winning",
+        "practice round 😅",
+        "cmon lets race",
+        "👀",
+        "💪",
+        "my keyboard is ready",
+        "finally some competition",
+        "hope im not rusty",
+        "been practicing all day",
+        "whos the fastest here",
+        "no pressure no pressure",
+      ];
+    } else if (status === "countdown") {
+      return [
+        "here we go",
+        "omg omg omg",
+        "FOCUS",
+        "lets goooo",
+        "😤",
+        "🔥",
+        "starting!",
+        "good luck!",
+        "ahhh",
+        "ready",
+      ];
+    }
+    return ["nice", "yea", "👍"];
+  }
+
+  private async triggerPostRaceBotChat(raceId: number, results: any[]) {
+    try {
+      const botParticipants = results.filter(p => p.isBot === 1);
+      if (botParticipants.length === 0) return;
+
+      // 70% chance bots chat after race
+      if (Math.random() > 0.70) return;
+
+      const postRaceMessages = {
+        winner: [
+          "gg ez",
+          "too easy 😎",
+          "lets gooo i won",
+          "that was close actually",
+          "gg everyone",
+          "yesss 🏆",
+          "finally",
+          "thats what im talking about",
+        ],
+        loser: [
+          "gg",
+          "ggs everyone",
+          "good race",
+          "nice one",
+          "that was fun",
+          "rematch?",
+          "i was so close",
+          "next time 😤",
+          "wp",
+          "not bad not bad",
+          "gg yall are fast",
+          "rip my fingers 😂",
+        ],
+        neutral: [
+          "gg",
+          "good game",
+          "nice",
+          "that was intense",
+          "fun race",
+          "👍",
+          "good one",
+        ],
+      };
+
+      // Pick 1-2 bots to chat
+      const numChatters = Math.min(botParticipants.length, Math.random() < 0.6 ? 1 : 2);
+      const shuffledBots = [...botParticipants].sort(() => Math.random() - 0.5);
+      const chatters = shuffledBots.slice(0, numChatters);
+
+      for (let i = 0; i < chatters.length; i++) {
+        const bot = chatters[i];
+        const isWinner = bot.finishPosition === 1;
+        const messagePool = isWinner 
+          ? postRaceMessages.winner 
+          : (Math.random() < 0.7 ? postRaceMessages.loser : postRaceMessages.neutral);
+        
+        const message = messagePool[Math.floor(Math.random() * messagePool.length)];
+        
+        // Stagger messages with 1-3 second delays
+        const delay = 1000 + (i * 1500) + Math.random() * 1500;
+        
+        setTimeout(async () => {
+          try {
+            const chatMessage = await storage.createRaceChatMessage({
+              raceId,
+              participantId: bot.id,
+              messageType: "text",
+              content: message,
+            });
+
+            this.broadcastToRace(raceId, {
+              type: "chat_message",
+              message: {
+                id: chatMessage.id,
+                participantId: bot.id,
+                username: bot.username,
+                content: message,
+                messageType: "text",
+                createdAt: chatMessage.createdAt,
+              },
+            });
+
+            console.log(`[Bot Chat] Post-race: ${bot.username}: "${message}"`);
+          } catch (error) {
+            console.error("[Bot Chat] Post-race message error:", error);
+          }
+        }, delay);
+      }
+    } catch (error) {
+      console.error("[Bot Chat] Post-race trigger error:", error);
+    }
+  }
 
   private async triggerBotChatResponses(raceId: number, message: string, senderIsBot: boolean = false, chainDepth: number = 0) {
     try {
@@ -2376,6 +3018,15 @@ NEVER sound like AI. No "I'd be happy to" or formal language.`
     }
   }
 
+  private generateRoomCode(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+  }
+
   private async processRaceCompletion(raceId: number, participants: any[]) {
     try {
       const results = participants
@@ -2498,7 +3149,13 @@ NEVER sound like AI. No "I'd be happy to" or formal language.`
           const cachedRace = raceCache.getRace(raceId);
           const currentStatus = cachedRace?.race?.status;
           
-          if (currentStatus === "countdown" && connectedHumans.length < 2) {
+          // Check for bots to determine minimum required humans
+          const participants = cachedRace?.participants || [];
+          const botParticipants = participants.filter(p => p.isBot === 1);
+          const hasBots = botParticipants.length > 0;
+          const requiredHumans = hasBots ? 1 : 2; // With bots: 1 human can race. Without: need 2 humans.
+          
+          if (currentStatus === "countdown" && connectedHumans.length < requiredHumans) {
             // Cancel countdown - not enough players
             if (raceRoom.countdownTimer) {
               clearInterval(raceRoom.countdownTimer);
@@ -2511,16 +3168,18 @@ NEVER sound like AI. No "I'd be happy to" or formal language.`
             // Revert race status to waiting
             raceCache.updateRaceStatus(raceId, "waiting");
             storage.updateRaceStatus(raceId, "waiting").catch(err => 
-              console.error(`[WS] Failed to revert race status:`, err)
+              console.error(`[WS Disconnect] Failed to revert race status:`, err)
             );
             
             this.broadcastToRace(raceId, {
               type: "countdown_cancelled",
-              reason: "Not enough players - need at least 2 to start",
+              reason: hasBots 
+                ? "Not enough players connected - waiting for reconnection"
+                : `Not enough players - need at least ${requiredHumans} to start`,
               code: "INSUFFICIENT_PLAYERS"
             });
             
-            console.log(`[WS] Countdown cancelled for race ${raceId} - only ${connectedHumans.length} human player(s) remaining`);
+            console.log(`[WS Disconnect] Countdown cancelled for race ${raceId} - only ${connectedHumans.length} human player(s) remaining (need ${requiredHumans})`);
           }
 
           if (raceRoom.clients.size === 0) {
@@ -2593,7 +3252,7 @@ NEVER sound like AI. No "I'd be happy to" or formal language.`
       }
     });
     
-    if (message.type === "countdown_start" || message.type === "countdown" || message.type === "race_start") {
+    if (message.type === "countdown_start" || message.type === "countdown" || message.type === "race_start" || message.type === "race_finished") {
       console.log(`[WS Broadcast] Sent ${message.type} to ${sentCount}/${raceRoom.clients.size} clients in race ${raceId}`);
     }
   }

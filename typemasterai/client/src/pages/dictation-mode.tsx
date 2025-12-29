@@ -13,9 +13,9 @@
  * - Proper accessibility (ARIA, focus management)
  */
 
-import React, { useEffect, useCallback, useRef, useState } from 'react';
+import React, { useEffect, useCallback, useRef, useState, useMemo } from 'react';
 import { Link } from 'wouter';
-import { ArrowLeft, RotateCcw, Settings2, BarChart3, Bookmark, Sparkles } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Settings2, Sparkles, X, Minimize2, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -29,7 +29,7 @@ import { DictationShareDialog } from '@/features/dictation/components/DictationS
 import { CertificateGenerator } from '@/components/certificate-generator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { calculateDictationAccuracy, calculateDictationWPM, getSpeedLevelName } from '@shared/dictation-utils';
-import type { DictationSentence } from '@shared/schema';
+import { useSEO } from '@/lib/seo';
 
 // Feature imports
 import {
@@ -43,9 +43,12 @@ import {
   type DictationTestResult,
   PRACTICE_MODES,
   CATEGORIES,
-  getDifficultyEmoji,
+  ZEN_THEMES,
   getRandomEncouragement,
   INITIAL_ADAPTIVE_CONFIG,
+  calculateOvertimePenalty,
+  calculateTimeLimit,
+  CHALLENGE_TIMING,
 } from '@/features/dictation';
 
 import {
@@ -65,25 +68,14 @@ import {
   useDictationTimer,
   useCountdown,
   useDictationAPI,
-  useSessionCountdown,
 } from '@/features/dictation/hooks';
 
 import {
   hasValidSessionBackup,
   clearSessionBackup,
-  getBookmarks,
-  removeBookmark,
-  saveBookmark,
 } from '@/features/dictation/utils/persistence';
 
-import { categorizeErrors } from '@/features/dictation/utils/scoring';
-import { 
-  calculateSessionTimeLimit, 
-  formatTimeDisplay,
-  getTimePercentage,
-  getTimerColors,
-  getUrgencyMessage,
-} from '@/features/dictation/utils/timeCalculation';
+import { categorizeErrors, calculateConsistency } from '@/features/dictation/utils/scoring';
 
 // ============================================================================
 // MAIN DICTATION PAGE COMPONENT
@@ -94,58 +86,70 @@ function DictationModeContent() {
   const { user } = useAuth();
   const createCertificateMutation = useCreateCertificate();
   
+  // SEO - Dynamic meta tags for search engines
+  useSEO({
+    title: 'Dictation Typing Practice | AI-Powered Listening & Typing - TypeMasterAI',
+    description: 'Improve your listening and typing skills with AI-powered dictation practice. Multiple modes including Quick Practice, Focus Mode, and timed Challenge Mode with certificates.',
+    keywords: 'dictation typing, listening practice, transcription test, audio typing test, dictation practice, typing from audio, AI dictation, speech to text practice',
+    canonical: 'https://typemaster-ai.replit.app/dictation-mode',
+    ogUrl: 'https://typemaster-ai.replit.app/dictation-mode',
+    structuredData: {
+      '@context': 'https://schema.org',
+      '@type': 'WebApplication',
+      name: 'TypeMasterAI Dictation Mode',
+      description: 'AI-powered dictation typing practice with multiple difficulty modes',
+      applicationCategory: 'EducationalApplication',
+      operatingSystem: 'Web Browser',
+      offers: {
+        '@type': 'Offer',
+        price: '0',
+        priceCurrency: 'USD',
+      },
+    },
+  });
+  
   // Context
   const { state, dispatch, actions } = useDictation();
   
   // API
-  const { fetchSentence, fetchBatchSentences, isFetching, isFetchingBatch, saveTest, isSaving } = useDictationAPI();
+  const { fetchSentence, isFetching, saveTest, isSaving } = useDictationAPI();
   
-  // Challenge mode refs
-  const challengeSentenceIndexRef = useRef(0);
+  // Refs to track current state values and avoid stale closure issues
+  const startTimeRef = useRef<number | null>(null);
+  const sentenceRef = useRef<typeof state.testState.sentence>(null);
   
-  // Audio with callbacks
+  // Keep refs in sync with state
+  useEffect(() => {
+    startTimeRef.current = state.testState.startTime;
+  }, [state.testState.startTime]);
+  
+  useEffect(() => {
+    sentenceRef.current = state.testState.sentence;
+  }, [state.testState.sentence]);
+  
+  // Timer - declared before audio so it can be used in onSpeechEnd
+  const timer = useDictationTimer({
+    onTick: (elapsed) => dispatch({ type: 'SET_ELAPSED_TIME', payload: elapsed }),
+  });
+  
+  // Audio with callbacks - uses refs to avoid stale closures
   const audio = useDictationAudio({
     speedLevel: state.speedLevel,
     onSpeechEnd: () => {
-      // Start timer when speech ends
-      if (state.testState.sentence && !state.testState.startTime) {
-        dispatch({ type: 'SET_TEST_STATE', payload: { startTime: Date.now() } });
+      // Start timer when speech ends - use refs to check current state values
+      if (sentenceRef.current && startTimeRef.current === null) {
+        const now = Date.now();
+        startTimeRef.current = now; // Update ref immediately
+        dispatch({ type: 'SET_TEST_STATE', payload: { startTime: now } });
         timer.start();
       }
     },
-  });
-  
-  // Timer
-  const timer = useDictationTimer({
-    onTick: (elapsed) => dispatch({ type: 'SET_ELAPSED_TIME', payload: elapsed }),
   });
   
   // Auto-advance countdown
   const countdown = useCountdown({
     initialValue: 3,
     onComplete: () => handleNextSentence(),
-  });
-  
-  // Challenge mode session countdown
-  const isChallengeModeActive = state.practiceMode === 'challenge' && 
-    !state.showModeSelector && 
-    !state.isWaitingToStart && 
-    state.sessionTimeLimit !== null;
-  
-  const sessionCountdown = useSessionCountdown({
-    initialTime: state.sessionTimeLimit,
-    onTick: (remaining) => dispatch({ type: 'SET_REMAINING_TIME', payload: remaining }),
-    onTimeout: () => {
-      dispatch({ type: 'SET_IS_TIMED_OUT', payload: true });
-      timer.stop();
-      audio.cancel();
-      toast({
-        title: 'Time\'s Up!',
-        description: 'You ran out of time. Better luck next time!',
-        variant: 'destructive',
-      });
-    },
-    isPaused: state.testState.isComplete || state.sessionComplete || !isChallengeModeActive,
   });
   
   // Local UI state
@@ -156,9 +160,30 @@ function DictationModeContent() {
   const [lastResultId, setLastResultId] = useState<number | null>(null);
   const [certificateData, setCertificateData] = useState<any>(null);
   
-  // Refs for cleanup
+  // Time limits for Challenge Mode preview
+  // Uses fixed times per difficulty for consistent challenge
+  const { estimatedPerSentenceMs, estimatedTotalMs } = useMemo(() => {
+    if (state.practiceMode !== 'challenge') return { estimatedPerSentenceMs: null, estimatedTotalMs: null };
+    
+    // Get fixed time per sentence based on difficulty
+    const perSentenceMs = CHALLENGE_TIMING.FIXED_TIME_MS[state.difficulty];
+    
+    // Total session time = per-sentence time * number of sentences
+    const totalMs = perSentenceMs * state.sessionLength;
+    
+    return {
+      estimatedPerSentenceMs: perSentenceMs,
+      estimatedTotalMs: totalMs,
+    };
+  }, [state.practiceMode, state.difficulty, state.sessionLength]);
+  
+  // Refs for cleanup and prefetch
   const isMountedRef = useRef(true);
   const certificateRef = useRef<HTMLDivElement>(null);
+  
+  // Ref to store prefetched sentence for immediate access (avoids React state delays)
+  const prefetchedSentenceRef = useRef<typeof state.prefetchedSentence>(null);
+  const prefetchedAudioReadyRef = useRef(false);
 
   // ============================================================================
   // NAVIGATION & HISTORY MANAGEMENT
@@ -301,7 +326,7 @@ function DictationModeContent() {
     ) {
       const avgWpm = Math.round(state.sessionStats.totalWpm / state.sessionStats.count);
       const avgAccuracy = state.sessionStats.totalAccuracy / state.sessionStats.count;
-      const consistency = Math.round(Math.random() * 20 + 75);
+      const consistency = calculateConsistency(state.sessionHistory);
       const estimatedDuration = Math.round((state.sessionStats.count * 60 * 5) / avgWpm);
       
       const totalWords = state.sessionHistory.reduce((sum, h) => {
@@ -352,52 +377,108 @@ function DictationModeContent() {
     actions.startPracticeMode(mode);
   }, [actions]);
   
-  const handleBeginSession = useCallback(async () => {
-    actions.beginSession();
-    
-    // For Challenge Mode, prefetch all sentences and calculate time limit
-    if (state.practiceMode === 'challenge') {
-      const sentences = await fetchBatchSentences({
-        difficulty: state.difficulty,
-        category: state.category,
-        count: state.sessionLength,
-        excludeIds: state.shownSentenceIds,
-      });
-      
-      if (!isMountedRef.current) return;
-      
-      if (sentences.length === 0) {
-        toast({
-          title: 'Not enough sentences',
-          description: 'Could not find enough sentences for the challenge. Try different settings.',
-          variant: 'destructive',
-        });
-        return;
-      }
-      
-      // Store challenge sentences
-      dispatch({ type: 'SET_CHALLENGE_SENTENCES', payload: sentences });
-      
-      // Calculate time limit based on total content
-      const timeResult = calculateSessionTimeLimit({ sentences });
-      dispatch({ type: 'SET_SESSION_TIME_LIMIT', payload: timeResult.timeLimitSeconds });
-      dispatch({ type: 'SET_REMAINING_TIME', payload: timeResult.timeLimitSeconds });
-      
-      // Reset challenge sentence index
-      challengeSentenceIndexRef.current = 0;
-      
-      // Load first sentence from prefetched batch
-      await loadNextChallengeSentence(sentences);
-      
-      // Start the session countdown
-      sessionCountdown.start(timeResult.timeLimitSeconds);
-    } else {
-      // Standard flow for other modes
-      await loadNextSentence();
+  // Track the settings used for the current prefetched sentence
+  // This allows us to detect when settings change and refetch
+  const prefetchSettingsRef = useRef<{ difficulty: string; category: string; sessionLength: number } | null>(null);
+  
+  // Track prefetch retry count to prevent infinite retry loops
+  const prefetchRetryCount = useRef(0);
+  const MAX_PREFETCH_RETRIES = 3;
+  
+  // Prefetch sentence and preload audio when entering waiting screen
+  // Also handles re-fetching when difficulty/category/sessionLength change
+  useEffect(() => {
+    // Not waiting to start - nothing to do
+    if (!state.isWaitingToStart) {
+      prefetchRetryCount.current = 0; // Reset retry count when leaving waiting screen
+      return;
     }
-  // Note: loadNextSentence is intentionally not in deps - we call the version defined below
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actions, state.practiceMode, state.difficulty, state.category, state.sessionLength, state.shownSentenceIds, fetchBatchSentences, dispatch, toast, sessionCountdown]);
+    
+    // Check if we need to refetch due to settings change
+    const settingsChanged = prefetchSettingsRef.current !== null && 
+      (prefetchSettingsRef.current.difficulty !== state.difficulty || 
+       prefetchSettingsRef.current.category !== state.category ||
+       prefetchSettingsRef.current.sessionLength !== state.sessionLength);
+    
+    // If settings changed, clear the existing prefetched sentence and refetch
+    if (settingsChanged && (state.prefetchedSentence || prefetchedSentenceRef.current)) {
+      prefetchedSentenceRef.current = null;
+      prefetchedAudioReadyRef.current = false;
+      prefetchSettingsRef.current = null;
+      prefetchRetryCount.current = 0; // Reset retry count on settings change
+      dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
+      // Return here - the dispatch will trigger this effect again with null state
+      return;
+    }
+    
+    // Already have a prefetched sentence with current settings, or currently fetching
+    if (state.prefetchedSentence || prefetchedSentenceRef.current || state.isPrefetching) {
+      return;
+    }
+    
+    const prefetch = async () => {
+      dispatch({ type: 'SET_IS_PREFETCHING', payload: true });
+      
+      try {
+        const sentence = await fetchSentence({
+          difficulty: state.difficulty,
+          category: state.category,
+          excludeIds: state.shownSentenceIds,
+          maxRetries: 3,
+        });
+        
+        if (sentence && isMountedRef.current) {
+          // Record what settings this sentence was fetched for (including sessionLength)
+          prefetchSettingsRef.current = { 
+            difficulty: state.difficulty, 
+            category: state.category,
+            sessionLength: state.sessionLength,
+          };
+          prefetchRetryCount.current = 0; // Reset retry count on success
+          
+          // Atomically set both ref AND state together for consistency
+          prefetchedSentenceRef.current = sentence;
+          prefetchedAudioReadyRef.current = false;
+          dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: sentence });
+          
+          // Preload audio in background for instant playback
+          audio.preloadAudio(sentence.sentence).then((success) => {
+            if (success && isMountedRef.current) {
+              prefetchedAudioReadyRef.current = true;
+            }
+          });
+        } else if (!sentence && isMountedRef.current) {
+          // Sentence fetch returned null - show error to user
+          prefetchRetryCount.current++;
+          if (prefetchRetryCount.current >= MAX_PREFETCH_RETRIES) {
+            toast({
+              title: 'Failed to load sentence',
+              description: 'Unable to fetch a practice sentence. Please try changing settings or refreshing the page.',
+              variant: 'destructive',
+            });
+          }
+        }
+      } catch (error) {
+        console.error('[Dictation] Failed to prefetch sentence:', error);
+        if (isMountedRef.current) {
+          prefetchRetryCount.current++;
+          if (prefetchRetryCount.current >= MAX_PREFETCH_RETRIES) {
+            toast({
+              title: 'Connection error',
+              description: 'Failed to load practice content. Please check your connection and try again.',
+              variant: 'destructive',
+            });
+          }
+        }
+      } finally {
+        if (isMountedRef.current) {
+          dispatch({ type: 'SET_IS_PREFETCHING', payload: false });
+        }
+      }
+    };
+    
+    prefetch();
+  }, [state.isWaitingToStart, state.prefetchedSentence, state.isPrefetching, state.difficulty, state.category, state.sessionLength, state.shownSentenceIds, fetchSentence, audio, dispatch, toast]);
   
   const handleRecoverSession = useCallback(() => {
     actions.recoverSession();
@@ -409,7 +490,9 @@ function DictationModeContent() {
     // Reset states
     timer.reset();
     countdown.reset();
+    startTimeRef.current = null; // Reset ref to allow timer to start on next sentence
     dispatch({ type: 'RESET_TEST_STATE' });
+    dispatch({ type: 'SET_ELAPSED_TIME', payload: 0 }); // Reset elapsed time for new sentence
     
     // Fetch new sentence
     const sentence = await fetchSentence({
@@ -422,17 +505,25 @@ function DictationModeContent() {
     
     if (sentence) {
       dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
+      
+      // Calculate time limit for Challenge Mode
+      const timeLimitMs = state.practiceMode === 'challenge' 
+        ? calculateTimeLimit(sentence.sentence, state.difficulty)
+        : null;
+      
       dispatch({
         type: 'SET_TEST_STATE',
-        payload: { sentence },
+        payload: { sentence, timeLimitMs, timeExpired: false },
       });
       
-      // Speak the sentence after a short delay
+      // Use streaming TTS for ultra-low latency (~500ms vs 3-5s)
+      // Audio starts playing as chunks arrive from the server
+      // This also preloads for instant replays in the background
       setTimeout(() => {
         if (isMountedRef.current) {
-          audio.speak(sentence.sentence);
+          audio.speakStreaming(sentence.sentence);
         }
-      }, 800);
+      }, 50);
     } else {
       toast({
         title: 'Failed to load sentence',
@@ -444,6 +535,8 @@ function DictationModeContent() {
     state.difficulty,
     state.category,
     state.shownSentenceIds,
+    state.practiceMode,
+    state.sessionLength,
     fetchSentence,
     audio,
     timer,
@@ -452,65 +545,73 @@ function DictationModeContent() {
     toast,
   ]);
   
-  // Load next sentence from prefetched challenge sentences
-  const loadNextChallengeSentence = useCallback(async (sentences?: DictationSentence[]) => {
-    if (!isMountedRef.current) return;
+  const handleBeginSession = useCallback(async () => {
+    actions.beginSession();
     
-    // Use provided sentences or get from state
-    const sentenceList = sentences || state.challengeSentences;
+    // Use prefetched sentence from ref (immediate access) or state
+    const prefetchedSentence = prefetchedSentenceRef.current || state.prefetchedSentence;
     
-    // Check if session timed out
-    if (state.isTimedOut) {
-      return;
+    if (prefetchedSentence) {
+      timer.reset();
+      countdown.reset();
+      startTimeRef.current = null; // Reset ref to allow timer to start
+      dispatch({ type: 'RESET_TEST_STATE' });
+      dispatch({ type: 'SET_ELAPSED_TIME', payload: 0 }); // Reset elapsed time for new session
+      
+      const sentence = prefetchedSentence;
+      dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
+      
+      // Calculate time limit for Challenge Mode
+      const timeLimitMs = state.practiceMode === 'challenge' 
+        ? calculateTimeLimit(sentence.sentence, state.difficulty)
+        : null;
+      
+      dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs, timeExpired: false } });
+      
+      // Clear both ref and state
+      prefetchedSentenceRef.current = null;
+      dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
+      
+      // Play preloaded audio immediately (should be instant!)
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          if (prefetchedAudioReadyRef.current || audio.hasPreloadedAudio(sentence.sentence)) {
+            prefetchedAudioReadyRef.current = false;
+            audio.speakPreloaded(sentence.sentence);
+          } else {
+            audio.speakStreaming(sentence.sentence);
+          }
+        }
+      }, 50);
+    } else {
+      // Fallback to fetching if prefetch failed
+      await loadNextSentence();
     }
-    
-    // Reset states (but don't reset session countdown for challenge mode)
-    timer.reset();
-    countdown.reset();
-    dispatch({ type: 'RESET_TEST_STATE' });
-    
-    // Get next sentence from batch
-    const currentIndex = challengeSentenceIndexRef.current;
-    
-    if (currentIndex >= sentenceList.length) {
-      // All sentences completed
-      return;
-    }
-    
-    const sentence = sentenceList[currentIndex];
-    challengeSentenceIndexRef.current = currentIndex + 1;
-    
-    dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
-    dispatch({
-      type: 'SET_TEST_STATE',
-      payload: { sentence },
-    });
-    
-    // Speak the sentence after a short delay
-    setTimeout(() => {
-      if (isMountedRef.current && !state.isTimedOut) {
-        audio.speak(sentence.sentence);
-      }
-    }, 800);
-  }, [state.challengeSentences, state.isTimedOut, audio, timer, countdown, dispatch]);
+  }, [actions, state.prefetchedSentence, state.practiceMode, state.difficulty, state.sessionLength, audio, timer, countdown, dispatch, loadNextSentence]);
   
   const handleReplay = useCallback(() => {
     if (state.testState.sentence && !audio.isSpeaking) {
+      // Check replay limit for Focus Mode
+      const modeConfig = PRACTICE_MODES[state.practiceMode];
+      if (modeConfig.maxReplays !== undefined && state.testState.replayCount >= modeConfig.maxReplays) {
+        return; // Don't replay if limit reached
+      }
       actions.incrementReplayCount();
       audio.replay(state.testState.sentence.sentence);
     }
-  }, [state.testState.sentence, audio, actions]);
+  }, [state.testState.sentence, state.testState.replayCount, state.practiceMode, audio, actions]);
   
-  const handleSubmit = useCallback(async () => {
-    const { sentence, startTime, typedText, replayCount, hintShown } = state.testState;
+  const handleSubmit = useCallback(async (isAutoSubmit = false) => {
+    const { sentence, startTime, typedText, replayCount, hintShown, timeExpired } = state.testState;
     
     if (!sentence || !startTime || !typedText.trim()) return;
     
     const endTime = Date.now();
     const elapsedSeconds = (endTime - startTime) / 1000;
-    const duration = Math.round(elapsedSeconds);
+    const duration = Math.max(1, Math.round(elapsedSeconds)); // Minimum 1 second for calculations
     
-    if (elapsedSeconds < 1) {
+    // Skip "too fast" check for auto-submit (Challenge Mode time expiry) or if time already expired
+    if (elapsedSeconds < 1 && !isAutoSubmit && !timeExpired) {
       toast({
         title: 'Too fast!',
         description: 'Please take your time to type the sentence.',
@@ -523,8 +624,40 @@ function DictationModeContent() {
     const wpm = calculateDictationWPM(typedText.length, elapsedSeconds);
     const wordErrors = accuracyResult.wordDiff.filter((d) => d.status !== 'correct').length;
     
+    // Challenge Mode: Check if completed in time and apply streak/penalties
+    let finalAccuracy = accuracyResult.accuracy;
+    let completedInTime = true;
+    
+    if (state.practiceMode === 'challenge' && state.testState.timeLimitMs !== null) {
+      const elapsedMs = elapsedSeconds * 1000;
+      const timeRemainingMs = state.testState.timeLimitMs - elapsedMs;
+      
+      completedInTime = timeRemainingMs > 0;
+      
+      if (!completedInTime) {
+        // Apply graduated overtime penalty based on how late the submission was
+        const secondsOvertime = Math.abs(timeRemainingMs) / 1000;
+        const overtimePenalty = calculateOvertimePenalty(secondsOvertime);
+        finalAccuracy = Math.max(0, accuracyResult.accuracy - (overtimePenalty * 100));
+        toast({
+          title: 'Overtime!',
+          description: `Time expired! -${Math.round(overtimePenalty * 100)}% accuracy penalty applied.`,
+          variant: 'destructive',
+        });
+      } else {
+        // Apply streak bonus if applicable
+        const streakBonus = Math.min(
+          state.sessionStats.challengeStreak * CHALLENGE_TIMING.STREAK_BONUS,
+          CHALLENGE_TIMING.MAX_STREAK_BONUS
+        );
+        if (streakBonus > 0) {
+          finalAccuracy = Math.min(100, accuracyResult.accuracy + (streakBonus * 100));
+        }
+      }
+    }
+    
     const result: DictationTestResult = {
-      accuracy: accuracyResult.accuracy,
+      accuracy: finalAccuracy,
       wpm,
       errors: wordErrors,
       duration,
@@ -535,6 +668,29 @@ function DictationModeContent() {
       correctWords: accuracyResult.correctWords,
       totalWords: accuracyResult.totalWords,
     };
+    
+    // Update challenge streak for Challenge Mode
+    if (state.practiceMode === 'challenge') {
+      const newStreak = completedInTime ? state.sessionStats.challengeStreak + 1 : 0;
+      const maxStreak = Math.max(state.sessionStats.maxChallengeStreak, newStreak);
+      dispatch({
+        type: 'UPDATE_SESSION_STATS',
+        payload: {
+          challengeStreak: newStreak,
+          maxChallengeStreak: maxStreak,
+          completedInTime: state.sessionStats.completedInTime + (completedInTime ? 1 : 0),
+          timedOut: state.sessionStats.timedOut + (completedInTime ? 0 : 1),
+        },
+      });
+      
+      // Show streak notification
+      if (completedInTime && newStreak > 1) {
+        toast({
+          title: `Streak: ${newStreak}!`,
+          description: `+${Math.round(Math.min(newStreak * CHALLENGE_TIMING.STREAK_BONUS, CHALLENGE_TIMING.MAX_STREAK_BONUS) * 100)}% bonus applied!`,
+        });
+      }
+    }
     
     // Stop timer
     timer.stop();
@@ -561,64 +717,173 @@ function DictationModeContent() {
       dispatch({ type: 'SET_LAST_TEST_RESULT_ID', payload: saveResult.id });
     }
     
+    // Prefetch next sentence while user reviews results (instant next!)
+    // Use silent mode with retries to avoid showing error toasts for background prefetch
+    // Note: We purposely DON'T clear refs here - we only clear when the new sentence is ready
+    // This prevents a race condition where the user clicks Next before prefetch completes
+    if (state.sessionProgress < state.sessionLength) {
+      fetchSentence({
+        difficulty: state.difficulty,
+        category: state.category,
+        excludeIds: [...state.shownSentenceIds, sentence.id],
+        maxRetries: 3,
+        silent: true, // Don't show toasts for background prefetch
+      }).then((nextSentence) => {
+        if (nextSentence && isMountedRef.current) {
+          // Atomically set both ref AND state together
+          // Ref first for immediate access, then state for React consistency
+          prefetchedSentenceRef.current = nextSentence;
+          prefetchedAudioReadyRef.current = false;
+          dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: nextSentence });
+          
+          // Preload audio for instant playback
+          audio.preloadAudio(nextSentence.sentence).then((success) => {
+            if (success && isMountedRef.current) {
+              prefetchedAudioReadyRef.current = true;
+            }
+          });
+        }
+      }).catch((error) => {
+        console.error('[Dictation] Failed to prefetch next sentence:', error);
+      });
+    }
+    
     // Start auto-advance if enabled
     if (PRACTICE_MODES[state.practiceMode].autoAdvance) {
       countdown.start();
     }
-  }, [state.testState, state.speedLevel, state.practiceMode, audio, timer, countdown, actions, dispatch, saveTest, toast]);
+  }, [state.testState, state.speedLevel, state.practiceMode, state.sessionProgress, state.sessionLength, state.difficulty, state.category, state.shownSentenceIds, audio, timer, countdown, actions, dispatch, saveTest, fetchSentence, toast]);
   
   const handleNextSentence = useCallback(async () => {
     countdown.stop();
-    
-    // Check if timed out in challenge mode
-    if (state.practiceMode === 'challenge' && state.isTimedOut) {
-      dispatch({ type: 'SET_SESSION_COMPLETE', payload: true });
-      clearSessionBackup();
-      return;
-    }
     
     // Check if session is complete
     if (state.sessionProgress >= state.sessionLength) {
       dispatch({ type: 'SET_SESSION_COMPLETE', payload: true });
       clearSessionBackup();
-      
-      // Stop session countdown for challenge mode
-      if (state.practiceMode === 'challenge') {
-        sessionCountdown.stop();
-      }
       return;
     }
     
-    // Use appropriate loading function based on mode
-    if (state.practiceMode === 'challenge') {
-      await loadNextChallengeSentence();
+    // Use prefetched sentence from ref (immediate access) or state
+    const prefetchedSentence = prefetchedSentenceRef.current || state.prefetchedSentence;
+    
+    if (prefetchedSentence) {
+      timer.reset();
+      countdown.reset();
+      startTimeRef.current = null; // Reset ref to allow timer to start on next sentence
+      dispatch({ type: 'RESET_TEST_STATE' });
+      dispatch({ type: 'SET_ELAPSED_TIME', payload: 0 }); // Reset elapsed time for new sentence
+      
+      const sentence = prefetchedSentence;
+      dispatch({ type: 'ADD_SHOWN_SENTENCE_ID', payload: sentence.id });
+      
+      // Calculate time limit for Challenge Mode
+      const timeLimitMs = state.practiceMode === 'challenge' 
+        ? calculateTimeLimit(sentence.sentence, state.difficulty)
+        : null;
+      
+      dispatch({ type: 'SET_TEST_STATE', payload: { sentence, timeLimitMs, timeExpired: false } });
+      
+      // Clear both ref and state
+      prefetchedSentenceRef.current = null;
+      dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
+      
+      // Play preloaded audio immediately
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          if (prefetchedAudioReadyRef.current || audio.hasPreloadedAudio(sentence.sentence)) {
+            prefetchedAudioReadyRef.current = false;
+            audio.speakPreloaded(sentence.sentence);
+          } else {
+            audio.speakStreaming(sentence.sentence);
+          }
+        }
+      }, 50);
     } else {
+      // Fallback to fetching if prefetch failed
       await loadNextSentence();
     }
-  }, [state.sessionProgress, state.sessionLength, state.practiceMode, state.isTimedOut, countdown, dispatch, loadNextSentence, loadNextChallengeSentence, sessionCountdown]);
+  }, [state.sessionProgress, state.sessionLength, state.prefetchedSentence, state.practiceMode, state.difficulty, countdown, timer, dispatch, audio, loadNextSentence]);
   
-  const handleToggleBookmark = useCallback(() => {
-    const { sentence, result } = state.testState;
-    if (!sentence) return;
+  // Auto-submit for Challenge Mode when time expires
+  useEffect(() => {
+    // Only applies to Challenge Mode with active typing
+    if (state.practiceMode !== 'challenge') return;
+    if (!state.testState.sentence) return;
+    if (!state.testState.startTime) return;
+    if (state.testState.isComplete) return;
+    if (state.testState.timeLimitMs === null) return;
+    if (state.testState.timeExpired) return;
     
-    const isBookmarked = state.bookmarks.some((b) => b.id === sentence.id);
+    const elapsedMs = state.elapsedTime * 1000;
+    const timeRemainingMs = state.testState.timeLimitMs - elapsedMs;
     
-    if (isBookmarked) {
-      dispatch({ type: 'REMOVE_BOOKMARK', payload: sentence.id });
-      toast({ title: 'Bookmark removed' });
-    } else {
-      const bookmark = {
-        id: sentence.id,
-        sentence: sentence.sentence,
-        category: sentence.category || 'general',
-        difficulty: sentence.difficulty,
-        bookmarkedAt: Date.now(),
-        lastAccuracy: result?.accuracy,
-      };
-      dispatch({ type: 'TOGGLE_BOOKMARK', payload: bookmark });
-      toast({ title: 'Sentence bookmarked' });
+    // Check if time has expired (with grace period)
+    if (timeRemainingMs <= -CHALLENGE_TIMING.GRACE_PERIOD_MS) {
+      // Mark as expired and show Time's Up overlay
+      dispatch({ type: 'SET_TEST_STATE', payload: { timeExpired: true, showTimeUpOverlay: true } });
+      
+      // Auto-submit whatever is typed (pass true to bypass elapsed time check)
+      if (state.testState.typedText.trim()) {
+        handleSubmit(true);
+      } else {
+        // No text typed - record 0% accuracy failure result
+        const sentence = state.testState.sentence;
+        const failureResult: DictationTestResult = {
+          accuracy: 0,
+          wpm: 0,
+          errors: sentence.sentence.length,
+          duration: Math.max(1, state.elapsedTime),
+          characterDiff: [],
+          wordDiff: [],
+          correctChars: 0,
+          totalChars: sentence.sentence.length,
+          correctWords: 0,
+          totalWords: sentence.sentence.split(/\s+/).length,
+        };
+        
+        // Mark as complete with failure result
+        dispatch({
+          type: 'SET_TEST_STATE',
+          payload: {
+            endTime: Date.now(),
+            isComplete: true,
+            result: failureResult,
+          },
+        });
+        
+        // Update session stats with failure
+        dispatch({
+          type: 'UPDATE_SESSION_STATS',
+          payload: {
+            totalWpm: state.sessionStats.totalWpm + 0,
+            totalAccuracy: state.sessionStats.totalAccuracy + 0,
+            totalErrors: state.sessionStats.totalErrors + sentence.sentence.length,
+            count: state.sessionStats.count + 1,
+            challengeStreak: 0,
+            timedOut: state.sessionStats.timedOut + 1,
+          },
+        });
+        
+        // Add to session history
+        dispatch({
+          type: 'ADD_SESSION_HISTORY',
+          payload: {
+            sentence: sentence.sentence,
+            typedText: '',
+            accuracy: 0,
+            wpm: 0,
+            errors: sentence.sentence.length,
+            timestamp: Date.now(),
+            errorCategories: [],
+          },
+        });
+        
+        // Update progress
+        dispatch({ type: 'INCREMENT_SESSION_PROGRESS' });
+      }
     }
-  }, [state.testState, state.bookmarks, dispatch, toast]);
+  }, [state.practiceMode, state.testState, state.elapsedTime, state.sessionStats, dispatch, handleSubmit]);
   
   const handleNewSession = useCallback(() => {
     setCertificateData(null);
@@ -629,21 +894,18 @@ function DictationModeContent() {
     audio.cancel();
     timer.reset();
     countdown.reset();
-    
-    // Reset challenge mode state
-    if (state.practiceMode === 'challenge') {
-      sessionCountdown.reset();
-      challengeSentenceIndexRef.current = 0;
-      dispatch({ type: 'SET_SESSION_TIME_LIMIT', payload: null });
-      dispatch({ type: 'SET_REMAINING_TIME', payload: null });
-      dispatch({ type: 'SET_IS_TIMED_OUT', payload: false });
-      dispatch({ type: 'SET_CHALLENGE_SENTENCES', payload: [] });
-    }
-    
     actions.restartCurrentSession();
     
-    // Let the setup panel show again
-  }, [audio, timer, countdown, state.practiceMode, sessionCountdown, dispatch, actions]);
+    setTimeout(() => {
+      loadNextSentence();
+    }, 100);
+  }, [audio, timer, countdown, actions, loadNextSentence]);
+  
+  // Dismiss Time's Up overlay and move to next sentence
+  const handleDismissTimeUpOverlay = useCallback(() => {
+    dispatch({ type: 'SET_TEST_STATE', payload: { showTimeUpOverlay: false } });
+    handleNextSentence();
+  }, [dispatch, handleNextSentence]);
   
   // ============================================================================
   // CERTIFICATE FUNCTIONS
@@ -724,8 +986,15 @@ function DictationModeContent() {
   const avgAccuracy = state.sessionStats.count > 0 ? Math.round(state.sessionStats.totalAccuracy / state.sessionStats.count) : 0;
   const totalWords = state.sessionHistory.reduce((sum, h) => sum + h.sentence.split(' ').length, 0);
   const totalCharacters = state.sessionHistory.reduce((sum, h) => sum + h.sentence.length, 0);
-  const consistency = Math.round(Math.random() * 20 + 75);
+  const consistency = calculateConsistency(state.sessionHistory);
   const sessionDuration = Math.round((state.sessionStats.count * 60 * 5) / Math.max(avgWpm, 1));
+  
+  // Generate practice mode label for certificates (e.g., "Dictation - Quick Practice")
+  const practiceModeLabel = useMemo(() => {
+    const modeConfig = state.practiceMode ? PRACTICE_MODES[state.practiceMode] : null;
+    const modeName = modeConfig?.name || 'Practice';
+    return `Dictation - ${modeName}`;
+  }, [state.practiceMode]);
   
   // Generate formatted verification ID for certificates
   // Format: DM-XXXX-XXXX-XXXX (DM = Dictation Mode)
@@ -795,7 +1064,7 @@ function DictationModeContent() {
               words={totalWords}
               consistency={consistency}
               verificationId={formattedVerificationId}
-              modeLabel="Dictation Mode"
+              modeLabel={practiceModeLabel}
             />
           </div>
         )}
@@ -806,6 +1075,7 @@ function DictationModeContent() {
           sessionLength={state.sessionLength}
           speedLevel={state.speedLevel}
           username={user?.username}
+          practiceMode={state.practiceMode}
           consistency={consistency}
           onNewSession={handleNewSession}
           onShare={() => setShowShareModal(true)}
@@ -828,6 +1098,7 @@ function DictationModeContent() {
           username={user?.username}
           speedLevel={state.speedLevel}
           verificationId={formattedVerificationId}
+          modeLabel={practiceModeLabel}
           onViewCertificate={() => setShowCertificate(true)}
           onCopyCertificateImage={handleCopyCertificateImage}
           onShareCertificateWithImage={handleShareCertificateWithImage}
@@ -855,7 +1126,7 @@ function DictationModeContent() {
                 words={totalWords}
                 consistency={consistency}
                 verificationId={formattedVerificationId}
-                modeLabel="Dictation Mode"
+                modeLabel={practiceModeLabel}
               />
             )}
           </DialogContent>
@@ -910,7 +1181,10 @@ function DictationModeContent() {
             openAIVoices={audio.openAIVoices}
             currentRate={audio.currentRate}
             adaptiveDifficulty={state.adaptiveDifficulty}
-            practiceMode={state.practiceMode}
+            isChallenge={state.practiceMode === 'challenge'}
+            challengePerSentenceMs={estimatedPerSentenceMs}
+            challengeTotalSessionMs={estimatedTotalMs}
+            isPreviewLoading={false}
             onDifficultyChange={(diff) => dispatch({ type: 'SET_DIFFICULTY', payload: diff })}
             onSpeedLevelChange={(speed) => dispatch({ type: 'SET_SPEED_LEVEL', payload: speed })}
             onCategoryChange={(cat) => dispatch({ type: 'SET_CATEGORY', payload: cat })}
@@ -936,7 +1210,7 @@ function DictationModeContent() {
               const newUrl = window.location.pathname;
               window.history.pushState(null, '', newUrl);
             }}
-            isLoading={isFetching}
+            isLoading={isFetching || state.isPrefetching}
           />
         </div>
       </TooltipProvider>
@@ -945,9 +1219,160 @@ function DictationModeContent() {
   
   // Main practice view
   const isReady = !audio.isSpeaking && state.testState.startTime !== null;
-  const isBookmarked = state.testState.sentence
-    ? state.bookmarks.some((b) => b.id === state.testState.sentence!.id)
-    : false;
+  
+  // Get current zen theme config
+  const zenThemeConfig = ZEN_THEMES[state.zenTheme];
+  
+  // Zen Mode fullscreen view for Focus Mode
+  if (state.isZenMode && state.practiceMode === 'focus') {
+    return (
+      <div 
+        className="fixed inset-0 z-50 flex flex-col items-center overflow-y-auto p-4 sm:p-6 md:p-8"
+        style={{ background: zenThemeConfig.gradient }}
+      >
+        {/* Exit Zen Mode button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute top-2 right-2 sm:top-4 sm:right-4 z-10"
+          style={{ color: zenThemeConfig.textColor }}
+          onClick={actions.exitZenMode}
+          data-testid="button-exit-zen"
+        >
+          <Minimize2 className="w-5 h-5" />
+        </Button>
+        
+        {/* Zen Mode content */}
+        <div className="w-full max-w-2xl space-y-4 sm:space-y-5 md:space-y-6 my-auto py-4">
+          {/* Encouragement message */}
+          <p 
+            className="text-center text-base sm:text-lg italic opacity-80 px-2"
+            style={{ color: zenThemeConfig.textColor }}
+          >
+            {getRandomEncouragement()}
+          </p>
+          
+          {/* Progress indicator */}
+          <div className="text-center">
+            <span 
+              className="text-xs sm:text-sm font-medium"
+              style={{ color: zenThemeConfig.accentColor }}
+            >
+              Sentence {state.sessionProgress + 1} of {state.sessionLength}
+            </span>
+          </div>
+          
+          {/* Audio player with play button for Zen mode */}
+          <div className="flex flex-col items-center gap-3 sm:gap-4">
+            <DictationAudioPlayer
+              isSpeaking={audio.isSpeaking}
+              isReady={isReady}
+              isLoading={isFetching}
+              showHint={state.testState.showHint}
+              hintText={state.testState.sentence?.sentence}
+            />
+            
+            {/* Play/Replay button in Zen mode - use speakStreaming, let onSpeechEnd handle timer start */}
+            {state.testState.sentence && !audio.isSpeaking && !state.testState.isComplete && (() => {
+              const modeConfig = PRACTICE_MODES[state.practiceMode];
+              const maxReplays = modeConfig.maxReplays;
+              const isReplayAction = state.testState.startTime !== null;
+              const replaysRemaining = maxReplays !== undefined ? maxReplays - state.testState.replayCount : undefined;
+              const replayLimitReached = isReplayAction && replaysRemaining !== undefined && replaysRemaining <= 0;
+              
+              return (
+                <Button
+                  variant="outline"
+                  disabled={replayLimitReached}
+                  onClick={() => {
+                    // Use speakStreaming - timer starts via onSpeechEnd callback in standard flow
+                    audio.speakStreaming(state.testState.sentence!.sentence);
+                    // Increment replay count if already started
+                    if (state.testState.startTime !== null) {
+                      actions.incrementReplayCount();
+                    }
+                  }}
+                  style={{ 
+                    background: zenThemeConfig.buttonBg,
+                    color: zenThemeConfig.textColor,
+                    borderColor: zenThemeConfig.accentColor,
+                    opacity: replayLimitReached ? 0.5 : 1
+                  }}
+                  data-testid="button-zen-play"
+                >
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  {!isReplayAction ? 'Play Audio' : 'Replay Audio'}
+                  {isReplayAction && replaysRemaining !== undefined && (
+                    <span className="ml-2 text-xs opacity-75">
+                      ({replaysRemaining} left)
+                    </span>
+                  )}
+                </Button>
+              );
+            })()}
+          </div>
+          
+          {/* Typing area */}
+          {state.testState.sentence && !state.testState.isComplete && (
+            <div 
+              className="rounded-lg p-3 sm:p-4"
+              style={{ background: zenThemeConfig.inputBg }}
+            >
+              <DictationTypingArea
+                typedText={state.testState.typedText}
+                onTypedTextChange={actions.setTypedText}
+                onSubmit={handleSubmit}
+                onReplay={handleReplay}
+                onToggleHint={actions.toggleHint}
+                showHint={state.testState.showHint}
+                elapsedTime={state.elapsedTime}
+                practiceMode={state.practiceMode}
+                isSpeaking={audio.isSpeaking}
+                isReady={isReady}
+                disabled={isFetching || isSaving}
+                replayCount={state.testState.replayCount}
+                timeLimitMs={state.testState.timeLimitMs}
+              />
+            </div>
+          )}
+          
+          {/* Results in zen mode */}
+          {state.testState.isComplete && state.testState.result && (
+            <div 
+              className="rounded-lg p-4 sm:p-6"
+              style={{ background: zenThemeConfig.inputBg }}
+            >
+              <DictationResults
+                result={state.testState.result}
+                sentence={state.testState.sentence!.sentence}
+                typedText={state.testState.typedText}
+                replayCount={state.testState.replayCount}
+                hintUsed={state.testState.hintShown}
+                duration={state.testState.result.duration}
+                coachingTip={state.currentCoachingTip}
+                autoAdvanceCountdown={countdown.countdown}
+                isLastSentence={state.sessionProgress >= state.sessionLength}
+                onNext={handleNextSentence}
+                onReplay={() => {
+                  dispatch({
+                    type: 'SET_TEST_STATE',
+                    payload: {
+                      typedText: '',
+                      startTime: null,
+                      endTime: null,
+                      isComplete: false,
+                      result: null,
+                    },
+                  });
+                  timer.reset();
+                }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
   
   return (
     <TooltipProvider delayDuration={300}>
@@ -968,7 +1393,48 @@ function DictationModeContent() {
             <TooltipContent>Return to mode selection</TooltipContent>
           </Tooltip>
           
-          <h1 className="text-xl font-bold">{PRACTICE_MODES[state.practiceMode].name}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold">{PRACTICE_MODES[state.practiceMode].name}</h1>
+            
+            {/* Countdown Timer for Challenge Mode - only show during active typing, hide during overlays */}
+            {PRACTICE_MODES[state.practiceMode].timerPressure && 
+             state.testState.sentence && 
+             !state.testState.isComplete && 
+             state.testState.startTime !== null &&
+             state.testState.timeLimitMs !== null &&
+             !state.showSettings && (() => {
+              const timeRemainingMs = Math.max(0, state.testState.timeLimitMs! - (state.elapsedTime * 1000));
+              const timeRemainingSec = Math.ceil(timeRemainingMs / 1000);
+              const isUrgent = timeRemainingMs <= CHALLENGE_TIMING.URGENT_THRESHOLD_MS;
+              const isWarning = timeRemainingMs <= CHALLENGE_TIMING.WARNING_THRESHOLD_MS;
+              const isExpired = timeRemainingMs <= 0;
+              
+              return (
+                <Badge 
+                  variant="outline"
+                  className={`font-mono text-sm px-3 py-1 ${
+                    isExpired
+                      ? 'bg-red-600/30 text-red-400 border-red-500/70 animate-pulse'
+                      : isUrgent
+                        ? 'bg-red-500/20 text-red-500 border-red-500/50 animate-pulse' 
+                        : isWarning 
+                          ? 'bg-yellow-500/20 text-yellow-600 border-yellow-500/50' 
+                          : 'bg-muted'
+                  }`}
+                >
+                  <Clock className="w-3 h-3 mr-1.5" />
+                  {isExpired ? (
+                    <span className="text-red-400">Time's Up!</span>
+                  ) : (
+                    <>
+                      {Math.floor(timeRemainingSec / 60)}:{String(timeRemainingSec % 60).padStart(2, '0')}
+                      {isUrgent && <span className="ml-1.5 text-xs">Hurry!</span>}
+                    </>
+                  )}
+                </Badge>
+              );
+            })()}
+          </div>
           
           <div className="flex gap-2">
             <Tooltip>
@@ -984,166 +1450,9 @@ function DictationModeContent() {
               <TooltipContent>Settings</TooltipContent>
             </Tooltip>
             
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => dispatch({ type: 'SET_SHOW_ANALYTICS', payload: !state.showAnalytics })}
-                >
-                  <BarChart3 className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Analytics</TooltipContent>
-            </Tooltip>
-            
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => dispatch({ type: 'SET_SHOW_BOOKMARKS', payload: !state.showBookmarks })}
-                >
-                  <Bookmark className="w-4 h-4" />
-                  {state.bookmarks.length > 0 && (
-                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 text-[10px]">
-                      {state.bookmarks.length}
-                    </Badge>
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Bookmarks</TooltipContent>
-            </Tooltip>
           </div>
         </div>
         
-        {/* Analytics Panel */}
-        {state.showAnalytics && (
-          <Card className="mb-6 border-primary/20">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5 text-primary" />
-                  Session Analytics
-                </CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => dispatch({ type: 'SET_SHOW_ANALYTICS', payload: false })}
-                >
-                  ✕
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-3 bg-muted/50 rounded-lg">
-                  <div className="text-2xl font-bold text-primary">{state.sessionStats.count}</div>
-                  <div className="text-xs text-muted-foreground">Sentences Completed</div>
-                </div>
-                <div className="text-center p-3 bg-muted/50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-500">
-                    {state.sessionStats.count > 0 
-                      ? Math.round(state.sessionStats.totalAccuracy / state.sessionStats.count) 
-                      : 0}%
-                  </div>
-                  <div className="text-xs text-muted-foreground">Avg Accuracy (ACC)</div>
-                </div>
-                <div className="text-center p-3 bg-muted/50 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-500">
-                    {state.sessionStats.count > 0 
-                      ? Math.round(state.sessionStats.totalWpm / state.sessionStats.count) 
-                      : 0}
-                  </div>
-                  <div className="text-xs text-muted-foreground">Avg WPM (Words/Min)</div>
-                </div>
-                <div className="text-center p-3 bg-muted/50 rounded-lg">
-                  <div className="text-2xl font-bold text-red-500">{state.sessionStats.totalErrors}</div>
-                  <div className="text-xs text-muted-foreground">Total Errors</div>
-                </div>
-              </div>
-              {state.sessionHistory.length > 0 && (
-                <div className="mt-4 pt-4 border-t">
-                  <h4 className="text-sm font-medium mb-2">Recent History</h4>
-                  <div className="space-y-2 max-h-40 overflow-y-auto">
-                    {state.sessionHistory.slice(-5).reverse().map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-sm p-2 bg-muted/30 rounded">
-                        <span className="truncate flex-1 mr-2">{item.sentence.slice(0, 40)}...</span>
-                        <div className="flex gap-3 text-xs">
-                          <span className="text-primary font-medium">{item.wpm} WPM</span>
-                          <span className="text-green-500">{item.accuracy}%</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Bookmarks Panel */}
-        {state.showBookmarks && (
-          <Card className="mb-6 border-purple-500/20">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Bookmark className="w-5 h-5 text-purple-500" />
-                  Bookmarked Sentences ({state.bookmarks.length})
-                </CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => dispatch({ type: 'SET_SHOW_BOOKMARKS', payload: false })}
-                >
-                  ✕
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {state.bookmarks.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Bookmark className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                  <p>No bookmarked sentences yet</p>
-                  <p className="text-xs mt-1">Click the bookmark button after completing a sentence to save it for later practice</p>
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {state.bookmarks.map((bookmark) => (
-                    <div key={bookmark.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg group">
-                      <div className="flex-1 mr-3">
-                        <p className="text-sm">{bookmark.sentence}</p>
-                        <div className="flex gap-2 mt-1 text-xs text-muted-foreground">
-                          <span className="capitalize">{bookmark.category}</span>
-                          <span>•</span>
-                          <span>{bookmark.difficulty}</span>
-                          {bookmark.lastAccuracy && (
-                            <>
-                              <span>•</span>
-                              <span className="text-green-500">{bookmark.lastAccuracy}% ACC</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-600 hover:bg-red-500/10"
-                        onClick={() => {
-                          dispatch({ type: 'REMOVE_BOOKMARK', payload: bookmark.id });
-                          toast({ title: 'Bookmark removed' });
-                        }}
-                      >
-                        ✕
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
         {/* Settings panel */}
         {state.showSettings && (
           <DictationSettings
@@ -1225,9 +1534,9 @@ function DictationModeContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="easy">{getDifficultyEmoji('easy')} Easy</SelectItem>
-                      <SelectItem value="medium">{getDifficultyEmoji('medium')} Medium</SelectItem>
-                      <SelectItem value="hard">{getDifficultyEmoji('hard')} Hard</SelectItem>
+                      <SelectItem value="easy">Easy</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="hard">Hard</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1295,7 +1604,6 @@ function DictationModeContent() {
             replayCount={state.testState.replayCount}
             hintUsed={state.testState.hintShown}
             duration={state.testState.result.duration}
-            isBookmarked={isBookmarked}
             coachingTip={state.currentCoachingTip}
             autoAdvanceCountdown={countdown.countdown}
             isLastSentence={state.sessionProgress >= state.sessionLength}
@@ -1320,7 +1628,6 @@ function DictationModeContent() {
                 audio.speak(state.testState.sentence!.sentence);
               }, 500);
             }}
-            onToggleBookmark={handleToggleBookmark}
           />
         ) : (
           <>
@@ -1352,9 +1659,8 @@ function DictationModeContent() {
               isSpeaking={audio.isSpeaking}
               isReady={isReady}
               disabled={isFetching || isSaving}
-              sessionTimeLimit={state.sessionTimeLimit}
-              remainingTime={state.remainingTime}
-              isTimedOut={state.isTimedOut}
+              replayCount={state.testState.replayCount}
+              timeLimitMs={state.testState.timeLimitMs}
             />
           </>
         )}
@@ -1371,7 +1677,38 @@ function DictationModeContent() {
             lastResultId={state.lastTestResultId}
             username={user?.username}
             speedLevel={state.speedLevel}
+            verificationId={formattedVerificationId}
+            onViewCertificate={() => setShowCertificate(true)}
+            onCopyCertificateImage={handleCopyCertificateImage}
+            onShareCertificateWithImage={handleShareCertificateWithImage}
+            isCopying={certificateImageCopied}
+            isSharing={isSharingCertificate}
           />
+        )}
+        
+        {/* Time's Up Overlay for Challenge Mode */}
+        {state.testState.showTimeUpOverlay && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <Card className="max-w-sm w-full mx-4 text-center border-red-500/30 bg-background/95">
+              <CardContent className="pt-8 pb-6">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
+                  <Clock className="w-8 h-8 text-red-500" />
+                </div>
+                <h2 className="text-2xl font-bold mb-2 text-red-500">Time's Up!</h2>
+                <p className="text-muted-foreground mb-6">
+                  {state.testState.typedText.trim() 
+                    ? 'Your answer was auto-submitted.' 
+                    : 'You ran out of time. Try to type faster next time!'}
+                </p>
+                <Button 
+                  onClick={handleDismissTimeUpOverlay}
+                  data-testid="button-dismiss-timeout"
+                >
+                  {state.sessionProgress >= state.sessionLength ? 'View Results' : 'Next Sentence'}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
         )}
       </div>
     </TooltipProvider>

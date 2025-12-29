@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'wouter';
-import { ArrowLeft, Trophy, Zap, Flame, Award, Info, Target, BarChart3, Timer, CheckCircle2, Medal, Crown, Star, HelpCircle, AlertCircle, RefreshCw, Skull, AlertOctagon, Infinity } from 'lucide-react';
+import { motion } from "framer-motion";
+import { ArrowLeft, Trophy, Zap, Flame, Award, Info, Target, BarChart3, Timer, CheckCircle2, Medal, Crown, Star, HelpCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -17,12 +18,12 @@ import { ErrorBoundary } from '@/components/error-boundary';
 
 type Difficulty = 'all' | 'beginner' | 'intermediate' | 'expert' | 'nightmare' | 'impossible';
 
-const DIFFICULTY_ICON_COMPONENTS: Record<Exclude<Difficulty, 'all'>, React.ComponentType<{ className?: string }>> = {
-  beginner: Flame,
-  intermediate: Zap,
-  expert: Skull,
-  nightmare: AlertOctagon,
-  impossible: Infinity,
+const DIFFICULTY_ICONS: Record<Exclude<Difficulty, 'all'>, string> = {
+  beginner: '🔥',
+  intermediate: '⚡',
+  expert: '💀',
+  nightmare: '☠️',
+  impossible: '🌀',
 };
 
 const DIFFICULTY_COLORS: Record<Exclude<Difficulty, 'all'>, string> = {
@@ -126,6 +127,12 @@ function StressLeaderboardContent() {
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
               The bravest warriors who survived the chaos
             </p>
+            <a 
+              href="/leaderboards?mode=stress" 
+              className="text-xs text-primary hover:underline mt-2 inline-block"
+            >
+              View all leaderboards →
+            </a>
           </div>
 
           {/* User Stats */}
@@ -237,22 +244,19 @@ function StressLeaderboardContent() {
                   <div className="mt-4 text-center">
                     <p className="text-sm text-muted-foreground mb-2">Conquered Difficulties:</p>
                     <div className="flex items-center justify-center gap-2 flex-wrap">
-                      {stats.difficultiesCompleted.map((diff: string) => {
-                        const IconComponent = DIFFICULTY_ICON_COMPONENTS[diff as keyof typeof DIFFICULTY_ICON_COMPONENTS];
-                        return (
-                          <Tooltip key={diff}>
-                            <TooltipTrigger asChild>
-                              <span className="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 rounded-full text-sm font-medium cursor-help hover:bg-primary/20 transition-colors">
-                                <IconComponent className={`w-4 h-4 ${DIFFICULTY_COLORS[diff as keyof typeof DIFFICULTY_COLORS]}`} />
-                                <span className="capitalize">{diff}</span>
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">
-                              <p>{DIFFICULTY_DESCRIPTIONS[diff as keyof typeof DIFFICULTY_DESCRIPTIONS]}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        );
-                      })}
+                      {stats.difficultiesCompleted.map((diff: string) => (
+                        <Tooltip key={diff}>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 rounded-full text-sm font-medium cursor-help hover:bg-primary/20 transition-colors">
+                              <span>{DIFFICULTY_ICONS[diff as keyof typeof DIFFICULTY_ICONS]}</span>
+                              <span className="capitalize">{diff}</span>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <p>{DIFFICULTY_DESCRIPTIONS[diff as keyof typeof DIFFICULTY_DESCRIPTIONS]}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -262,11 +266,22 @@ function StressLeaderboardContent() {
 
           {/* Difficulty Filter */}
           <Tabs value={selectedDifficulty} onValueChange={handleDifficultyChange} className="mb-8">
-            <TabsList className="grid w-full grid-cols-6">
+            <TabsList className="grid w-full grid-cols-6 p-1 bg-muted/60">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="all" data-testid="tab-all">
-                    All
+                  <TabsTrigger 
+                    value="all" 
+                    data-testid="tab-all"
+                    className="relative z-0 data-[state=active]:bg-transparent data-[state=active]:shadow-none transition-none"
+                  >
+                    {selectedDifficulty === 'all' && (
+                      <motion.div
+                        layoutId="active-difficulty-tab"
+                        className="absolute inset-0 bg-background shadow-sm rounded-sm z-[-1]"
+                        transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                      />
+                    )}
+                    <span className="relative z-10">All</span>
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="top">
@@ -274,25 +289,26 @@ function StressLeaderboardContent() {
                 </TooltipContent>
               </Tooltip>
               
-              <TabsTrigger value="beginner" data-testid="tab-beginner" className="gap-1">
-                <Flame className="w-4 h-4" /> Beginner
-              </TabsTrigger>
-              
-              <TabsTrigger value="intermediate" data-testid="tab-intermediate" className="gap-1">
-                <Zap className="w-4 h-4" /> Intermediate
-              </TabsTrigger>
-              
-              <TabsTrigger value="expert" data-testid="tab-expert" className="gap-1">
-                <Skull className="w-4 h-4" /> Expert
-              </TabsTrigger>
-              
-              <TabsTrigger value="nightmare" data-testid="tab-nightmare" className="gap-1">
-                <AlertOctagon className="w-4 h-4" /> Nightmare
-              </TabsTrigger>
-              
-              <TabsTrigger value="impossible" data-testid="tab-impossible" className="gap-1">
-                <Infinity className="w-4 h-4" /> Impossible
-              </TabsTrigger>
+              {(['beginner', 'intermediate', 'expert', 'nightmare', 'impossible'] as const).map((diff) => (
+                <TabsTrigger 
+                  key={diff}
+                  value={diff} 
+                  data-testid={`tab-${diff}`}
+                  className="relative z-0 data-[state=active]:bg-transparent data-[state=active]:shadow-none transition-none"
+                >
+                  {selectedDifficulty === diff && (
+                    <motion.div
+                      layoutId="active-difficulty-tab"
+                      className="absolute inset-0 bg-background shadow-sm rounded-sm z-[-1]"
+                      transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-1">
+                    <span>{DIFFICULTY_ICONS[diff]}</span>
+                    <span className="capitalize">{diff}</span>
+                  </span>
+                </TabsTrigger>
+              ))}
             </TabsList>
 
             <TabsContent value={selectedDifficulty}>
@@ -429,19 +445,16 @@ function StressLeaderboardContent() {
                           </div>
 
                           {/* Difficulty Badge */}
-                          {selectedDifficulty === 'all' && (() => {
-                            const DiffIcon = DIFFICULTY_ICON_COMPONENTS[entry.difficulty as keyof typeof DIFFICULTY_ICON_COMPONENTS];
-                            return (
-                              <div className="flex-shrink-0">
-                                <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
-                                  DIFFICULTY_COLORS[entry.difficulty as keyof typeof DIFFICULTY_COLORS]
-                                } bg-muted`}>
-                                  <DiffIcon className="w-4 h-4" />
-                                  <span className="capitalize">{entry.difficulty}</span>
-                                </span>
-                              </div>
-                            );
-                          })()}
+                          {selectedDifficulty === 'all' && (
+                            <div className="flex-shrink-0">
+                              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
+                                DIFFICULTY_COLORS[entry.difficulty as keyof typeof DIFFICULTY_COLORS]
+                              } bg-muted`}>
+                                <span>{DIFFICULTY_ICONS[entry.difficulty as keyof typeof DIFFICULTY_ICONS]}</span>
+                                <span className="capitalize">{entry.difficulty}</span>
+                              </span>
+                            </div>
+                          )}
 
                           {/* Stats */}
                           <div className="flex gap-6 flex-shrink-0">

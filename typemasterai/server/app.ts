@@ -92,6 +92,11 @@ export default async function runApp(
 
   const server = await registerRoutes(app);
 
+  // Warm up chat cache for instant responses
+  const { warmupChatCache, schedulePeriodicWarmup } = await import("./chat-warmup");
+  warmupChatCache();
+  schedulePeriodicWarmup(12); // Refresh every 12 hours
+
   registerShutdownHandlers(server);
 
   app.use("/api/*", notFoundHandler);

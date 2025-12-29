@@ -139,17 +139,43 @@ export function CertificateGenerator({ username, wpm, accuracy, mode, date, free
     ctx.textAlign = "center";
     ctx.fillText("CERTIFICATE OF ACHIEVEMENT", canvas.width / 2, 150);
 
-    // Subtitle
+    // Mode badge (centered below title) - Display the mode prominently
+    if (modeLabel) {
+      const badgeText = modeLabel;
+      ctx.font = "bold 16px 'DM Sans', sans-serif";
+      const badgeWidth = ctx.measureText(badgeText).width + 30;
+      const badgeX = (canvas.width - badgeWidth) / 2;
+      const badgeY = 170;
+      
+      // Badge background with gradient
+      ctx.fillStyle = "rgba(168, 85, 247, 0.3)";
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeWidth, 32, 16);
+      ctx.fill();
+      ctx.strokeStyle = "#a855f7";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      
+      // Badge text
+      ctx.fillStyle = "#e9d5ff";
+      ctx.textAlign = "center";
+      ctx.fillText(badgeText, badgeX + badgeWidth / 2, badgeY + 21);
+    }
+
+    // Subtitle - adjust position based on whether mode badge is shown
     ctx.fillStyle = "#94a3b8";
     ctx.font = "24px 'DM Sans', sans-serif";
-    ctx.fillText("This certifies that", canvas.width / 2, 220);
+    ctx.textAlign = "center";
+    const subtitleY = modeLabel ? 230 : 220;
+    ctx.fillText("This certifies that", canvas.width / 2, subtitleY);
 
-    // User name
+    // User name - adjust position based on whether mode badge is shown
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 56px 'DM Sans', sans-serif";
-    ctx.fillText(username, canvas.width / 2, 300);
+    const usernameY = modeLabel ? 310 : 300;
+    ctx.fillText(username, canvas.width / 2, usernameY);
 
-    // Achievement text
+    // Achievement text - adjust position based on whether mode badge is shown
     ctx.fillStyle = "#94a3b8";
     ctx.font = "24px 'DM Sans', sans-serif";
     // Achievements
@@ -161,10 +187,11 @@ export function CertificateGenerator({ username, wpm, accuracy, mode, date, free
     } else {
       achievementText = "has successfully completed a typing test with";
     }
-    ctx.fillText(achievementText, canvas.width / 2, 350); // Shifted up 10px
+    const achievementY = modeLabel ? 360 : 350;
+    ctx.fillText(achievementText, canvas.width / 2, achievementY);
 
-    // Stats box - Shifted up 20px
-    const boxY = 380;
+    // Stats box - adjust position based on whether mode badge is shown
+    const boxY = modeLabel ? 390 : 380;
     const boxHeight = 140;
     ctx.fillStyle = "rgba(30, 41, 59, 0.7)";
     ctx.fillRect(200, boxY, canvas.width - 400, boxHeight);
@@ -218,7 +245,7 @@ export function CertificateGenerator({ username, wpm, accuracy, mode, date, free
       ctx.fillText(modeText, 800, boxY + 70);
       ctx.fillStyle = "#94a3b8";
       ctx.font = "18px 'DM Sans', sans-serif";
-      ctx.fillText(modeLabel || "Test Duration", 800, boxY + 105);
+      ctx.fillText("Duration", 800, boxY + 105);
     }
 
     // Date - Shifted up
@@ -435,7 +462,7 @@ export function CertificateGenerator({ username, wpm, accuracy, mode, date, free
       </div>
 
       <p className="text-sm text-muted-foreground text-center">
-        Use the Share button after completing a test to share your certificate on social media
+        Share your certificate on social media
       </p>
     </div>
   );

@@ -54,3 +54,7 @@ attached_assets/*.jpeg
 cursor_state.png
 step*.png
 typing-paragraph.png
+
+# Local config
+.local
+.trae
