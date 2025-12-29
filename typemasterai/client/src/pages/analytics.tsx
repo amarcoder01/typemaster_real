@@ -216,6 +216,11 @@ interface AnalyticsData {
     maxWpm: number;
   };
   commonMistakes: Array<{ expectedKey: string; typedKey: string; count: number }>;
+  keyHeatmap?: Record<string, number> | null;
+  fingerUsage?: Record<string, number> | null;
+  handBalance?: number | null;
+  topDigraphs?: Array<{ digraph: string; avgTime: number; count: number }> | null;
+  bottomDigraphs?: Array<{ digraph: string; avgTime: number; count: number }> | null;
 }
 
 interface AIInsight {
@@ -489,18 +494,18 @@ const sanitizeAnalyticsData = (data: Partial<AnalyticsData> | undefined): Analyt
 
     const mistakesHeatmap = Array.isArray(data.mistakesHeatmap)
       ? data.mistakesHeatmap
-          .map(m => sanitizeMistakeEntry(m as Record<string, unknown>))
-          .filter(m => m.key.trim() !== '' && m.errorCount > 0)
+        .map(m => sanitizeMistakeEntry(m as Record<string, unknown>))
+        .filter(m => m.key.trim() !== '' && m.errorCount > 0)
       : [];
 
     const commonMistakes = Array.isArray(data.commonMistakes)
       ? data.commonMistakes
-          .map(m => ({
-            expectedKey: safeString((m as Record<string, unknown>)?.expectedKey, ''),
-            typedKey: safeString((m as Record<string, unknown>)?.typedKey, ''),
-            count: safeNumber((m as Record<string, unknown>)?.count, 0),
-          }))
-          .filter(m => m.expectedKey.trim() !== '' && m.count > 0)
+        .map(m => ({
+          expectedKey: safeString((m as Record<string, unknown>)?.expectedKey, ''),
+          typedKey: safeString((m as Record<string, unknown>)?.typedKey, ''),
+          count: safeNumber((m as Record<string, unknown>)?.count, 0),
+        }))
+        .filter(m => m.expectedKey.trim() !== '' && m.count > 0)
       : [];
 
     const consistency = {
@@ -510,10 +515,10 @@ const sanitizeAnalyticsData = (data: Partial<AnalyticsData> | undefined): Analyt
       maxWpm: safeNumber(data.consistency?.maxWpm, 0),
     };
 
-    return { 
-      wpmOverTime, 
-      mistakesHeatmap, 
-      commonMistakes, 
+    return {
+      wpmOverTime,
+      mistakesHeatmap,
+      commonMistakes,
       consistency,
       keyHeatmap: data.keyHeatmap,
       fingerUsage: data.fingerUsage,
@@ -583,7 +588,7 @@ const MistakesTabSkeleton = () => (
           </div>
         </CardContent>
       </Card>
-      
+
       {/* Problematic Keys Skeleton */}
       <Card>
         <CardHeader>
@@ -605,7 +610,7 @@ const MistakesTabSkeleton = () => (
         </CardContent>
       </Card>
     </div>
-    
+
     {/* Detailed Error Analysis Skeleton */}
     <Card>
       <CardHeader>
@@ -641,7 +646,7 @@ const buildComprehensiveAnalyticsPayload = (
       slowestDigraph: string | null;
       topDigraphs: Array<{ digraph: string; avgTime: number; count: number }> | null;
       bottomDigraphs: Array<{ digraph: string; avgTime: number; count: number }> | null;
-      slowestWords: Array<{ word: string; avgTime: number }> | null;
+      slowestWords: Array<{ word: string; time: number }> | null;
     };
   } | null,
   dynamicThresholds: ReturnType<typeof calculateDynamicThresholds>,
@@ -2208,8 +2213,8 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                           />
                           <YAxis stroke="#888" domain={['dataMin - 5', 'dataMax + 5']} />
                           <ChartTooltip
-                          cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }}
-                          content={({ active, payload }) => {
+                            cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }}
+                            content={({ active, payload }) => {
                               if (!active || !payload || !payload.length) return null;
                               const data = payload[0].payload;
                               const weekStartStr = data?.weekStart ? (() => { try { return format(parseISO(data.weekStart), 'MMM d'); } catch { return data.weekStart; } })() : 'N/A';
@@ -2308,15 +2313,15 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                         </Tooltip>
                       </TooltipProvider>
                     </CardDescription>
-                    <CardTitle className={`text-3xl ${keystrokeData.analytics.avgDwellTime && keystrokeData.analytics.avgDwellTime < 100 ? 'text-green-400' : keystrokeData.analytics.avgDwellTime && keystrokeData.analytics.avgDwellTime > 150 ? 'text-orange-400' : ''}`} data-testid="stat-avg-dwell">
-                      {keystrokeData.analytics.avgDwellTime?.toFixed(0) || 'N/A'} ms
+                    <CardTitle className={`text-3xl ${keystrokeData?.analytics?.avgDwellTime && keystrokeData?.analytics.avgDwellTime < 100 ? 'text-green-400' : keystrokeData?.analytics?.avgDwellTime && keystrokeData?.analytics.avgDwellTime > 150 ? 'text-orange-400' : ''}`} data-testid="stat-avg-dwell">
+                      {keystrokeData?.analytics?.avgDwellTime?.toFixed(0) || 'N/A'} ms
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground">
-                      {keystrokeData.analytics.avgDwellTime && keystrokeData.analytics.avgDwellTime < 100
+                      {keystrokeData?.analytics?.avgDwellTime && keystrokeData?.analytics.avgDwellTime < 100
                         ? "✓ Quick key release"
-                        : keystrokeData.analytics.avgDwellTime && keystrokeData.analytics.avgDwellTime > 150
+                        : keystrokeData?.analytics?.avgDwellTime && keystrokeData?.analytics.avgDwellTime > 150
                           ? "⚠️ Keys held too long"
                           : "Time keys are held down"}
                     </p>
@@ -2338,15 +2343,15 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                         </Tooltip>
                       </TooltipProvider>
                     </CardDescription>
-                    <CardTitle className={`text-3xl ${keystrokeData.analytics.avgFlightTime && keystrokeData.analytics.avgFlightTime < 100 ? 'text-green-400' : keystrokeData.analytics.avgFlightTime && keystrokeData.analytics.avgFlightTime > 180 ? 'text-orange-400' : ''}`} data-testid="stat-avg-flight">
-                      {keystrokeData.analytics.avgFlightTime?.toFixed(0) || 'N/A'} ms
+                    <CardTitle className={`text-3xl ${keystrokeData?.analytics.avgFlightTime && keystrokeData?.analytics.avgFlightTime < 100 ? 'text-green-400' : keystrokeData?.analytics.avgFlightTime && keystrokeData?.analytics.avgFlightTime > 180 ? 'text-orange-400' : ''}`} data-testid="stat-avg-flight">
+                      {keystrokeData?.analytics.avgFlightTime?.toFixed(0) || 'N/A'} ms
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground flex items-center gap-1">
-                      {keystrokeData.analytics.avgFlightTime && keystrokeData.analytics.avgFlightTime < 100
+                      {keystrokeData?.analytics.avgFlightTime && keystrokeData?.analytics.avgFlightTime < 100
                         ? <><Sparkles className="w-3 h-3 text-green-400" /> Fast transitions</>
-                        : keystrokeData.analytics.avgFlightTime && keystrokeData.analytics.avgFlightTime > 180
+                        : keystrokeData?.analytics.avgFlightTime && keystrokeData?.analytics.avgFlightTime > 180
                           ? <><AlertTriangle className="w-3 h-3 text-orange-400" /> Slow key transitions</>
                           : "Time between keystrokes"}
                     </p>
@@ -2368,15 +2373,15 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                         </Tooltip>
                       </TooltipProvider>
                     </CardDescription>
-                    <CardTitle className={`text-3xl ${keystrokeData.analytics.consistency && keystrokeData.analytics.consistency >= 80 ? 'text-green-400' : keystrokeData.analytics.consistency && keystrokeData.analytics.consistency < 60 ? 'text-orange-400' : ''}`} data-testid="stat-consistency-score">
-                      {keystrokeData.analytics.consistency?.toFixed(1) || 'N/A'}%
+                    <CardTitle className={`text-3xl ${keystrokeData?.analytics.consistency && keystrokeData?.analytics.consistency >= 80 ? 'text-green-400' : keystrokeData?.analytics.consistency && keystrokeData?.analytics.consistency < 60 ? 'text-orange-400' : ''}`} data-testid="stat-consistency-score">
+                      {keystrokeData?.analytics.consistency?.toFixed(1) || 'N/A'}%
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground">
-                      {keystrokeData.analytics.consistency && keystrokeData.analytics.consistency >= 80
+                      {keystrokeData?.analytics.consistency && keystrokeData?.analytics.consistency >= 80
                         ? "✓ Excellent rhythm"
-                        : keystrokeData.analytics.consistency && keystrokeData.analytics.consistency < 60
+                        : keystrokeData?.analytics.consistency && keystrokeData?.analytics.consistency < 60
                           ? "⚠️ Rhythm needs work"
                           : "Typing rhythm stability"}
                     </p>
@@ -2400,7 +2405,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       </Tooltip>
                     </CardDescription>
                     <CardTitle className="text-3xl text-cyan-400" data-testid="stat-burst-wpm">
-                      {keystrokeData.analytics.burstWpm ?? 'N/A'}
+                      {keystrokeData?.analytics.burstWpm ?? 'N/A'}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -2422,7 +2427,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       </Tooltip>
                     </CardDescription>
                     <CardTitle className="text-3xl text-purple-400" data-testid="stat-adjusted-wpm">
-                      {keystrokeData.analytics.adjustedWpm ?? 'N/A'}
+                      {keystrokeData?.analytics.adjustedWpm ?? 'N/A'}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -2444,7 +2449,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       </Tooltip>
                     </CardDescription>
                     <CardTitle className="text-3xl text-green-400" data-testid="stat-typing-rhythm">
-                      {keystrokeData.analytics.typingRhythm?.toFixed(0) ?? 'N/A'}
+                      {keystrokeData?.analytics.typingRhythm?.toFixed(0) ?? 'N/A'}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -2465,15 +2470,15 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                         </TooltipContent>
                       </Tooltip>
                     </CardDescription>
-                    <CardTitle className={`text-3xl ${keystrokeData.analytics.fatigueIndicator !== null && keystrokeData.analytics.fatigueIndicator > 0 ? 'text-orange-400' : 'text-green-400'}`} data-testid="stat-fatigue">
-                      {keystrokeData.analytics.fatigueIndicator !== null ? `${keystrokeData.analytics.fatigueIndicator > 0 ? '+' : ''}${keystrokeData.analytics.fatigueIndicator.toFixed(0)}%` : 'N/A'}
+                    <CardTitle className={`text-3xl ${keystrokeData?.analytics.fatigueIndicator !== null && keystrokeData?.analytics.fatigueIndicator > 0 ? 'text-orange-400' : 'text-green-400'}`} data-testid="stat-fatigue">
+                      {keystrokeData?.analytics.fatigueIndicator !== null ? `${keystrokeData?.analytics.fatigueIndicator > 0 ? '+' : ''}${keystrokeData?.analytics.fatigueIndicator.toFixed(0)}%` : 'N/A'}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground">
-                      {keystrokeData.analytics.fatigueIndicator !== null && keystrokeData.analytics.fatigueIndicator > 5
+                      {keystrokeData?.analytics.fatigueIndicator !== null && keystrokeData?.analytics.fatigueIndicator > 5
                         ? 'Slowing down'
-                        : keystrokeData.analytics.fatigueIndicator !== null && keystrokeData.analytics.fatigueIndicator < -5
+                        : keystrokeData?.analytics.fatigueIndicator !== null && keystrokeData?.analytics.fatigueIndicator < -5
                           ? 'Warming up'
                           : 'Steady pace'}
                     </p>
@@ -2497,8 +2502,8 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       </Tooltip>
                     </CardDescription>
                     <CardTitle className="text-2xl" data-testid="stat-rhythm-rating">
-                      {keystrokeData.analytics.consistencyRating !== null
-                        ? `${keystrokeData.analytics.consistencyRating}/100`
+                      {keystrokeData?.analytics.consistencyRating !== null
+                        ? `${keystrokeData?.analytics.consistencyRating}/100`
                         : 'N/A'}
                     </CardTitle>
                   </CardHeader>
@@ -2511,7 +2516,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                   <CardHeader className="pb-2">
                     <CardDescription>Error Bursts</CardDescription>
                     <CardTitle className="text-2xl" data-testid="stat-error-bursts">
-                      {keystrokeData.analytics.errorBurstCount ?? 'N/A'}
+                      {keystrokeData?.analytics.errorBurstCount ?? 'N/A'}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -2519,17 +2524,17 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                   </CardContent>
                 </Card>
 
-                {keystrokeData.analytics.peakPerformanceWindow && (
+                {keystrokeData?.analytics.peakPerformanceWindow && (
                   <Card>
                     <CardHeader className="pb-2">
                       <CardDescription>Peak Performance</CardDescription>
                       <CardTitle className="text-2xl text-cyan-400" data-testid="stat-peak-performance">
-                        {keystrokeData.analytics.peakPerformanceWindow.wpm} WPM
+                        {keystrokeData?.analytics.peakPerformanceWindow.wpm} WPM
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
                       <p className="text-sm text-muted-foreground">
-                        Best 20% window (pos {keystrokeData.analytics.peakPerformanceWindow.startPos}-{keystrokeData.analytics.peakPerformanceWindow.endPos})
+                        Best 20% window (pos {keystrokeData?.analytics.peakPerformanceWindow.startPos}-{keystrokeData?.analytics.peakPerformanceWindow.endPos})
                       </p>
                     </CardContent>
                   </Card>
@@ -2537,7 +2542,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
               </div>
 
               {/* Rolling Accuracy Trend */}
-              {keystrokeData.analytics.rollingAccuracy && keystrokeData.analytics.rollingAccuracy.length > 0 && (
+              {keystrokeData?.analytics.rollingAccuracy && keystrokeData?.analytics.rollingAccuracy.length > 0 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -2557,7 +2562,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                   </CardHeader>
                   <CardContent>
                     <ResponsiveContainer width="100%" height={200}>
-                      <BarChart data={keystrokeData.analytics.rollingAccuracy.map((acc, idx) => ({
+                      <BarChart data={keystrokeData?.analytics.rollingAccuracy.map((acc, idx) => ({
                         chunk: `${(idx + 1) * 20}%`,
                         accuracy: acc,
                         position: idx + 1
@@ -2594,9 +2599,9 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
               )}
 
               {/* Top & Bottom Digraphs */}
-              {(keystrokeData.analytics.topDigraphs || keystrokeData.analytics.bottomDigraphs) && (
+              {(keystrokeData?.analytics.topDigraphs || keystrokeData?.analytics.bottomDigraphs) && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {keystrokeData.analytics.topDigraphs && keystrokeData.analytics.topDigraphs.length > 0 && (
+                  {keystrokeData?.analytics.topDigraphs && keystrokeData?.analytics.topDigraphs.length > 0 && (
                     <Card>
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2 text-green-400">
@@ -2616,7 +2621,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-2">
-                          {keystrokeData.analytics.topDigraphs.map((d, idx) => (
+                          {keystrokeData?.analytics.topDigraphs.map((d, idx) => (
                             <TooltipProvider key={idx}>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -2643,7 +2648,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                     </Card>
                   )}
 
-                  {(analytics?.bottomDigraphs || keystrokeData.analytics.bottomDigraphs) && (analytics?.bottomDigraphs || keystrokeData.analytics.bottomDigraphs).length > 0 && (
+                  {(analytics?.bottomDigraphs || keystrokeData?.analytics?.bottomDigraphs) && (analytics?.bottomDigraphs || keystrokeData?.analytics?.bottomDigraphs)?.length > 0 && (
                     <Card>
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2 text-red-400">
@@ -2663,7 +2668,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-2">
-                          {(analytics?.bottomDigraphs || keystrokeData.analytics.bottomDigraphs).map((d, idx) => (
+                          {(analytics?.bottomDigraphs || keystrokeData?.analytics.bottomDigraphs).map((d, idx) => (
                             <TooltipProvider key={idx}>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -2712,9 +2717,9 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                     <CardDescription>Keystrokes per finger</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    {keystrokeData.analytics.fingerUsage ? (
+                    {keystrokeData?.analytics.fingerUsage ? (
                       <ResponsiveContainer width="100%" height={250}>
-                        <BarChart data={Object.entries(keystrokeData.analytics.fingerUsage).map(([finger, count]) => ({
+                        <BarChart data={Object.entries(keystrokeData?.analytics.fingerUsage).map(([finger, count]) => ({
                           finger: finger.replace('Left ', 'L ').replace('Right ', 'R '),
                           fullName: finger,
                           count: count
@@ -2727,7 +2732,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                             content={({ active, payload }) => {
                               if (!active || !payload || !payload.length) return null;
                               const data = payload[0]?.payload as { finger: string; fullName: string; count: number };
-                              const total = Object.values(keystrokeData.analytics.fingerUsage || {}).reduce((a: number, b: number) => a + b, 0);
+                              const total = Object.values(keystrokeData?.analytics.fingerUsage || {}).reduce((a: number, b: number) => a + b, 0);
                               const percentage = total > 0 ? ((data.count / total) * 100).toFixed(1) : '0';
                               return (
                                 <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 shadow-lg">
@@ -2769,31 +2774,31 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                     <CardDescription>Left vs Right hand usage</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    {(analytics?.handBalance ?? keystrokeData.analytics.handBalance) !== null && (analytics?.handBalance ?? keystrokeData.analytics.handBalance) !== undefined ? (
+                    {(analytics?.handBalance ?? keystrokeData?.analytics.handBalance) !== null && (analytics?.handBalance ?? keystrokeData?.analytics.handBalance) !== undefined ? (
                       <div className="space-y-4">
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <div className="flex items-center justify-between cursor-help">
                                 <span className="text-sm font-medium">Left Hand</span>
-                                <Badge variant="outline" className={`text-lg ${(analytics?.handBalance ?? keystrokeData.analytics.handBalance)! > 55 ? 'border-blue-500 text-blue-400' : ''}`}>
-                                  {(analytics?.handBalance ?? keystrokeData.analytics.handBalance)!.toFixed(1)}%
+                                <Badge variant="outline" className={`text-lg ${(analytics?.handBalance ?? keystrokeData?.analytics.handBalance)! > 55 ? 'border-blue-500 text-blue-400' : ''}`}>
+                                  {(analytics?.handBalance ?? keystrokeData?.analytics.handBalance)!.toFixed(1)}%
                                 </Badge>
                               </div>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p>Left hand performed {(analytics?.handBalance ?? keystrokeData.analytics.handBalance)!.toFixed(1)}% of all keystrokes</p>
+                              <p>Left hand performed {(analytics?.handBalance ?? keystrokeData?.analytics.handBalance)!.toFixed(1)}% of all keystrokes</p>
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
                         <div className="w-full h-8 bg-secondary rounded-full overflow-hidden flex">
                           <div
                             className="bg-blue-500 transition-all duration-500"
-                            style={{ width: `${(analytics?.handBalance ?? keystrokeData.analytics.handBalance)}%` }}
+                            style={{ width: `${(analytics?.handBalance ?? keystrokeData?.analytics.handBalance)}%` }}
                           />
                           <div
                             className="bg-purple-500 transition-all duration-500"
-                            style={{ width: `${100 - (analytics?.handBalance ?? keystrokeData.analytics.handBalance)!}%` }}
+                            style={{ width: `${100 - (analytics?.handBalance ?? keystrokeData?.analytics.handBalance)!}%` }}
                           />
                         </div>
                         <TooltipProvider>
@@ -2801,23 +2806,23 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                             <TooltipTrigger asChild>
                               <div className="flex items-center justify-between cursor-help">
                                 <span className="text-sm font-medium">Right Hand</span>
-                                <Badge variant="outline" className={`text-lg ${(100 - (analytics?.handBalance ?? keystrokeData.analytics.handBalance)!) > 55 ? 'border-purple-500 text-purple-400' : ''}`}>
-                                  {(100 - (analytics?.handBalance ?? keystrokeData.analytics.handBalance)!).toFixed(1)}%
+                                <Badge variant="outline" className={`text-lg ${(100 - (analytics?.handBalance ?? keystrokeData?.analytics.handBalance)!) > 55 ? 'border-purple-500 text-purple-400' : ''}`}>
+                                  {(100 - (analytics?.handBalance ?? keystrokeData?.analytics.handBalance)!).toFixed(1)}%
                                 </Badge>
                               </div>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p>Right hand performed {(100 - (analytics?.handBalance ?? keystrokeData.analytics.handBalance)!).toFixed(1)}% of all keystrokes</p>
+                              <p>Right hand performed {(100 - (analytics?.handBalance ?? keystrokeData?.analytics.handBalance)!).toFixed(1)}% of all keystrokes</p>
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
                         <Separator />
-                        <p className={`text-sm text-center ${Math.abs((analytics?.handBalance ?? keystrokeData.analytics.handBalance)! - 50) < 10 ? 'text-green-400' : 'text-orange-400'}`}>
-                          {Math.abs((analytics?.handBalance ?? keystrokeData.analytics.handBalance)! - 50) < 5
+                        <p className={`text-sm text-center ${Math.abs((analytics?.handBalance ?? keystrokeData?.analytics.handBalance)! - 50) < 10 ? 'text-green-400' : 'text-orange-400'}`}>
+                          {Math.abs((analytics?.handBalance ?? keystrokeData?.analytics.handBalance)! - 50) < 5
                             ? "✓ Excellent hand balance"
-                            : Math.abs((analytics?.handBalance ?? keystrokeData.analytics.handBalance)! - 50) < 10
+                            : Math.abs((analytics?.handBalance ?? keystrokeData?.analytics.handBalance)! - 50) < 10
                               ? "🎯 Well balanced hand usage"
-                              : Math.abs((analytics?.handBalance ?? keystrokeData.analytics.handBalance)! - 50) < 20
+                              : Math.abs((analytics?.handBalance ?? keystrokeData?.analytics.handBalance)! - 50) < 20
                                 ? "⚠️ Slight imbalance - consider practicing with your weaker hand"
                                 : "⚠️ Significant imbalance - focus on weaker hand exercises"}
                         </p>
@@ -2852,7 +2857,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                   <CardDescription>Keys glow brighter based on how frequently you use them</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {(analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap) ? (
+                  {(analytics?.keyHeatmap || keystrokeData?.analytics.keyHeatmap) ? (
                     <div className="overflow-x-auto relative">
                       <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-card to-transparent pointer-events-none md:hidden z-10" />
                       <p className="text-xs text-muted-foreground mb-2 md:hidden">← Scroll to see all keys →</p>
@@ -2860,8 +2865,8 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                         {/* Number row */}
                         <div className="flex gap-1 justify-center">
                           {['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map(key => {
-                            const count = (analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap)?.[key] || 0;
-                            const maxCount = Math.max(...(Object.values((analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap) || {}) as number[]));
+                            const count = (analytics?.keyHeatmap || keystrokeData?.analytics.keyHeatmap)?.[key] || 0;
+                            const maxCount = Math.max(...(Object.values((analytics?.keyHeatmap || keystrokeData?.analytics.keyHeatmap) || {}) as number[]));
                             const intensity = maxCount > 0 ? (count / maxCount) * 100 : 0;
                             return (
                               <div
@@ -2881,7 +2886,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                         {/* QWERTY row */}
                         <div className="flex gap-1 justify-center">
                           {['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'].map(key => {
-                            const heatmap = analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap || {};
+                            const heatmap = analytics?.keyHeatmap || keystrokeData?.analytics.keyHeatmap || {};
                             const count = heatmap?.[key.toLowerCase()] || heatmap?.[key] || 0;
                             const maxCount = Math.max(...(Object.values(heatmap) as number[]));
                             const intensity = maxCount > 0 ? (count / maxCount) * 100 : 0;
@@ -2903,8 +2908,8 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                         {/* ASDF row */}
                         <div className="flex gap-1 justify-center ml-3 sm:ml-6">
                           {['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'].map(key => {
-                            const count = keystrokeData.analytics.keyHeatmap?.[key.toLowerCase()] || keystrokeData.analytics.keyHeatmap?.[key] || 0;
-                            const maxCount = Math.max(...(Object.values(keystrokeData.analytics.keyHeatmap || {}) as number[]));
+                            const count = keystrokeData?.analytics.keyHeatmap?.[key.toLowerCase()] || keystrokeData?.analytics.keyHeatmap?.[key] || 0;
+                            const maxCount = Math.max(...(Object.values(keystrokeData?.analytics.keyHeatmap || {}) as number[]));
                             const intensity = maxCount > 0 ? (count / maxCount) * 100 : 0;
                             return (
                               <div
@@ -2924,8 +2929,8 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                         {/* ZXCV row */}
                         <div className="flex gap-1 justify-center ml-6 sm:ml-12">
                           {['Z', 'X', 'C', 'V', 'B', 'N', 'M'].map(key => {
-                            const count = keystrokeData.analytics.keyHeatmap?.[key.toLowerCase()] || keystrokeData.analytics.keyHeatmap?.[key] || 0;
-                            const maxCount = Math.max(...(Object.values(keystrokeData.analytics.keyHeatmap || {}) as number[]));
+                            const count = keystrokeData?.analytics.keyHeatmap?.[key.toLowerCase()] || keystrokeData?.analytics.keyHeatmap?.[key] || 0;
+                            const maxCount = Math.max(...(Object.values(keystrokeData?.analytics.keyHeatmap || {}) as number[]));
                             const intensity = maxCount > 0 ? (count / maxCount) * 100 : 0;
                             return (
                               <div
@@ -2946,9 +2951,9 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                         <div className="flex gap-1 justify-center mt-1">
                           <div className="w-48 sm:w-64 h-10 sm:h-12 rounded border border-border flex items-center justify-center font-mono text-xs sm:text-sm transition-all hover:scale-105"
                             style={{
-                              backgroundColor: `rgba(0, 255, 255, ${(((analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap)?.[' '] || 0) / Math.max(...(Object.values((analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap) || {}) as number[]))) * 0.5})`,
+                              backgroundColor: `rgba(0, 255, 255, ${(((analytics?.keyHeatmap || keystrokeData?.analytics.keyHeatmap)?.[' '] || 0) / Math.max(...(Object.values((analytics?.keyHeatmap || keystrokeData?.analytics.keyHeatmap) || {}) as number[]))) * 0.5})`,
                             }}
-                            title={`SPACE: ${(analytics?.keyHeatmap || keystrokeData.analytics.keyHeatmap)?.[' '] || 0} times`}
+                            title={`SPACE: ${(analytics?.keyHeatmap || keystrokeData?.analytics.keyHeatmap)?.[' '] || 0} times`}
                           >
                             SPACE
                           </div>
@@ -2999,7 +3004,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
 
               {/* WPM by Position & Slowest Words */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {keystrokeData.analytics.wpmByPosition && (
+                {keystrokeData?.analytics.wpmByPosition && (
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
@@ -3020,8 +3025,8 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                     <CardContent>
                       <ResponsiveContainer width="100%" height={250}>
                         <LineChart data={
-                          Array.isArray(keystrokeData.analytics.wpmByPosition)
-                            ? keystrokeData.analytics.wpmByPosition.map((item: { position: number; wpm: number } | number, idx: number) => ({
+                          Array.isArray(keystrokeData?.analytics.wpmByPosition)
+                            ? keystrokeData?.analytics.wpmByPosition.map((item: { position: number; wpm: number } | number, idx: number) => ({
                               position: `${typeof item === 'object' ? item.position : idx * 10}%`,
                               wpm: typeof item === 'object' ? item.wpm : item,
                               rawPosition: typeof item === 'object' ? item.position : idx * 10
@@ -3036,7 +3041,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                             content={({ active, payload }) => {
                               if (!active || !payload || !payload.length) return null;
                               const data = payload[0]?.payload as { position: string; wpm: number; rawPosition: number };
-                              const avgWpm = keystrokeData.analytics.burstWpm || keystrokeData.analytics.adjustedWpm || 0;
+                              const avgWpm = keystrokeData?.analytics.burstWpm || keystrokeData?.analytics.adjustedWpm || 0;
                               const isAboveAvg = avgWpm > 0 && data.wpm >= avgWpm;
                               return (
                                 <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 shadow-lg">
@@ -3060,7 +3065,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                   </Card>
                 )}
 
-                {keystrokeData.analytics.slowestWords && Array.isArray(keystrokeData.analytics.slowestWords) && keystrokeData.analytics.slowestWords.length > 0 && (
+                {keystrokeData?.analytics.slowestWords && Array.isArray(keystrokeData?.analytics.slowestWords) && keystrokeData?.analytics.slowestWords.length > 0 && (
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
@@ -3081,10 +3086,10 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                     <CardContent>
                       <ScrollArea className="h-[250px]">
                         <div className="space-y-2">
-                          {keystrokeData.analytics.slowestWords.slice(0, 10).map((item: any, idx: number) => {
-                            const avgTime = item.avgTime || 0;
-                            const isSlow = avgTime > 500;
-                            const isVerySlow = avgTime > 800;
+                          {(keystrokeData?.analytics?.slowestWords || []).slice(0, 10).map((item: any, idx: number) => {
+                            const time = item.time || 0;
+                            const isSlow = time > 500;
+                            const isVerySlow = time > 800;
                             return (
                               <TooltipProvider key={idx}>
                                 <Tooltip>
@@ -3098,12 +3103,12 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                                     >
                                       <span className="font-mono font-medium">{item.word}</span>
                                       <Badge variant="outline" className={isVerySlow ? 'bg-red-500/20' : isSlow ? 'bg-orange-500/20' : ''}>
-                                        {avgTime?.toFixed(0)} ms
+                                        {time?.toFixed(0)} ms
                                       </Badge>
                                     </div>
                                   </TooltipTrigger>
                                   <TooltipContent side="left">
-                                    <p>Time to type: {avgTime?.toFixed(0)}ms</p>
+                                    <p>Time to type: {time?.toFixed(0)}ms</p>
                                     <p className={`text-xs mt-1 flex items-center gap-1 ${isVerySlow ? 'text-red-400' : isSlow ? 'text-orange-400' : 'text-muted-foreground'}`}>
                                       {isVerySlow ? <><AlertTriangle className="w-3 h-3" /> Very slow - practice this word</> :
                                         isSlow ? <><AlertTriangle className="w-3 h-3" /> Slower than average</> :
@@ -3122,7 +3127,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
               </div>
 
               {/* Digraph Analysis */}
-              {(keystrokeData.analytics.fastestDigraph || keystrokeData.analytics.slowestDigraph) && (
+              {(keystrokeData?.analytics.fastestDigraph || keystrokeData?.analytics.slowestDigraph) && (
                 <Card>
                   <CardHeader>
                     <CardTitle>Digraph Analysis</CardTitle>
@@ -3130,20 +3135,20 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {keystrokeData.analytics.fastestDigraph && (
+                      {keystrokeData?.analytics.fastestDigraph && (
                         <div>
                           <h4 className="text-sm font-semibold mb-3 text-green-500">Fastest Digraph</h4>
                           <div className="flex items-center justify-between p-3 rounded bg-green-500/10 border border-green-500/20">
-                            <span className="font-mono text-lg">{keystrokeData.analytics.fastestDigraph}</span>
+                            <span className="font-mono text-lg">{keystrokeData?.analytics.fastestDigraph}</span>
                             <Badge variant="outline" className="bg-green-500/20">Your fastest combo</Badge>
                           </div>
                         </div>
                       )}
-                      {keystrokeData.analytics.slowestDigraph && (
+                      {keystrokeData?.analytics.slowestDigraph && (
                         <div>
                           <h4 className="text-sm font-semibold mb-3 text-red-500">Slowest Digraph</h4>
                           <div className="flex items-center justify-between p-3 rounded bg-red-500/10 border border-red-500/20">
-                            <span className="font-mono text-lg">{keystrokeData.analytics.slowestDigraph}</span>
+                            <span className="font-mono text-lg">{keystrokeData?.analytics.slowestDigraph}</span>
                             <Badge variant="outline" className="bg-red-500/20">Needs practice</Badge>
                           </div>
                         </div>
@@ -3234,22 +3239,22 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       </div>
                     ) : (
                       <ResponsiveContainer width="100%" height={300}>
-                        <BarChart 
-                          data={analytics.mistakesHeatmap.slice(0, 10)} 
+                        <BarChart
+                          data={analytics.mistakesHeatmap.slice(0, 10)}
                           aria-label="Mistake heatmap bar chart"
                           margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
                         >
                           <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                          <XAxis 
-                            dataKey="key" 
-                            stroke="#888" 
+                          <XAxis
+                            dataKey="key"
+                            stroke="#888"
                             aria-label="Keys"
                             tick={{ fontSize: 12 }}
                             interval={0}
                           />
-                          <YAxis 
-                            stroke="#888" 
-                            label={{ value: 'Error Rate (%)', angle: -90, position: 'insideLeft' }} 
+                          <YAxis
+                            stroke="#888"
+                            label={{ value: 'Error Rate (%)', angle: -90, position: 'insideLeft' }}
                             aria-label="Error rate percentage"
                             tick={{ fontSize: 12 }}
                           />
@@ -3412,46 +3417,46 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                     <>
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                         {analytics.mistakesHeatmap.slice(0, showAllErrorKeys ? analytics.mistakesHeatmap.length : 24).map((item, idx) => {
-                        const severity = item.errorRate > 10 ? 'high' : item.errorRate > 5 ? 'medium' : 'low';
-                        const severityStyles = {
-                          high: 'border-red-500/50 bg-red-500/10 hover:bg-red-500/20',
-                          medium: 'border-yellow-500/50 bg-yellow-500/10 hover:bg-yellow-500/20',
-                          low: 'border-green-500/50 bg-green-500/10 hover:bg-green-500/20',
-                        };
-                        return (
-                          <TooltipProvider key={idx}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div
-                                  className={`flex flex-col items-center justify-center p-4 rounded-lg border transition-colors cursor-help ${severityStyles[severity]}`}
-                                  data-testid={`heatmap-key-${item.key}`}
-                                  role="button"
-                                  tabIndex={0}
-                                  aria-label={`Key ${item.key}: ${item.errorRate.toFixed(1)}% error rate, ${item.errorCount} errors`}
-                                >
-                                  <div className="text-2xl font-mono font-bold mb-2">{item.key}</div>
-                                  <div className={`text-xs font-semibold ${severity === 'high' ? 'text-red-400' : severity === 'medium' ? 'text-yellow-400' : 'text-green-400'}`}>
-                                    {item.errorRate.toFixed(1)}%
+                          const severity = item.errorRate > 10 ? 'high' : item.errorRate > 5 ? 'medium' : 'low';
+                          const severityStyles = {
+                            high: 'border-red-500/50 bg-red-500/10 hover:bg-red-500/20',
+                            medium: 'border-yellow-500/50 bg-yellow-500/10 hover:bg-yellow-500/20',
+                            low: 'border-green-500/50 bg-green-500/10 hover:bg-green-500/20',
+                          };
+                          return (
+                            <TooltipProvider key={idx}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div
+                                    className={`flex flex-col items-center justify-center p-4 rounded-lg border transition-colors cursor-help ${severityStyles[severity]}`}
+                                    data-testid={`heatmap-key-${item.key}`}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`Key ${item.key}: ${item.errorRate.toFixed(1)}% error rate, ${item.errorCount} errors`}
+                                  >
+                                    <div className="text-2xl font-mono font-bold mb-2">{item.key}</div>
+                                    <div className={`text-xs font-semibold ${severity === 'high' ? 'text-red-400' : severity === 'medium' ? 'text-yellow-400' : 'text-green-400'}`}>
+                                      {item.errorRate.toFixed(1)}%
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">{item.errorCount} errors</div>
                                   </div>
-                                  <div className="text-xs text-muted-foreground">{item.errorCount} errors</div>
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-xs">
-                                <div className="space-y-1">
-                                  <p className="font-semibold">Key: "{item.key}"</p>
-                                  <p className="text-sm">Error Rate: {item.errorRate.toFixed(2)}%</p>
-                                  <p className="text-sm">{item.errorCount} errors / {item.totalCount} presses</p>
-                                  <p className={`text-xs mt-1 ${severity === 'high' ? 'text-red-400' : severity === 'medium' ? 'text-yellow-400' : 'text-green-400'}`}>
-                                    {severity === 'high' ? '⚠️ Priority practice recommended' :
-                                      severity === 'medium' ? '📊 Some room for improvement' :
-                                        '✓ Good accuracy'}
-                                  </p>
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        );
-                      })}
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs">
+                                  <div className="space-y-1">
+                                    <p className="font-semibold">Key: "{item.key}"</p>
+                                    <p className="text-sm">Error Rate: {item.errorRate.toFixed(2)}%</p>
+                                    <p className="text-sm">{item.errorCount} errors / {item.totalCount} presses</p>
+                                    <p className={`text-xs mt-1 ${severity === 'high' ? 'text-red-400' : severity === 'medium' ? 'text-yellow-400' : 'text-green-400'}`}>
+                                      {severity === 'high' ? '⚠️ Priority practice recommended' :
+                                        severity === 'medium' ? '📊 Some room for improvement' :
+                                          '✓ Good accuracy'}
+                                    </p>
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          );
+                        })}
                       </div>
                       {analytics.mistakesHeatmap.length > 24 && (
                         <div className="mt-4 text-center">

@@ -548,23 +548,23 @@ export default function Profile() {
                   )}
                 </div>
               </div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex gap-2">
+              <div className="flex gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
                     <Button variant="outline" size="sm" onClick={() => setLocation("/profile/edit")} data-testid="button-edit-profile">
                       <Edit className="w-4 h-4 mr-2" />
                       Edit Profile
                     </Button>
-                    <FeedbackWidget
-                      triggerVariant="outline"
-                      triggerSize="sm"
-                    />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Customize your avatar, bio, and preferences</p>
-                </TooltipContent>
-              </Tooltip>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Customize your avatar, bio, and preferences</p>
+                  </TooltipContent>
+                </Tooltip>
+                <FeedbackWidget
+                  triggerVariant="outline"
+                  triggerSize="sm"
+                />
+              </div>
             </div>
             {statsError ? (
               <ErrorState

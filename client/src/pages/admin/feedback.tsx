@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
+import { FeedbackErrorBoundary } from "@/components/FeedbackErrorBoundary";
+import { useOnlineStatus, OfflineBanner } from "@/hooks/useOnlineStatus.tsx";
+import { getRetryConfig } from "@/hooks/useRetry";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -161,9 +164,10 @@ const sentimentColors: Record<string, string> = {
 
 const CHART_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
 
-export default function AdminFeedbackDashboard() {
+function AdminFeedbackDashboardContent() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const isOnline = useOnlineStatus();
 
   const [page, setPage] = useState(1);
   const [limit] = useState(20);
@@ -190,6 +194,7 @@ export default function AdminFeedbackDashboard() {
       return { isAdmin: true };
     },
     retry: false,
+    enabled: isOnline, // Only run when online
   });
 
   const { data: categories = [] } = useQuery<FeedbackCategory[]>({
@@ -207,7 +212,7 @@ export default function AdminFeedbackDashboard() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: feedbackList, isLoading: feedbackLoading, refetch: refetchFeedback } = useQuery<FeedbackListResponse>({
+  const { data: feedbackList, isLoading: feedbackLoading, refetch: refetchFeedback, error: feedbackError } = useQuery<FeedbackListResponse>({
     queryKey: ["admin-feedback-list", page, limit, statusFilter, priorityFilter, categoryFilter, searchQuery],
     queryFn: async () => {
       const params = new URLSearchParams({
@@ -223,8 +228,9 @@ export default function AdminFeedbackDashboard() {
       if (!res.ok) throw new Error("Failed to fetch feedback");
       return res.json();
     },
-    enabled: adminCheck?.isAdmin,
+    enabled: adminCheck?.isAdmin && isOnline,
     staleTime: 30000,
+    ...getRetryConfig(3), // Add retry logic
   });
 
   const { data: analyticsData, isLoading: analyticsLoading } = useQuery<AnalyticsData>({
@@ -443,8 +449,23 @@ export default function AdminFeedbackDashboard() {
     : [];
 
   return (
-    <div className="container max-w-7xl py-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <>
+      <OfflineBanner isOnline={isOnline} />
+      <div className="container max-w-7xl py-6 space-y-6">
+        {feedbackError && (
+          <div className="rounded-md bg-destructive/10 border border-destructive p-4 mb-4">
+            <p className="text-sm text-destructive font-medium">
+              Failed to load feedback. {!isOnline ? "You appear to be offline." : ""}
+            </p>
+            <button
+              onClick={() => refetchFeedback()}
+              className="text-sm underline mt-2"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+        <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Feedback Dashboard</h1>
           <p className="text-muted-foreground">Manage and respond to user feedback</p>
@@ -1096,6 +1117,15 @@ export default function AdminFeedbackDashboard() {
           ) : null}
         </DialogContent>
       </Dialog>
-    </div>
+      </div>
+    </>
+  );
+}
+
+export default function AdminFeedbackDashboard() {
+  return (
+    <FeedbackErrorBoundary fallbackMessage="The feedback admin dashboard encountered an error">
+      <AdminFeedbackDashboardContent />
+    </FeedbackErrorBoundary>
   );
 }

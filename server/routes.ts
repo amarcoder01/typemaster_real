@@ -10,11 +10,15 @@ import { generateTypingParagraph } from "./ai-paragraph-generator";
 import { generateCodeSnippet } from "./ai-code-generator";
 import { analyzeFile } from "./file-analyzer";
 import { processFeedbackInBackground } from "./feedback-processor";
+import { FeedbackService } from "./feedback-service";
+import { feedbackErrorHandler } from "./feedback-errors";
+import { feedbackCache } from "./feedback-cache";
+import { feedbackMetrics } from "./feedback-metrics";
 import session from "express-session";
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import bcrypt from "bcryptjs";
-import { insertUserSchema, loginSchema, insertTestResultSchema, updateProfileSchema, insertKeystrokeAnalyticsSchema, insertCodeTypingTestSchema, insertSharedCodeResultSchema, insertBookTypingTestSchema, insertDictationTestSchema, submitFeedbackSchema, updateFeedbackStatusSchema, feedbackResponseSchema, insertCertificateSchema, type User } from "@shared/schema";
+import { insertUserSchema, loginSchema, insertTestResultSchema, updateProfileSchema, insertKeystrokeAnalyticsSchema, insertCodeTypingTestSchema, insertSharedCodeResultSchema, insertBookTypingTestSchema, insertDictationTestSchema, submitFeedbackSchema, updateFeedbackStatusSchema, feedbackResponseSchema, feedbackListQuerySchema, feedbackIdParamSchema, bulkFeedbackActionSchema, insertCertificateSchema, type User } from "@shared/schema";
 import { fromError } from "zod-validation-error";
 import ConnectPgSimple from "connect-pg-simple";
 import { Pool } from "@neondatabase/serverless";
@@ -4931,16 +4935,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     legacyHeaders: false,
   });
 
+  const adminFeedbackLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 100, // 100 requests per minute per admin
+    message: { message: "Too many admin requests, please slow down" },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => (req.user?.id || req.ip || "anonymous"),
+  });
+
+  // Initialize feedback service
+  const feedbackService = new FeedbackService(storage);
+
   async function isFeedbackAdmin(req: any, res: any, next: any) {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    
+
     const admin = await storage.getFeedbackAdmin(req.user.id);
     if (!admin) {
       return res.status(403).json({ message: "Access denied. Admin privileges required." });
     }
-    
+
     req.feedbackAdmin = admin;
     next();
   }
@@ -5062,11 +5078,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/feedback/:id/upvote", isAuthenticated, async (req, res) => {
     try {
-      const feedbackId = parseInt(req.params.id);
-      if (isNaN(feedbackId)) {
-        return res.status(400).json({ message: "Invalid feedback ID" });
+      const parsed = feedbackIdParamSchema.safeParse(req.params);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: "Invalid feedback ID",
+          errors: fromError(parsed.error).toString(),
+        });
       }
 
+      const { id: feedbackId } = parsed.data;
       const userUpvotes = await storage.getUserFeedbackUpvotes(req.user!.id);
       const hasUpvoted = userUpvotes.some(u => u.feedbackId === feedbackId);
       
@@ -5079,11 +5099,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/feedback/:id/upvote", isAuthenticated, async (req, res) => {
     try {
-      const feedbackId = parseInt(req.params.id);
-      if (isNaN(feedbackId)) {
-        return res.status(400).json({ message: "Invalid feedback ID" });
+      const parsed = feedbackIdParamSchema.safeParse(req.params);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: "Invalid feedback ID",
+          errors: fromError(parsed.error).toString(),
+        });
       }
 
+      const { id: feedbackId } = parsed.data;
       const feedback = await storage.getFeedbackById(feedbackId);
       if (!feedback) {
         return res.status(404).json({ message: "Feedback not found" });
@@ -5098,20 +5122,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/feedback", isFeedbackAdmin, async (req, res) => {
+  app.get("/api/admin/feedback", adminFeedbackLimiter, isFeedbackAdmin, async (req, res) => {
     try {
-      const page = Math.max(parseInt(req.query.page as string) || 1, 1);
-      const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+      // Validate query parameters
+      const parsed = feedbackListQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: "Invalid query parameters",
+          errors: fromError(parsed.error).toString(),
+        });
+      }
+
+      const { page, limit, status, priority, categoryId, sentimentLabel, isSpam, isArchived, search, sortBy, sortOrder } = parsed.data;
       const offset = (page - 1) * limit;
-      const status = req.query.status as string | undefined;
-      const priority = req.query.priority as string | undefined;
-      const categoryId = req.query.categoryId ? parseInt(req.query.categoryId as string) : undefined;
-      const sentimentLabel = req.query.sentimentLabel as string | undefined;
-      const isSpam = req.query.isSpam === 'true' ? true : req.query.isSpam === 'false' ? false : undefined;
-      const isArchived = req.query.isArchived === 'true' ? true : req.query.isArchived === 'false' ? false : undefined;
-      const search = req.query.search as string | undefined;
-      const sortBy = req.query.sortBy as string | undefined;
-      const sortOrder = (req.query.sortOrder as 'asc' | 'desc') || 'desc';
+
+      // Validate categoryId exists if provided
+      if (categoryId) {
+        const category = await storage.getFeedbackCategoryById(categoryId);
+        if (!category) {
+          return res.status(400).json({ message: "Invalid category ID" });
+        }
+      }
 
       const result = await storage.getFeedbackPaginated({
         limit,
@@ -5122,7 +5153,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sentimentLabel,
         isSpam,
         isArchived,
-        search,
+        search: search ? DOMPurify.sanitize(search) : undefined,
         sortBy,
         sortOrder,
       });
@@ -5144,9 +5175,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/feedback/analytics", isFeedbackAdmin, async (req, res) => {
+  app.get("/api/admin/feedback/analytics", adminFeedbackLimiter, isFeedbackAdmin, async (req, res) => {
     try {
-      const analytics = await storage.getFeedbackAnalyticsSummary();
+      const cacheKey = "feedback:analytics:summary";
+      let analytics = await feedbackCache.get<any>(cacheKey);
+      
+      if (!analytics) {
+        analytics = await storage.getFeedbackAnalyticsSummary();
+        await feedbackCache.set(cacheKey, analytics, 5 * 60 * 1000); // 5 min cache
+      }
+      
       res.json({ analytics });
     } catch (error: any) {
       console.error("Get feedback analytics error:", error);
@@ -5154,13 +5192,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/feedback/:id", isFeedbackAdmin, async (req, res) => {
+  app.get("/api/admin/feedback/:id", adminFeedbackLimiter, isFeedbackAdmin, async (req, res) => {
     try {
-      const feedbackId = parseInt(req.params.id);
-      if (isNaN(feedbackId)) {
-        return res.status(400).json({ message: "Invalid feedback ID" });
+      const parsed = feedbackIdParamSchema.safeParse(req.params);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: "Invalid feedback ID",
+          errors: fromError(parsed.error).toString(),
+        });
       }
 
+      const { id: feedbackId } = parsed.data;
       const feedback = await storage.getFeedbackById(feedbackId);
       if (!feedback) {
         return res.status(404).json({ message: "Feedback not found" });
@@ -5186,12 +5228,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/feedback/:id/status", isFeedbackAdmin, async (req, res) => {
+  app.patch("/api/admin/feedback/:id/status", adminFeedbackLimiter, csrfProtection, isFeedbackAdmin, async (req, res, next) => {
     try {
-      const feedbackId = parseInt(req.params.id);
-      if (isNaN(feedbackId)) {
-        return res.status(400).json({ message: "Invalid feedback ID" });
+      const paramParsed = feedbackIdParamSchema.safeParse(req.params);
+      if (!paramParsed.success) {
+        return res.status(400).json({
+          message: "Invalid feedback ID",
+          errors: fromError(paramParsed.error).toString(),
+        });
       }
+
+      const { id: feedbackId } = paramParsed.data;
 
       const parsed = updateFeedbackStatusSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -5201,107 +5248,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const feedback = await storage.getFeedbackById(feedbackId);
-      if (!feedback) {
-        return res.status(404).json({ message: "Feedback not found" });
-      }
-
       const admin = (req as any).feedbackAdmin;
-      if (!admin.canChangeStatus) {
-        return res.status(403).json({ message: "You don't have permission to change status" });
-      }
-      if (parsed.data.priority && !admin.canChangePriority) {
-        return res.status(403).json({ message: "You don't have permission to change priority" });
-      }
 
-      const updates: any = {
-        status: parsed.data.status,
-        updatedAt: new Date(),
-      };
-
-      if (parsed.data.priority) {
-        updates.priority = parsed.data.priority;
-      }
-
-      if (parsed.data.status === 'resolved' || parsed.data.status === 'closed') {
-        updates.resolvedAt = new Date();
-        updates.resolvedByUserId = req.user!.id;
-        if (parsed.data.resolutionNotes) {
-          updates.resolutionNotes = DOMPurify.sanitize(parsed.data.resolutionNotes);
-        }
-      }
-
-      const updatedFeedback = await storage.updateFeedback(feedbackId, updates);
-
-      await storage.recordFeedbackStatusHistory({
+      // Use service layer for business logic
+      const updatedFeedback = await feedbackService.updateStatus({
         feedbackId,
-        previousStatus: feedback.status,
-        newStatus: parsed.data.status,
-        previousPriority: feedback.priority,
-        newPriority: parsed.data.priority || feedback.priority,
-        changedByUserId: req.user!.id,
-        changeReason: parsed.data.changeReason || null,
-        isAutomated: false,
+        status: parsed.data.status,
+        priority: parsed.data.priority,
+        changeReason: parsed.data.changeReason,
+        resolutionNotes: parsed.data.resolutionNotes,
+        notifyUser: parsed.data.notifyUser,
+        adminUserId: req.user!.id,
+        admin,
       });
-
-      if (parsed.data.notifyUser && !feedback.userNotified && (parsed.data.status === 'resolved' || parsed.data.status === 'closed')) {
-        (async () => {
-          try {
-            const { emailService } = require("./email-service");
-            
-            let recipientEmail: string | null = null;
-            let username: string | undefined;
-
-            if (feedback.userId) {
-              const user = await storage.getUser(feedback.userId);
-              if (user) {
-                recipientEmail = user.email;
-                username = user.username;
-              }
-            } else if (feedback.contactEmail) {
-              recipientEmail = feedback.contactEmail;
-            }
-
-            if (recipientEmail) {
-              const emailResult = await emailService.sendFeedbackResolutionEmail(recipientEmail, {
-                feedbackId: feedback.id,
-                subject: feedback.subject,
-                resolutionNotes: updates.resolutionNotes || undefined,
-                username,
-                status: parsed.data.status,
-              });
-              
-              if (emailResult.success) {
-                await storage.updateFeedback(feedbackId, { userNotified: true });
-                console.log(`[Feedback] Resolution email sent to ${recipientEmail} for feedback #${feedback.id}`);
-              } else {
-                console.error(`[Feedback] Failed to send resolution email for feedback #${feedback.id}:`, emailResult.error);
-              }
-            } else {
-              console.warn(`[Feedback] Cannot send resolution email for feedback #${feedback.id}: no email available`);
-            }
-          } catch (emailError) {
-            console.error(`[Feedback] Failed to send resolution email for feedback #${feedback.id}:`, emailError);
-          }
-        })();
-      }
 
       res.json({ 
         message: "Feedback status updated successfully",
         feedback: updatedFeedback,
       });
     } catch (error: any) {
-      console.error("Update feedback status error:", error);
-      res.status(500).json({ message: "Failed to update feedback status" });
+      next(error); // Pass to error handler
     }
   });
 
-  app.post("/api/admin/feedback/:id/responses", isFeedbackAdmin, async (req, res) => {
+  app.post("/api/admin/feedback/:id/responses", adminFeedbackLimiter, csrfProtection, isFeedbackAdmin, async (req, res, next) => {
     try {
-      const feedbackId = parseInt(req.params.id);
-      if (isNaN(feedbackId)) {
-        return res.status(400).json({ message: "Invalid feedback ID" });
+      const paramParsed = feedbackIdParamSchema.safeParse(req.params);
+      if (!paramParsed.success) {
+        return res.status(400).json({
+          message: "Invalid feedback ID",
+          errors: fromError(paramParsed.error).toString(),
+        });
       }
+
+      const { id: feedbackId } = paramParsed.data;
 
       const parsed = feedbackResponseSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -5311,98 +5291,130 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const feedback = await storage.getFeedbackById(feedbackId);
-      if (!feedback) {
-        return res.status(404).json({ message: "Feedback not found" });
-      }
-
       const admin = (req as any).feedbackAdmin;
-      if (!admin.canRespond) {
-        return res.status(403).json({ message: "You don't have permission to respond to feedback" });
-      }
 
-      const sanitizedMessage = DOMPurify.sanitize(parsed.data.message.trim());
-
-      const response = await storage.createFeedbackResponse({
+      // Use service layer for business logic
+      const response = await feedbackService.addResponse({
         feedbackId,
+        message: parsed.data.message,
+        isInternalNote: parsed.data.isInternalNote,
+        templateName: parsed.data.templateName,
         adminUserId: req.user!.id,
-        message: sanitizedMessage,
-        isInternalNote: parsed.data.isInternalNote || false,
-        templateName: parsed.data.templateName || null,
+        admin,
       });
-
-      if (feedback.status === 'new') {
-        await storage.updateFeedback(feedbackId, { 
-          status: 'under_review',
-          updatedAt: new Date(),
-        });
-        await storage.recordFeedbackStatusHistory({
-          feedbackId,
-          previousStatus: 'new',
-          newStatus: 'under_review',
-          previousPriority: feedback.priority,
-          newPriority: feedback.priority,
-          changedByUserId: req.user!.id,
-          changeReason: 'First admin response',
-          isAutomated: true,
-        });
-      }
 
       res.status(201).json({ 
         message: "Response added successfully",
         response,
       });
     } catch (error: any) {
-      console.error("Add feedback response error:", error);
-      res.status(500).json({ message: "Failed to add response" });
+      next(error); // Pass to error handler
     }
   });
 
-  app.post("/api/admin/feedback/:id/archive", isFeedbackAdmin, async (req, res) => {
+  app.post("/api/admin/feedback/:id/archive", adminFeedbackLimiter, csrfProtection, isFeedbackAdmin, async (req, res, next) => {
     try {
-      const feedbackId = parseInt(req.params.id);
-      if (isNaN(feedbackId)) {
-        return res.status(400).json({ message: "Invalid feedback ID" });
+      const parsed = feedbackIdParamSchema.safeParse(req.params);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: "Invalid feedback ID",
+          errors: fromError(parsed.error).toString(),
+        });
       }
 
-      const feedback = await storage.getFeedbackById(feedbackId);
-      if (!feedback) {
-        return res.status(404).json({ message: "Feedback not found" });
-      }
+      const { id: feedbackId } = parsed.data;
+      const admin = (req as any).feedbackAdmin;
 
-      await storage.archiveFeedback(feedbackId);
+      await feedbackService.archiveFeedback(feedbackId, admin);
 
       res.json({ message: "Feedback archived successfully" });
     } catch (error: any) {
-      console.error("Archive feedback error:", error);
-      res.status(500).json({ message: "Failed to archive feedback" });
+      next(error); // Pass to error handler
     }
   });
 
-  app.post("/api/admin/feedback/:id/spam", isFeedbackAdmin, async (req, res) => {
+  app.post("/api/admin/feedback/:id/spam", adminFeedbackLimiter, csrfProtection, isFeedbackAdmin, async (req, res, next) => {
     try {
-      const feedbackId = parseInt(req.params.id);
-      if (isNaN(feedbackId)) {
-        return res.status(400).json({ message: "Invalid feedback ID" });
+      const parsed = feedbackIdParamSchema.safeParse(req.params);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: "Invalid feedback ID",
+          errors: fromError(parsed.error).toString(),
+        });
       }
 
-      const feedback = await storage.getFeedbackById(feedbackId);
-      if (!feedback) {
-        return res.status(404).json({ message: "Feedback not found" });
-      }
+      const { id: feedbackId } = parsed.data;
+      const admin = (req as any).feedbackAdmin;
 
-      await storage.markFeedbackAsSpam(feedbackId);
-
-      if (feedback.ipAddress) {
-        await storage.blockFeedbackSubmitter(feedback.ipAddress, 'ip', 'Marked as spam by admin', 60 * 24);
-      }
+      await feedbackService.markAsSpam(feedbackId, admin);
 
       res.json({ message: "Feedback marked as spam" });
     } catch (error: any) {
-      console.error("Mark spam error:", error);
-      res.status(500).json({ message: "Failed to mark as spam" });
+      next(error); // Pass to error handler
     }
   });
+
+  app.post("/api/admin/feedback/bulk", adminFeedbackLimiter, csrfProtection, isFeedbackAdmin, async (req, res, next) => {
+    try {
+      const parsed = bulkFeedbackActionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: "Invalid bulk action request",
+          errors: fromError(parsed.error).toString(),
+        });
+      }
+
+      const { feedbackIds, action, status, priority, reason } = parsed.data;
+      const admin = (req as any).feedbackAdmin;
+
+      let successCount = 0;
+      const errors: Array<{ id: number; error: string }> = [];
+
+      for (const feedbackId of feedbackIds) {
+        try {
+          if (action === "archive") {
+            await feedbackService.archiveFeedback(feedbackId, admin);
+          } else if (action === "changeStatus" && status) {
+            await feedbackService.updateStatus({
+              feedbackId,
+              status,
+              priority,
+              changeReason: reason,
+              adminUserId: req.user!.id,
+              admin,
+            });
+          }
+          successCount++;
+        } catch (error: any) {
+          errors.push({ id: feedbackId, error: error.message });
+        }
+      }
+
+      await feedbackCache.invalidate("feedback:analytics");
+
+      res.json({
+        message: `Bulk action completed`,
+        successCount,
+        totalCount: feedbackIds.length,
+        errors: errors.length > 0 ? errors : undefined,
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  });
+
+  app.get("/api/admin/feedback/metrics", adminFeedbackLimiter, isFeedbackAdmin, async (req, res) => {
+    try {
+      const metrics = feedbackMetrics.getMetrics();
+      res.json(metrics);
+    } catch (error: any) {
+      console.error("Get feedback metrics error:", error);
+      res.status(500).json({ message: "Failed to fetch metrics" });
+    }
+  });
+
+  // Add feedback error handler middleware
+  app.use(feedbackErrorHandler);
 
   // ============================================================================
   // CERTIFICATE ROUTES

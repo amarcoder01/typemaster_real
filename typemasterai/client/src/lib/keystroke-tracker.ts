@@ -55,10 +55,10 @@ interface TypingAnalytics {
   errorsByType: Record<string, number> | null;
   errorKeys: string[] | null;
   wpmByPosition: number[] | null;
-  slowestWords: string[] | null;
+  slowestWords: Array<{ word: string; time: number }> | null;
   keyHeatmap: Record<string, number> | null;
   testResultId: number | null;
-  
+
   // Enhanced industry-standard metrics
   burstWpm: number | null; // Peak 5-second WPM (like Monkeytype)
   adjustedWpm: number | null; // WPM with error penalty (industry standard)
@@ -70,7 +70,7 @@ interface TypingAnalytics {
   peakPerformanceWindow: { startPos: number; endPos: number; wpm: number } | null;
   fatigueIndicator: number | null; // Speed drop from first half to second half (%)
   errorBurstCount: number | null; // Number of consecutive error sequences
-  
+
   // Anti-Cheat Validation
   isSuspicious: boolean;
   suspiciousFlags: string[] | null;
@@ -114,7 +114,7 @@ const CODE_FINGER_MAP: Record<string, { finger: string; hand: string }> = {
   'AltLeft': { finger: 'Left Thumb', hand: 'left' },
   'MetaLeft': { finger: 'Left Thumb', hand: 'left' },
   'Escape': { finger: 'Left Pinky', hand: 'left' },
-  
+
   // Right hand - Number row
   'Digit6': { finger: 'Right Index', hand: 'right' },
   'Digit7': { finger: 'Right Index', hand: 'right' },
@@ -156,7 +156,7 @@ const CODE_FINGER_MAP: Record<string, { finger: string; hand: string }> = {
   'ArrowDown': { finger: 'Right Index', hand: 'right' },
   'ArrowLeft': { finger: 'Right Index', hand: 'right' },
   'ArrowRight': { finger: 'Right Index', hand: 'right' },
-  
+
   // Space bar - Thumbs (counted as both hands for balance)
   'Space': { finger: 'Thumbs', hand: 'both' },
 };
@@ -190,7 +190,7 @@ const CHAR_FINGER_MAP: Record<string, { finger: string; hand: string }> = {
   'C': { finger: 'Left Middle', hand: 'left' },
   'V': { finger: 'Left Index', hand: 'left' },
   'B': { finger: 'Left Index', hand: 'left' },
-  
+
   // Right hand characters (including shifted)
   '6': { finger: 'Right Index', hand: 'right' },
   '^': { finger: 'Right Index', hand: 'right' },
@@ -233,7 +233,7 @@ const CHAR_FINGER_MAP: Record<string, { finger: string; hand: string }> = {
   '>': { finger: 'Right Ring', hand: 'right' },
   '/': { finger: 'Right Pinky', hand: 'right' },
   '?': { finger: 'Right Pinky', hand: 'right' },
-  
+
   // Space bar
   ' ': { finger: 'Thumbs', hand: 'both' },
 };
@@ -286,7 +286,7 @@ export class KeystrokeTracker {
     const expectedKey = (typeof expectedKeyOverride !== 'undefined')
       ? (expectedKeyOverride === null ? null : expectedKeyOverride)
       : (this.expectedText[this.currentPosition] || null);
-    
+
     const fingerInfo = getFingerInfo(key, keyCode);
 
     const event: KeystrokeEvent = {
@@ -305,7 +305,7 @@ export class KeystrokeTracker {
     this.events.push(event);
     this.pressedKeys.delete(key);
     this.lastReleaseTime = timestamp;
-    
+
     // Don't auto-increment position - let the component manage it
     // based on actual input state
   }
@@ -353,10 +353,10 @@ export class KeystrokeTracker {
     // Calculate dwell and flight times
     const dwellTimes = this.events.filter(e => e.dwellTime !== null).map(e => e.dwellTime!);
     const flightTimes = this.events.filter(e => e.flightTime !== null).map(e => e.flightTime!);
-    
+
     const avgDwellTime = dwellTimes.length > 0 ? dwellTimes.reduce((a, b) => a + b, 0) / dwellTimes.length : null;
     const avgFlightTime = flightTimes.length > 0 ? flightTimes.reduce((a, b) => a + b, 0) / flightTimes.length : null;
-    
+
     // Calculate std dev of flight times for consistency
     let stdDevFlightTime = null;
     if (flightTimes.length > 1 && avgFlightTime !== null) {
@@ -372,12 +372,12 @@ export class KeystrokeTracker {
       // Use a generous 1000ms threshold first, then fall back to unfiltered if needed
       const outlierThreshold = 1000;
       let timesToUse = flightTimes.filter(t => t > 0 && t < outlierThreshold);
-      
+
       // Fallback: if too few times remain after filtering, use all positive flight times
       if (timesToUse.length < 2) {
         timesToUse = flightTimes.filter(t => t > 0);
       }
-      
+
       if (timesToUse.length >= 2) {
         const calcAvg = timesToUse.reduce((a, b) => a + b, 0) / timesToUse.length;
         const calcVariance = timesToUse.reduce((sum, t) => sum + Math.pow(t - calcAvg, 2), 0) / timesToUse.length;
@@ -413,7 +413,7 @@ export class KeystrokeTracker {
     const errors = this.events.filter(e => !e.isCorrect);
     const errorKeysSet = new Set(errors.map(e => e.expectedKey).filter(k => k !== null));
     const errorKeys = Array.from(errorKeysSet) as string[];
-    
+
     const errorsByType: Record<string, number> = {
       substitution: 0,
       adjacent: 0,
@@ -426,7 +426,7 @@ export class KeystrokeTracker {
         errorsByType.other++;
         return;
       }
-      
+
       // Simple error classification
       if (event.key === event.expectedKey) {
         errorsByType.doublet++;
@@ -474,10 +474,10 @@ export class KeystrokeTracker {
     const slowestWords = this.calculateSlowestWords();
 
     // === ENHANCED INDUSTRY-STANDARD METRICS ===
-    
+
     // 1. Burst WPM - Peak 5-second performance window (like Monkeytype)
     const burstWpm = this.calculateBurstWpm();
-    
+
     // 2. Adjusted WPM - Calculate from actual correct keystrokes and test duration
     // This is more accurate than applying a fixed penalty per error
     let adjustedWpm: number | null = null;
@@ -499,31 +499,31 @@ export class KeystrokeTracker {
     if (adjustedWpm === null) {
       adjustedWpm = Math.max(0, wpm);
     }
-    
+
     // 3. Rolling Accuracy - Accuracy across 5 chunks for trend analysis
     const rollingAccuracy = this.calculateRollingAccuracy();
-    
+
     // 4. Enhanced Digraph Analysis - Top 5 fastest and slowest with timings
     const digraphAnalysis = this.calculateEnhancedDigraphs(digraphs);
     const topDigraphs = digraphAnalysis.top;
     const bottomDigraphs = digraphAnalysis.bottom;
-    
+
     // 5. Typing Rhythm Score - Based on interkey timing variance (0-100)
     // Lower variance = better rhythm = higher score
     const typingRhythm = this.calculateTypingRhythm(flightTimes);
-    
+
     // 6. Peak Performance Window - Best consecutive 20% of the test
     const peakPerformanceWindow = this.calculatePeakPerformance();
-    
+
     // 7. Fatigue Indicator - Speed drop from first half to second half (%)
     const fatigueIndicator = this.calculateFatigueIndicator();
-    
+
     // 8. Error Burst Count - Consecutive error sequences (indicates struggle points)
     const errorBurstCount = this.calculateErrorBurstCount();
-    
+
     // 9. Consistency/Rhythm Rating - Same as consistency score (0-100)
     // This measures how consistent the timing is between keystrokes
-    const consistencyRating = consistency !== null 
+    const consistencyRating = consistency !== null
       ? this.getConsistencyRating(consistency)
       : null;
 
@@ -562,133 +562,133 @@ export class KeystrokeTracker {
       ...antiCheatValidation,
     };
   }
-  
+
   // Calculate peak 5-second WPM (burst speed)
   private calculateBurstWpm(): number | null {
     if (this.events.length < 5) return null;
-    
+
     const windowMs = 5000; // 5 seconds
     let maxBurstWpm = 0;
-    
+
     for (let i = 0; i < this.events.length; i++) {
       const windowStart = this.events[i].pressTime;
       let windowEnd = windowStart + windowMs;
       let charsInWindow = 0;
-      
+
       for (let j = i; j < this.events.length; j++) {
         if (this.events[j].pressTime > windowEnd) break;
         if (this.events[j].isCorrect) charsInWindow++;
       }
-      
+
       // WPM = (chars / 5) / (minutes)
       const burstWpm = Math.round((charsInWindow / 5) / (windowMs / 60000));
       if (burstWpm > maxBurstWpm) maxBurstWpm = burstWpm;
     }
-    
+
     return maxBurstWpm > 0 ? Math.min(maxBurstWpm, 300) : null; // Cap at 300 WPM
   }
-  
+
   // Calculate accuracy across 5 chunks for trend analysis
   private calculateRollingAccuracy(): number[] | null {
     if (this.events.length < 5) return null;
-    
+
     const numChunks = 5;
     const chunkSize = Math.ceil(this.events.length / numChunks);
     const rollingAccuracy: number[] = [];
-    
+
     for (let i = 0; i < numChunks; i++) {
       const startIdx = i * chunkSize;
       const endIdx = Math.min((i + 1) * chunkSize, this.events.length);
       const chunkEvents = this.events.slice(startIdx, endIdx);
-      
+
       if (chunkEvents.length === 0) {
         rollingAccuracy.push(0);
         continue;
       }
-      
+
       const correct = chunkEvents.filter(e => e.isCorrect).length;
       const acc = Math.round((correct / chunkEvents.length) * 100);
       rollingAccuracy.push(acc);
     }
-    
+
     return rollingAccuracy;
   }
-  
+
   // Enhanced digraph analysis with top 5 fastest and slowest
   private calculateEnhancedDigraphs(digraphs: Map<string, number[]>): { top: DigraphTiming[] | null; bottom: DigraphTiming[] | null } {
     if (digraphs.size < 5) return { top: null, bottom: null };
-    
+
     const digraphStats: DigraphTiming[] = [];
-    
+
     digraphs.forEach((times, digraph) => {
       if (times.length >= 2) { // Only consider digraphs with multiple occurrences
         const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
         digraphStats.push({ digraph, avgTime: Math.round(avgTime), count: times.length });
       }
     });
-    
+
     if (digraphStats.length < 5) return { top: null, bottom: null };
-    
+
     // Sort by average time
     digraphStats.sort((a, b) => a.avgTime - b.avgTime);
-    
+
     const top = digraphStats.slice(0, 5);
     const bottom = digraphStats.slice(-5).reverse();
-    
+
     return { top, bottom };
   }
-  
+
   // Typing rhythm score based on interkey timing variance
   // Uses same scaling as consistency for uniformity
   private calculateTypingRhythm(flightTimes: number[]): number | null {
     if (flightTimes.length < 3) return null;
-    
+
     // Filter out extreme outliers (> 1000ms pauses are likely not typing rhythm)
     // Use a generous threshold that works for slow typists too
     let filteredTimes = flightTimes.filter(t => t > 0 && t < 1000);
-    
+
     // Fallback: if too few times remain after filtering, use all positive flight times
     if (filteredTimes.length < 3) {
       filteredTimes = flightTimes.filter(t => t > 0);
     }
     if (filteredTimes.length < 3) return null;
-    
+
     const mean = filteredTimes.reduce((a, b) => a + b, 0) / filteredTimes.length;
     const variance = filteredTimes.reduce((sum, t) => sum + Math.pow(t - mean, 2), 0) / filteredTimes.length;
     const stdDev = Math.sqrt(variance);
-    
+
     // Coefficient of variation (0-1 range) - lower is better rhythm
     const cv = stdDev / mean;
-    
+
     // Convert to 0-100 score using same scaling as consistency formula
     // Flight times naturally have higher variance, so use gentler scaling (cv * 50)
     // This matches the consistency calculation for uniform metrics
     const rhythmScore = Math.max(0, Math.min(100, 100 - (cv * 50)));
-    
+
     return Math.round(rhythmScore);
   }
-  
+
   // Find the best performing 20% window of the test
   private calculatePeakPerformance(): { startPos: number; endPos: number; wpm: number } | null {
     if (this.events.length < 5) return null;
-    
+
     const windowSize = Math.ceil(this.events.length * 0.2);
     let bestWindow = { startPos: 0, endPos: 0, wpm: 0 };
-    
+
     for (let i = 0; i <= this.events.length - windowSize; i++) {
       const windowEvents = this.events.slice(i, i + windowSize);
-      
+
       const firstEvent = windowEvents[0];
       const lastEvent = windowEvents[windowEvents.length - 1];
-      
+
       if (!firstEvent.pressTime || !lastEvent.releaseTime) continue;
-      
+
       const durationMs = lastEvent.releaseTime - firstEvent.pressTime;
       if (durationMs <= 0) continue;
-      
+
       const correctChars = windowEvents.filter(e => e.isCorrect).length;
       const windowWpm = Math.round((correctChars / 5) / (durationMs / 60000));
-      
+
       if (windowWpm > bestWindow.wpm) {
         bestWindow = {
           startPos: firstEvent.position,
@@ -697,18 +697,18 @@ export class KeystrokeTracker {
         };
       }
     }
-    
+
     return bestWindow.wpm > 0 ? bestWindow : null;
   }
-  
+
   // Calculate speed drop from first half to second half (fatigue indicator)
   private calculateFatigueIndicator(): number | null {
     if (this.events.length < 10) return null;
-    
+
     const midpoint = Math.floor(this.events.length / 2);
     const firstHalf = this.events.slice(0, midpoint);
     const secondHalf = this.events.slice(midpoint);
-    
+
     const calculateHalfWpm = (events: KeystrokeEvent[]): number => {
       if (events.length < 5) return 0;
       const first = events[0];
@@ -719,25 +719,25 @@ export class KeystrokeTracker {
       const correctChars = events.filter(e => e.isCorrect).length;
       return (correctChars / 5) / (durationMs / 60000);
     };
-    
+
     const firstHalfWpm = calculateHalfWpm(firstHalf);
     const secondHalfWpm = calculateHalfWpm(secondHalf);
-    
+
     if (firstHalfWpm === 0) return null;
-    
+
     // Positive = fatigue (slowed down), Negative = warmed up (sped up)
     const speedChange = ((firstHalfWpm - secondHalfWpm) / firstHalfWpm) * 100;
-    
+
     return Math.round(speedChange);
   }
-  
+
   // Count consecutive error sequences (error bursts)
   private calculateErrorBurstCount(): number | null {
     if (this.events.length < 3) return null;
-    
+
     let burstCount = 0;
     let inBurst = false;
-    
+
     for (const event of this.events) {
       if (!event.isCorrect) {
         if (!inBurst) {
@@ -748,10 +748,10 @@ export class KeystrokeTracker {
         inBurst = false;
       }
     }
-    
+
     return burstCount;
   }
-  
+
   // Get rhythm rating - simply returns the consistency score
   // Consistency score (0-100) directly measures typing rhythm stability
   // Higher scores indicate more consistent timing between keystrokes
@@ -778,7 +778,7 @@ export class KeystrokeTracker {
 
       const firstEvent = chunkEvents[0];
       const lastEvent = chunkEvents[chunkEvents.length - 1];
-      
+
       if (!firstEvent.pressTime || !lastEvent.releaseTime) {
         wpmByPosition.push(0);
         continue;
@@ -798,7 +798,7 @@ export class KeystrokeTracker {
     return wpmByPosition.length > 0 ? wpmByPosition : null;
   }
 
-  private calculateSlowestWords(): { word: string; avgTime: number }[] | null {
+  private calculateSlowestWords(): { word: string; time: number }[] | null {
     if (this.events.length < 5 || !this.expectedText) return null;
 
     // Split expected text into words
@@ -826,7 +826,7 @@ export class KeystrokeTracker {
     // Calculate timing for each word based on keystroke events
     for (const wp of wordPositions) {
       const wordEvents = this.events.filter(e => e.position >= wp.startPos && e.position <= wp.endPos);
-      
+
       if (wordEvents.length < 2) continue;
 
       const startTime = wordEvents[0].pressTime;
@@ -853,7 +853,7 @@ export class KeystrokeTracker {
       .filter(w => w.duration > avgDuration * 1.3) // 30% slower than average
       .sort((a, b) => b.duration - a.duration)
       .slice(0, 10) // Top 10 slowest
-      .map(w => ({ word: w.word, avgTime: Math.round(w.duration) }));
+      .map(w => ({ word: w.word, time: Math.round(w.duration) }));
 
     return slowWords.length > 0 ? slowWords : null;
   }
@@ -861,7 +861,7 @@ export class KeystrokeTracker {
   private performAntiCheatValidation(wpm: number, flightTimes: number[]): AntiCheatValidation {
     const suspiciousFlags: string[] = [];
     let syntheticInputDetected = false;
-    
+
     if (this.events.length < ANTICHEAT_THRESHOLDS.MIN_KEYSTROKES_FOR_ANALYSIS) {
       return {
         isSuspicious: false,
@@ -872,49 +872,49 @@ export class KeystrokeTracker {
         syntheticInputDetected: false,
       };
     }
-    
+
     const intervals: number[] = [];
     for (let i = 1; i < this.events.length; i++) {
       const interval = this.events[i].pressTime - this.events[i - 1].pressTime;
       if (interval > 0) intervals.push(interval);
     }
-    
+
     const minInterval = intervals.length > 0 ? Math.min(...intervals) : null;
     const avgInterval = intervals.length > 0 ? intervals.reduce((a, b) => a + b, 0) / intervals.length : 0;
-    const variance = intervals.length > 1 
+    const variance = intervals.length > 1
       ? intervals.reduce((sum, t) => sum + Math.pow(t - avgInterval, 2), 0) / intervals.length
       : null;
-    
+
     if (minInterval !== null && minInterval < ANTICHEAT_THRESHOLDS.MIN_KEYSTROKE_INTERVAL_MS) {
       suspiciousFlags.push('inhuman_speed');
       syntheticInputDetected = true;
     }
-    
+
     if (wpm > ANTICHEAT_THRESHOLDS.MAX_WPM_WITHOUT_FLAG) {
       suspiciousFlags.push('impossible_wpm');
     }
-    
+
     if (variance !== null && variance < ANTICHEAT_THRESHOLDS.MAX_CONSISTENT_VARIANCE && intervals.length > 20) {
       suspiciousFlags.push('programmatic_pattern');
       syntheticInputDetected = true;
     }
-    
+
     if (this.detectSuspiciousBursts(intervals)) {
       suspiciousFlags.push('burst_typing');
     }
-    
+
     if (this.detectPerfectRhythm(intervals)) {
       suspiciousFlags.push('perfect_rhythm');
       syntheticInputDetected = true;
     }
-    
+
     // Flight time analysis - detect unnatural consistency in key-to-key transition times
     if (flightTimes.length > 20) {
       const filteredFlights = flightTimes.filter(t => t > 0 && t < 500);
       if (filteredFlights.length > 10) {
         const avgFlight = filteredFlights.reduce((a, b) => a + b, 0) / filteredFlights.length;
         const flightVariance = filteredFlights.reduce((sum, t) => sum + Math.pow(t - avgFlight, 2), 0) / filteredFlights.length;
-        
+
         // Extremely low flight variance (< 5ms^2) indicates programmatic input
         if (flightVariance < ANTICHEAT_THRESHOLDS.MAX_CONSISTENT_VARIANCE) {
           if (!suspiciousFlags.includes('programmatic_pattern')) {
@@ -924,14 +924,14 @@ export class KeystrokeTracker {
         }
       }
     }
-    
+
     let validationScore = 100;
     validationScore -= suspiciousFlags.length * 20;
     if (syntheticInputDetected) validationScore -= 30;
     validationScore = Math.max(0, validationScore);
-    
+
     const isSuspicious = suspiciousFlags.length >= ANTICHEAT_THRESHOLDS.SUSPICIOUS_FLAG_THRESHOLD;
-    
+
     return {
       isSuspicious,
       suspiciousFlags: suspiciousFlags.length > 0 ? suspiciousFlags : null,
@@ -944,7 +944,7 @@ export class KeystrokeTracker {
 
   private detectSuspiciousBursts(intervals: number[]): boolean {
     if (intervals.length < ANTICHEAT_THRESHOLDS.BURST_WINDOW_SIZE * 2) return false;
-    
+
     for (let i = 0; i <= intervals.length - ANTICHEAT_THRESHOLDS.BURST_WINDOW_SIZE; i++) {
       const window = intervals.slice(i, i + ANTICHEAT_THRESHOLDS.BURST_WINDOW_SIZE);
       const fastCount = window.filter(t => t < ANTICHEAT_THRESHOLDS.SUSPECT_INTERVAL_MS).length;
@@ -957,7 +957,7 @@ export class KeystrokeTracker {
 
   private detectPerfectRhythm(intervals: number[]): boolean {
     if (intervals.length < 20) return false;
-    
+
     let consistentCount = 0;
     for (let i = 1; i < intervals.length; i++) {
       const diff = Math.abs(intervals[i] - intervals[i - 1]);
@@ -965,7 +965,7 @@ export class KeystrokeTracker {
         consistentCount++;
       }
     }
-    
+
     return (consistentCount / intervals.length) > ANTICHEAT_THRESHOLDS.PERFECT_RHYTHM_THRESHOLD;
   }
 

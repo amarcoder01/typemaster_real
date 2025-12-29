@@ -1,10 +1,7 @@
-import OpenAI from "openai";
 import type { Feedback, FeedbackCategory } from "@shared/schema";
-
-const openai = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY
-});
+import { feedbackAILogger } from "./structured-logger";
+import { feedbackMetrics } from "./feedback-metrics";
+import { aiProviderManager } from "./ai-providers";
 
 export interface FeedbackAnalysis {
   sentimentScore: number;
@@ -88,20 +85,11 @@ User-Selected Priority: ${feedback.priority}
 User-Selected Category ID: ${feedback.categoryId || "None"}`;
 
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      temperature: 0.3,
-      max_tokens: 500,
-      response_format: { type: "json_object" }
-    });
+    // Use AI provider manager with automatic fallback
+    const content = await aiProviderManager.analyzeWithFallback(userPrompt, systemPrompt);
 
-    const content = response.choices[0]?.message?.content;
     if (!content) {
-      console.error("[FeedbackProcessor] Empty response from OpenAI");
+      console.error("[FeedbackProcessor] Empty response from AI provider");
       return getDefaultAnalysis(feedback.priority);
     }
 
@@ -143,8 +131,11 @@ User-Selected Category ID: ${feedback.categoryId || "None"}`;
       aiPriorityScore,
       aiTags
     };
-  } catch (error) {
-    console.error("[FeedbackProcessor] Error analyzing feedback:", error);
+  } catch (error: any) {
+    feedbackAILogger.error("AI analysis failed for all providers", {
+      feedbackId: feedback.id,
+      error: error.message,
+    });
     return getDefaultAnalysis(feedback.priority);
   }
 }
@@ -173,9 +164,9 @@ export function processFeedbackInBackground(
   storage: StorageInterface
 ): void {
   setImmediate(async () => {
+    const startTime = Date.now();
     try {
-      console.log(`[FeedbackProcessor] Starting analysis for feedback #${feedbackId}`);
-      const startTime = Date.now();
+      feedbackAILogger.info("Starting AI analysis", { feedbackId });
 
       const categories = await getCachedCategories(storage);
       const analysis = await analyzeFeedbackContent(feedback, categories);
@@ -183,10 +174,22 @@ export function processFeedbackInBackground(
       await storage.updateFeedbackAiAnalysis(feedbackId, analysis);
 
       const duration = Date.now() - startTime;
-      console.log(`[FeedbackProcessor] Completed analysis for feedback #${feedbackId} in ${duration}ms`);
-      console.log(`[FeedbackProcessor] Results: sentiment=${analysis.sentimentLabel} (${analysis.sentimentScore.toFixed(2)}), priority=${(analysis.aiPriorityScore || 0).toFixed(2)}, tags=${(analysis.aiTags || []).join(", ")}`);
-    } catch (error) {
-      console.error(`[FeedbackProcessor] Failed to process feedback #${feedbackId}:`, error);
+      feedbackMetrics.recordAIProcessingTime(duration);
+      feedbackMetrics.recordFeedbackProcessed();
+
+      feedbackAILogger.timed("AI analysis completed", startTime, {
+        feedbackId,
+        sentimentLabel: analysis.sentimentLabel,
+        sentimentScore: analysis.sentimentScore,
+        aiPriorityScore: analysis.aiPriorityScore,
+        tags: analysis.aiTags,
+      });
+    } catch (error: any) {
+      feedbackAILogger.error("AI analysis failed", {
+        feedbackId,
+        error: error.message,
+        duration: Date.now() - startTime,
+      });
     }
   });
 }

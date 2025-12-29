@@ -26,6 +26,12 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Loader2, MessageSquare, Bug, Lightbulb, MessageCircle, Palette, Zap, FileText, X } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const feedbackFormSchema = z.object({
   categoryId: z.string().optional(),
@@ -83,7 +89,7 @@ export default function FeedbackWidget({
   const { data: categories = [], isLoading: categoriesLoading } = useQuery<FeedbackCategory[]>({
     queryKey: ["feedback-categories"],
     queryFn: async () => {
-      const res = await fetch("/api/feedback/categories", { 
+      const res = await fetch("/api/feedback/categories", {
         credentials: "include",
         cache: "no-store",
       });
@@ -111,10 +117,10 @@ export default function FeedbackWidget({
 
   const submitMutation = useMutation({
     mutationFn: async (data: FeedbackFormData) => {
-      const parsedCategoryId = data.categoryId && data.categoryId.trim() !== "" 
-        ? parseInt(data.categoryId, 10) 
+      const parsedCategoryId = data.categoryId && data.categoryId.trim() !== ""
+        ? parseInt(data.categoryId, 10)
         : undefined;
-      
+
       const payload: Record<string, unknown> = {
         subject: data.subject,
         message: data.message,
@@ -122,11 +128,11 @@ export default function FeedbackWidget({
         isAnonymous: data.isAnonymous,
         pageUrl: window.location.href,
       };
-      
+
       if (parsedCategoryId && !isNaN(parsedCategoryId)) {
         payload.categoryId = parsedCategoryId;
       }
-      
+
       if (data.contactEmail && data.contactEmail.trim() !== "") {
         payload.contactEmail = data.contactEmail.trim();
       }
@@ -172,19 +178,33 @@ export default function FeedbackWidget({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant={triggerVariant}
-          size={triggerSize}
-          className={`${triggerClassName} relative overflow-hidden group bg-gradient-to-r from-cyan-600 via-purple-600 to-pink-600 hover:from-cyan-500 hover:via-purple-500 hover:to-pink-500 border-0 text-white transition-all duration-300 font-semibold`}
-          data-testid="button-open-feedback"
-          aria-label="Give feedback"
-        >
-          <MessageSquare className="h-5 w-5 mr-2 group-hover:scale-110 transition-transform duration-200" />
-          <span>Feedback</span>
-        </Button>
-      </DialogTrigger>
-      
+      <TooltipProvider>
+        <Tooltip delayDuration={300}>
+          <TooltipTrigger asChild>
+            <DialogTrigger asChild>
+              <Button
+                variant={triggerVariant}
+                size={triggerSize}
+                className={`${triggerClassName} relative overflow-hidden group bg-gradient-to-r from-cyan-600 via-purple-600 to-pink-600 hover:from-cyan-500 hover:via-purple-500 hover:to-pink-500 border-0 text-white transition-all duration-300 font-semibold`}
+                data-testid="button-open-feedback"
+                aria-label="Give feedback"
+              >
+                <MessageSquare className="h-5 w-5 mr-2 group-hover:scale-110 transition-transform duration-200" />
+                <span>Feedback</span>
+              </Button>
+            </DialogTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="top" align="center" className="max-w-[260px] p-3">
+            <div className="space-y-1">
+              <p className="font-medium text-sm text-foreground">Have feedback?</p>
+              <p className="text-xs text-muted-foreground">
+                Report bugs, request features, or share your thoughts to help us build a better experience.
+              </p>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
       <DialogContent className="sm:max-w-[480px] p-0 gap-0 bg-card border-border">
         <DialogHeader className="px-5 pt-5 pb-3 space-y-1.5">
           <DialogTitle className="text-xl font-semibold">Share feedback</DialogTitle>

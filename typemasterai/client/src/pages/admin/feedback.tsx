@@ -195,7 +195,7 @@ export default function AdminFeedbackDashboard() {
   const { data: categories = [] } = useQuery<FeedbackCategory[]>({
     queryKey: ["feedback-categories"],
     queryFn: async () => {
-      const res = await fetch("/api/feedback/categories", { 
+      const res = await fetch("/api/feedback/categories", {
         credentials: "include",
         cache: "no-store",
       });
@@ -422,24 +422,24 @@ export default function AdminFeedbackDashboard() {
 
   const statusChartData = analyticsData?.statusBreakdown
     ? Object.entries(analyticsData.statusBreakdown).map(([name, value]) => ({
-        name: statusLabels[name] || name,
-        value,
-      }))
+      name: statusLabels[name] || name,
+      value,
+    }))
     : [];
 
   const sentimentChartData = analyticsData?.sentimentBreakdown
     ? [
-        { name: "Negative", value: analyticsData.sentimentBreakdown.negative, fill: sentimentColors.negative },
-        { name: "Neutral", value: analyticsData.sentimentBreakdown.neutral, fill: sentimentColors.neutral },
-        { name: "Positive", value: analyticsData.sentimentBreakdown.positive, fill: sentimentColors.positive },
-      ]
+      { name: "Negative", value: analyticsData.sentimentBreakdown.negative, fill: sentimentColors.negative },
+      { name: "Neutral", value: analyticsData.sentimentBreakdown.neutral, fill: sentimentColors.neutral },
+      { name: "Positive", value: analyticsData.sentimentBreakdown.positive, fill: sentimentColors.positive },
+    ]
     : [];
 
   const priorityChartData = analyticsData?.priorityBreakdown
     ? Object.entries(analyticsData.priorityBreakdown).map(([name, value]) => ({
-        name: name.charAt(0).toUpperCase() + name.slice(1),
-        value,
-      }))
+      name: name.charAt(0).toUpperCase() + name.slice(1),
+      value,
+    }))
     : [];
 
   return (
@@ -529,7 +529,7 @@ export default function AdminFeedbackDashboard() {
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
-              ) : !feedbackList?.feedback.length ? (
+              ) : !feedbackList?.feedback?.length ? (
                 <div className="text-center py-12 text-muted-foreground">
                   <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No feedback found matching your criteria.</p>
@@ -710,7 +710,7 @@ export default function AdminFeedbackDashboard() {
                       <div>
                         <p className="text-sm text-muted-foreground">Avg Resolution Time</p>
                         <p className="text-3xl font-bold">
-                          {analyticsData.averageResolutionTimeHours 
+                          {analyticsData.averageResolutionTimeHours
                             ? `${Math.round(analyticsData.averageResolutionTimeHours)}h`
                             : "—"}
                         </p>
@@ -837,10 +837,10 @@ export default function AdminFeedbackDashboard() {
                   <TabsList>
                     <TabsTrigger value="details">Details</TabsTrigger>
                     <TabsTrigger value="responses">
-                      Responses ({feedbackDetail.responses.length})
+                      Responses ({feedbackDetail.responses?.length || 0})
                     </TabsTrigger>
                     <TabsTrigger value="history">
-                      History ({feedbackDetail.history.length})
+                      History ({feedbackDetail.history?.length || 0})
                     </TabsTrigger>
                   </TabsList>
 
@@ -1023,7 +1023,7 @@ export default function AdminFeedbackDashboard() {
                   </TabsContent>
 
                   <TabsContent value="responses" className="space-y-3">
-                    {feedbackDetail.responses.length === 0 ? (
+                    {(!feedbackDetail.responses?.length) ? (
                       <p className="text-sm text-muted-foreground text-center py-8">No responses yet.</p>
                     ) : (
                       feedbackDetail.responses.map((response) => (
@@ -1054,7 +1054,7 @@ export default function AdminFeedbackDashboard() {
                   </TabsContent>
 
                   <TabsContent value="history" className="space-y-3">
-                    {feedbackDetail.history.length === 0 ? (
+                    {(!feedbackDetail.history?.length) ? (
                       <p className="text-sm text-muted-foreground text-center py-8">No status history.</p>
                     ) : (
                       <div className="relative">

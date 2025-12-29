@@ -1947,6 +1947,36 @@ export const feedbackResponseSchema = z.object({
   templateName: z.string().max(100).optional(),
 });
 
+// Admin query parameter validation schemas
+export const feedbackListQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  status: z.enum(["new", "under_review", "in_progress", "resolved", "closed", "wont_fix"]).optional(),
+  priority: z.enum(["low", "medium", "high", "critical"]).optional(),
+  categoryId: z.coerce.number().int().positive().optional(),
+  sentimentLabel: z.enum(["negative", "neutral", "positive"]).optional(),
+  isSpam: z.enum(["true", "false"]).optional().transform(val => val === "true" ? true : val === "false" ? false : undefined),
+  isArchived: z.enum(["true", "false"]).optional().transform(val => val === "true" ? true : val === "false" ? false : undefined),
+  search: z.string().max(200).optional(),
+  sortBy: z.enum(["createdAt", "priority", "status", "sentimentScore", "upvotes"]).optional(),
+  sortOrder: z.enum(["asc", "desc"]).default("desc"),
+});
+
+export const feedbackIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
+
+export const bulkFeedbackActionSchema = z.object({
+  feedbackIds: z.array(z.number().int().positive()).min(1).max(50),
+  action: z.enum(["archive", "delete", "changeStatus", "changePriority"]),
+  status: z.enum(["new", "under_review", "in_progress", "resolved", "closed", "wont_fix"]).optional(),
+  priority: z.enum(["low", "medium", "high", "critical"]).optional(),
+  reason: z.string().max(500).optional(),
+});
+
 export type SubmitFeedbackInput = z.infer<typeof submitFeedbackSchema>;
+export type FeedbackListQuery = z.infer<typeof feedbackListQuerySchema>;
+export type FeedbackIdParam = z.infer<typeof feedbackIdParamSchema>;
+export type BulkFeedbackAction = z.infer<typeof bulkFeedbackActionSchema>;
 export type UpdateFeedbackStatusInput = z.infer<typeof updateFeedbackStatusSchema>;
 export type FeedbackResponseInput = z.infer<typeof feedbackResponseSchema>;
