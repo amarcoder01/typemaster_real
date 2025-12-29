@@ -1,0 +1,433 @@
+import type { Race, RaceParticipant } from "@shared/schema";
+
+interface CachedRace {
+  race: Race;
+  participants: RaceParticipant[];
+  updatedAt: number;
+  accessedAt: number;
+  version: number;
+}
+
+interface ParticipantProgress {
+  progress: number;
+  wpm: number;
+  accuracy: number;
+  errors: number;
+  lastUpdate: number;
+  dirty: boolean;
+}
+
+interface CacheStats {
+  hits: number;
+  misses: number;
+  evictions: number;
+  flushes: number;
+  activeRaces: number;
+  totalParticipants: number;
+}
+
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL for race data
+const MAX_CACHE_SIZE = 10000; // Maximum number of races to cache
+const PROGRESS_FLUSH_INTERVAL_MS = 1000; // Flush progress updates every 1s (reduced from 500ms for performance)
+const LRU_CHECK_INTERVAL_MS = 60 * 1000; // Check for LRU eviction every minute
+
+class RaceCache {
+  private cache: Map<number, CachedRace> = new Map();
+  private progressBuffer: Map<number, ParticipantProgress> = new Map();
+  // O(1) participant→race mapping to avoid O(n) scans on every progress update
+  private participantToRace: Map<number, number> = new Map();
+  private stats: CacheStats = {
+    hits: 0,
+    misses: 0,
+    evictions: 0,
+    flushes: 0,
+    activeRaces: 0,
+    totalParticipants: 0,
+  };
+  private flushTimer: NodeJS.Timeout | null = null;
+  private lruTimer: NodeJS.Timeout | null = null;
+  private flushCallback: ((updates: Map<number, ParticipantProgress>) => Promise<void>) | null = null;
+
+  initialize(flushCallback: (updates: Map<number, ParticipantProgress>) => Promise<void>) {
+    this.flushCallback = flushCallback;
+    
+    this.flushTimer = setInterval(() => {
+      this.flushProgressUpdates();
+    }, PROGRESS_FLUSH_INTERVAL_MS);
+
+    this.lruTimer = setInterval(() => {
+      this.evictStaleEntries();
+    }, LRU_CHECK_INTERVAL_MS);
+
+    console.log("[RaceCache] Initialized with TTL:", CACHE_TTL_MS, "ms, max size:", MAX_CACHE_SIZE);
+  }
+
+  shutdown() {
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = null;
+    }
+    if (this.lruTimer) {
+      clearInterval(this.lruTimer);
+      this.lruTimer = null;
+    }
+    this.flushProgressUpdates();
+  }
+
+  async flushAll(): Promise<void> {
+    console.log("[RaceCache] Flushing all progress updates before shutdown...");
+    await this.flushProgressUpdates();
+    console.log(`[RaceCache] Flushed ${this.progressBuffer.size} pending updates`);
+  }
+
+  setRace(race: Race, participants: RaceParticipant[] = []): void {
+    const existing = this.cache.get(race.id);
+    const now = Date.now();
+    
+    if (this.cache.size >= MAX_CACHE_SIZE && !existing) {
+      this.evictLRU();
+    }
+
+    // Clear old participant→race mappings if replacing an existing entry
+    if (existing) {
+      for (const oldP of existing.participants) {
+        this.participantToRace.delete(oldP.id);
+      }
+    }
+
+    this.cache.set(race.id, {
+      race,
+      participants,
+      updatedAt: now,
+      accessedAt: now,
+      version: existing ? existing.version + 1 : 1,
+    });
+
+    // Update participant→race mapping for O(1) lookups
+    for (const p of participants) {
+      this.participantToRace.set(p.id, race.id);
+    }
+
+    this.updateStats();
+  }
+
+  getRace(raceId: number): CachedRace | undefined {
+    const entry = this.cache.get(raceId);
+    if (entry) {
+      const now = Date.now();
+      if (now - entry.updatedAt > CACHE_TTL_MS) {
+        // Clean up participant mappings before deleting
+        for (const p of entry.participants) {
+          this.participantToRace.delete(p.id);
+        }
+        this.cache.delete(raceId);
+        this.stats.evictions++;
+        return undefined;
+      }
+      entry.accessedAt = now;
+      this.stats.hits++;
+      return entry;
+    }
+    this.stats.misses++;
+    return undefined;
+  }
+
+  updateParticipants(raceId: number, participants: RaceParticipant[], race?: Race): void {
+    let entry = this.cache.get(raceId);
+    
+    // If cache entry doesn't exist but we have a race object, create it
+    if (!entry && race) {
+      this.setRace(race, participants);
+      console.log(`[RaceCache] Created cache entry for race ${raceId} with ${participants.length} participants`);
+      return;
+    }
+    
+    if (entry) {
+      // Clear old participant→race mappings for this race's previous participants
+      for (const oldP of entry.participants) {
+        this.participantToRace.delete(oldP.id);
+      }
+      
+      entry.participants = participants;
+      entry.updatedAt = Date.now();
+      entry.version++;
+      
+      // Rebuild mappings for new participant list
+      for (const newP of participants) {
+        this.participantToRace.set(newP.id, raceId);
+      }
+    } else {
+      console.warn(`[RaceCache] Cannot update participants - race ${raceId} not in cache and no race object provided`);
+    }
+  }
+
+  addParticipant(raceId: number, participant: RaceParticipant): void {
+    const entry = this.cache.get(raceId);
+    if (entry) {
+      const existingIdx = entry.participants.findIndex(p => p.id === participant.id);
+      if (existingIdx >= 0) {
+        entry.participants[existingIdx] = participant;
+      } else {
+        entry.participants.push(participant);
+      }
+      entry.updatedAt = Date.now();
+      entry.version++;
+      // Update participant→race mapping
+      this.participantToRace.set(participant.id, raceId);
+    }
+  }
+
+  removeParticipant(raceId: number, participantId: number): void {
+    const entry = this.cache.get(raceId);
+    if (entry) {
+      entry.participants = entry.participants.filter(p => p.id !== participantId);
+      entry.updatedAt = Date.now();
+      entry.version++;
+      // Clean up participant→race mapping
+      this.participantToRace.delete(participantId);
+    }
+  }
+
+  updateRaceStatus(raceId: number, status: string, startedAt?: Date, finishedAt?: Date): void {
+    const entry = this.cache.get(raceId);
+    if (entry) {
+      entry.race = {
+        ...entry.race,
+        status,
+        startedAt: startedAt || entry.race.startedAt,
+        finishedAt: finishedAt || entry.race.finishedAt,
+      };
+      entry.updatedAt = Date.now();
+      entry.version++;
+    }
+  }
+
+  bufferProgress(participantId: number, progress: number, wpm: number, accuracy: number, errors: number): void {
+    this.progressBuffer.set(participantId, {
+      progress,
+      wpm,
+      accuracy,
+      errors,
+      lastUpdate: Date.now(),
+      dirty: true,
+    });
+
+    // O(1) lookup using participant→race mapping instead of O(n) scan
+    const raceId = this.participantToRace.get(participantId);
+    if (raceId !== undefined) {
+      const entry = this.cache.get(raceId);
+      if (entry) {
+        const participant = entry.participants.find((p: RaceParticipant) => p.id === participantId);
+        if (participant) {
+          participant.progress = progress;
+          participant.wpm = wpm;
+          participant.accuracy = accuracy;
+          participant.errors = errors;
+        }
+      }
+    }
+  }
+
+  private async flushProgressUpdates(): Promise<void> {
+    if (this.progressBuffer.size === 0 || !this.flushCallback) {
+      return;
+    }
+
+    const dirtyUpdates = new Map<number, ParticipantProgress>();
+    const progressEntries = Array.from(this.progressBuffer.entries());
+    for (const [id, update] of progressEntries) {
+      if (update.dirty) {
+        dirtyUpdates.set(id, { ...update, dirty: false });
+        update.dirty = false;
+      }
+    }
+
+    if (dirtyUpdates.size > 0) {
+      try {
+        await this.flushCallback(dirtyUpdates);
+        this.stats.flushes++;
+        
+        // Clean up successfully flushed entries from progressBuffer
+        // Only keep entries that have been updated since we started the flush
+        const now = Date.now();
+        const STALE_THRESHOLD_MS = 30 * 1000; // 30 seconds
+        const entriesToDelete: number[] = [];
+        
+        for (const [id, update] of Array.from(this.progressBuffer.entries())) {
+          // Delete if not dirty and older than threshold (participant finished or disconnected)
+          if (!update.dirty && now - update.lastUpdate > STALE_THRESHOLD_MS) {
+            entriesToDelete.push(id);
+          }
+        }
+        
+        for (const id of entriesToDelete) {
+          this.progressBuffer.delete(id);
+        }
+        
+        // Enforce max size cap on progressBuffer to prevent unbounded growth
+        const MAX_PROGRESS_BUFFER_SIZE = 5000;
+        if (this.progressBuffer.size > MAX_PROGRESS_BUFFER_SIZE) {
+          // Remove oldest entries first
+          const sorted = Array.from(this.progressBuffer.entries())
+            .sort((a, b) => a[1].lastUpdate - b[1].lastUpdate);
+          const toRemove = sorted.slice(0, this.progressBuffer.size - MAX_PROGRESS_BUFFER_SIZE);
+          for (const [id] of toRemove) {
+            this.progressBuffer.delete(id);
+          }
+          console.log(`[RaceCache] Progress buffer capped, removed ${toRemove.length} oldest entries`);
+        }
+      } catch (error) {
+        console.error("[RaceCache] Failed to flush progress updates:", error);
+        const dirtyEntries = Array.from(dirtyUpdates.entries());
+        for (const [id] of dirtyEntries) {
+          const existing = this.progressBuffer.get(id);
+          if (existing) {
+            existing.dirty = true;
+          }
+        }
+      }
+    }
+  }
+
+  private evictStaleEntries(): void {
+    const now = Date.now();
+    const entriesToRemove: number[] = [];
+
+    const cacheEntries = Array.from(this.cache.entries());
+    for (const [raceId, entry] of cacheEntries) {
+      if (now - entry.updatedAt > CACHE_TTL_MS) {
+        entriesToRemove.push(raceId);
+      }
+    }
+
+    for (const raceId of entriesToRemove) {
+      // Clean up participant mappings before deleting
+      const entry = this.cache.get(raceId);
+      if (entry) {
+        for (const p of entry.participants) {
+          this.participantToRace.delete(p.id);
+        }
+      }
+      this.cache.delete(raceId);
+      this.stats.evictions++;
+    }
+
+    if (entriesToRemove.length > 0) {
+      console.log(`[RaceCache] Evicted ${entriesToRemove.length} stale entries`);
+    }
+
+    this.updateStats();
+  }
+
+  private evictLRU(): void {
+    let oldestAccess = Infinity;
+    let oldestRaceId: number | null = null;
+
+    const cacheEntries = Array.from(this.cache.entries());
+    for (const [raceId, entry] of cacheEntries) {
+      if (entry.accessedAt < oldestAccess) {
+        oldestAccess = entry.accessedAt;
+        oldestRaceId = raceId;
+      }
+    }
+
+    if (oldestRaceId !== null) {
+      // Clean up participant mappings before deleting
+      const entry = this.cache.get(oldestRaceId);
+      if (entry) {
+        for (const p of entry.participants) {
+          this.participantToRace.delete(p.id);
+        }
+      }
+      this.cache.delete(oldestRaceId);
+      this.stats.evictions++;
+      console.log(`[RaceCache] LRU eviction: race ${oldestRaceId}`);
+    }
+  }
+
+  private updateStats(): void {
+    this.stats.activeRaces = this.cache.size;
+    let totalParticipants = 0;
+    const entries = Array.from(this.cache.values());
+    for (const entry of entries) {
+      totalParticipants += entry.participants.length;
+    }
+    this.stats.totalParticipants = totalParticipants;
+  }
+
+  // Helper to clean up participant→race mappings when a race is deleted
+  private cleanupRaceParticipantMappings(raceId: number): void {
+    const entry = this.cache.get(raceId);
+    if (entry) {
+      for (const p of entry.participants) {
+        this.participantToRace.delete(p.id);
+      }
+    }
+  }
+
+  deleteRace(raceId: number): void {
+    this.cleanupRaceParticipantMappings(raceId);
+    this.cache.delete(raceId);
+    this.updateStats();
+  }
+
+  getActiveRaces(): Race[] {
+    const now = Date.now();
+    const activeRaces: Race[] = [];
+
+    const entries = Array.from(this.cache.values());
+    for (const entry of entries) {
+      if (now - entry.updatedAt <= CACHE_TTL_MS) {
+        if (["waiting", "countdown", "racing"].includes(entry.race.status)) {
+          activeRaces.push(entry.race);
+        }
+      }
+    }
+
+    return activeRaces.sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
+  }
+
+  getStats(): CacheStats {
+    this.updateStats();
+    return { ...this.stats };
+  }
+
+  clearProgressBuffer(participantId: number): void {
+    this.progressBuffer.delete(participantId);
+  }
+
+  getProgressFromBuffer(participantId: number): ParticipantProgress | undefined {
+    return this.progressBuffer.get(participantId);
+  }
+
+  finishParticipant(raceId: number, participantId: number, position: number): void {
+    const entry = this.cache.get(raceId);
+    if (entry) {
+      const participant = entry.participants.find(p => p.id === participantId);
+      if (participant) {
+        participant.isFinished = 1;
+        participant.finishPosition = position;
+        participant.finishedAt = new Date();
+      }
+      entry.updatedAt = Date.now();
+      entry.version++;
+    }
+  }
+
+  extendParagraph(raceId: number, additionalContent: string): number | null {
+    const entry = this.cache.get(raceId);
+    if (entry) {
+      entry.race.paragraphContent = entry.race.paragraphContent + " " + additionalContent;
+      entry.updatedAt = Date.now();
+      entry.version++;
+      return entry.race.paragraphContent.length;
+    }
+    return null;
+  }
+}
+
+export const raceCache = new RaceCache();
