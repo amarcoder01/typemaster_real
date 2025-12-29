@@ -116,7 +116,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   const sessionSecret = process.env.SESSION_SECRET || "typemasterai-secret-key-change-in-production";
-  
+
   botNamePool.initialize().catch(error => {
     console.error("Failed to initialize bot name pool:", error);
   });
@@ -124,20 +124,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Initialize notification system
   const notificationScheduler = new NotificationScheduler(storage);
   const achievementService = new AchievementService(storage, notificationScheduler);
-  
+
   // Initialize achievements in database
   achievementService.initializeAchievements().catch(error => {
     console.error("Failed to initialize achievements:", error);
   });
-  
+
   // Start notification scheduler
   notificationScheduler.start();
-  
+
   // Initialize authentication security service
   const authSecurityService = new AuthSecurityService(storage);
 
   const sessionPool = new Pool({ connectionString: process.env.DATABASE_URL });
-  
+
   // Handle session pool errors gracefully to prevent server crashes
   sessionPool.on('error', (err: any) => {
     console.error('[Session Pool] Unexpected connection error (will auto-reconnect):', err.message);
@@ -219,7 +219,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       async (req, email, password, done) => {
         try {
           const user = await storage.getUserByEmail(email);
-          
+
           if (!user) {
             // Record failed login attempt for unknown email
             await authSecurityService.recordLoginAttempt(
@@ -263,16 +263,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           const isValidPassword = await bcrypt.compare(password, user.password);
-          
+
           if (!isValidPassword) {
             // Handle failed login attempt
             await authSecurityService.handleFailedLogin(user.id, email, req, "Invalid password");
-            
+
             const attemptsRemaining = await authSecurityService.getRemainingAttempts(user.id);
             const message = attemptsRemaining > 0
               ? `Invalid email or password. ${attemptsRemaining} attempt${attemptsRemaining > 1 ? 's' : ''} remaining.`
               : "Invalid email or password";
-            
+
             return done(null, false, { message });
           }
 
@@ -326,8 +326,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   app.get("/api/health", (_req, res) => {
-    res.status(200).json({ 
-      status: "ok", 
+    res.status(200).json({
+      status: "ok",
       timestamp: new Date().toISOString(),
       uptime: process.uptime()
     });
@@ -349,15 +349,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/error-report", errorReportLimiter, async (req, res) => {
     try {
       const { error, context, timestamp, url, userAgent } = req.body;
-      
+
       if (!error || typeof error !== 'object') {
         return res.status(200).json({ success: true });
       }
 
-      const sanitizedUrl = typeof url === 'string' 
-        ? url.replace(/[?#].*$/, '').slice(0, 200) 
+      const sanitizedUrl = typeof url === 'string'
+        ? url.replace(/[?#].*$/, '').slice(0, 200)
         : 'unknown';
-      
+
       const sanitizedMessage = typeof error.message === 'string'
         ? error.message.slice(0, 500).replace(/password|secret|token|key|auth/gi, '[REDACTED]')
         : 'Unknown error';
@@ -369,7 +369,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timestamp: typeof timestamp === 'string' ? timestamp.slice(0, 30) : new Date().toISOString(),
         userId: (req.user as any)?.id,
       });
-      
+
       res.status(200).json({ success: true });
     } catch (err) {
       res.status(200).json({ success: true });
@@ -393,10 +393,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const startTime = Date.now();
     let normalizedEmail = "";
     let normalizedUsername = "";
-    
+
     try {
       const parsed = insertUserSchema.safeParse(req.body);
-      
+
       if (!parsed.success) {
         AuthLogger.logRegistration(req, req.body?.email || "unknown", false, undefined, "Validation failed");
         return res.status(400).json({
@@ -549,11 +549,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error,
         durationMs,
       });
-      
+
       if (error instanceof AuthError) {
         return res.status(error.statusCode).json(error.toJSON());
       }
-      
+
       res.status(500).json({
         error: {
           code: AuthErrorCode.INTERNAL_ERROR,
@@ -566,11 +566,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/login", authLimiter, payloadLimitMiddleware(5), async (req, res, next) => {
     const startTime = Date.now();
     let normalizedEmail = "";
-    
+
     try {
       const parsed = loginSchema.safeParse(req.body);
       const rememberMe = req.body.rememberMe === true;
-      
+
       if (!parsed.success) {
         AuthLogger.logLoginAttempt(req, req.body?.email || "unknown", false, undefined, "Validation failed");
         return res.status(400).json({
@@ -595,22 +595,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       passport.authenticate("local", async (err: any, user: Express.User | false, info: any) => {
         const durationMs = Date.now() - startTime;
-        
+
         if (err) {
           AuthLogger.logLoginAttempt(req, normalizedEmail, false, undefined, `Authentication error: ${err.message}`);
           return next(err);
         }
-        
+
         if (!user) {
           AuthLogger.logLoginAttempt(req, normalizedEmail, false, undefined, info?.message || "Invalid credentials");
-          
+
           const errorResponse: any = {
             error: {
               code: AuthErrorCode.INVALID_CREDENTIALS,
               message: info?.message || "Invalid email or password",
             },
           };
-          
+
           if (info?.attemptsRemaining !== undefined) {
             errorResponse.error.attemptsRemaining = info.attemptsRemaining;
           }
@@ -618,7 +618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             errorResponse.error.lockoutMinutes = info.lockoutMinutes;
             errorResponse.error.code = AuthErrorCode.ACCOUNT_LOCKED;
           }
-          
+
           return res.status(401).json(errorResponse);
         }
 
@@ -637,7 +637,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             AuthLogger.logLoginAttempt(req, normalizedEmail, false, user.id, "Session login failed");
             return next(loginErr);
           }
-          
+
           if (rememberMe) {
             try {
               await setupRememberMeOnLogin(req, res, user.id);
@@ -649,9 +649,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               });
             }
           }
-          
+
           AuthLogger.logLoginAttempt(req, normalizedEmail, true, user.id);
-          
+
           res.json({
             message: "Login successful",
             user: {
@@ -674,11 +674,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error,
         durationMs,
       });
-      
+
       if (error instanceof AuthError) {
         return res.status(error.statusCode).json(error.toJSON());
       }
-      
+
       res.status(500).json({
         error: {
           code: AuthErrorCode.INTERNAL_ERROR,
@@ -694,7 +694,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error clearing remember-me token:", error);
     }
-    
+
     req.logout((err) => {
       if (err) {
         return res.status(500).json({ message: "Logout failed" });
@@ -707,8 +707,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ user: req.user });
   });
 
-  app.get("/api/auth/google", 
-    oauthRateLimitMiddleware(), 
+  app.get("/api/auth/google",
+    oauthRateLimitMiddleware(),
     initiateOAuthFlow("google")
   );
 
@@ -717,7 +717,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     handleOAuthCallbackFlow("google")
   );
 
-  app.get("/api/auth/github", 
+  app.get("/api/auth/github",
     oauthRateLimitMiddleware(),
     initiateOAuthFlow("github")
   );
@@ -727,7 +727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     handleOAuthCallbackFlow("github")
   );
 
-  app.get("/api/auth/facebook", 
+  app.get("/api/auth/facebook",
     oauthRateLimitMiddleware(),
     initiateOAuthFlow("facebook")
   );
@@ -788,7 +788,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const rateLimitCheck = checkRateLimit(req.user!.id, "unlink");
       if (!rateLimitCheck.allowed) {
-        return res.status(429).json({ 
+        return res.status(429).json({
           message: "Too many unlink attempts. Please try again later.",
           retryAfterMs: rateLimitCheck.retryAfterMs
         });
@@ -800,9 +800,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const deviceInfo = extractDeviceInfo(req);
-      
+
       await storage.unlinkOAuthAccount(req.user!.id, provider);
-      
+
       logAuthEvent({
         eventType: "oauth_unlink",
         userId: req.user!.id,
@@ -812,7 +812,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         deviceFingerprint: deviceInfo.fingerprint,
         success: true,
       });
-      
+
       res.json({ message: `${provider} account unlinked successfully` });
     } catch (error: any) {
       console.error("Unlink provider error:", error);
@@ -844,7 +844,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const user = await storage.getUser(req.user!.id);
         const leaderboardData = await storage.getLeaderboardAroundUser(req.user!.id, 0, 'all', result.language);
-        
+
         if (leaderboardData.userRank > 0) {
           leaderboardWS.broadcastNewEntry(
             req.user!.id,
@@ -902,12 +902,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const leaderboardResult = await storage.getLeaderboardAroundUser(req.user!.id, 1, 'all-time', result.language);
         const newRank = leaderboardResult.userRank;
-        
+
         // Only send notification if user has a rank and it's in top 100
         if (newRank > 0 && newRank <= 100) {
           // Check if this is a significant improvement (entering top 100, or moving up 5+ positions)
           const totalUsers = await storage.getLeaderboardCount('all-time', result.language);
-          
+
           // For new personal bests, likely moved up in rankings - send notification for top positions
           if (isPersonalRecord && (newRank <= 10 || (newRank <= 50 && previousBestWpm > 0))) {
             await notificationScheduler.notifyLeaderboardUpdate(req.user!.id, {
@@ -927,12 +927,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const { generateVerificationData } = await import("./certificate-verification-service");
         const user = await storage.getUser(req.user!.id);
-        
+
         // Note: mode IS the duration (15, 30, 60, etc. seconds)
         // Use a default consistency of 100 since test_results doesn't track it
         const testDuration = result.mode; // mode represents duration in seconds
         const testConsistency = 100; // Default consistency
-        
+
         const verificationData = generateVerificationData({
           userId: req.user!.id,
           certificateType: "standard",
@@ -1095,29 +1095,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/showcase-badges", isAuthenticated, async (req, res) => {
     try {
       const { badgeKeys } = req.body;
-      
+
       if (!Array.isArray(badgeKeys)) {
         return res.status(400).json({ message: "badgeKeys must be an array" });
       }
-      
+
       if (badgeKeys.length > 5) {
         return res.status(400).json({ message: "Maximum 5 badges can be showcased" });
       }
-      
+
       const validKeys = badgeKeys.filter((key: any) => typeof key === "string" && key.length > 0);
-      
+
       const userAchievements = await storage.getUserAchievements(req.user!.id);
       const unlockedKeys = new Set(userAchievements.map(a => a.achievement.key));
       const validUnlockedKeys = validKeys.filter((key: string) => unlockedKeys.has(key));
-      
+
       if (validUnlockedKeys.length > 0 && validUnlockedKeys.length < 3) {
         return res.status(400).json({ message: "Minimum 3 badges required for showcase (or 0 to clear)" });
       }
-      
+
       if (validUnlockedKeys.length > 5) {
         return res.status(400).json({ message: "Maximum 5 badges can be showcased" });
       }
-      
+
       let gamification = await storage.getUserGamification(req.user!.id);
       if (!gamification) {
         gamification = await storage.createUserGamification({
@@ -1130,11 +1130,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalShares: 0,
         });
       }
-      
+
       await storage.updateUserGamification(req.user!.id, {
         featuredBadges: validUnlockedKeys,
       });
-      
+
       res.json({ showcaseBadges: validUnlockedKeys });
     } catch (error: any) {
       console.error("Update showcase badges error:", error);
@@ -1172,40 +1172,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validTimeframes = ["all", "daily", "weekly", "monthly"];
       const timeframe = validTimeframes.includes(rawTimeframe) ? rawTimeframe : "all";
       const language = (req.query.language as string) || "en";
-      
+
       const actualOffset = cursor ? leaderboardCache.decodeCursor(cursor) : offset;
-      
+
       const result = await leaderboardCache.getGlobalLeaderboard({
         timeframe: timeframe as any,
         limit,
         offset: actualOffset,
         language,
       });
-      
+
       res.set('Cache-Control', 'public, max-age=300'); // 5 minutes to match materialized view refresh
       res.set('X-Cache', result.metadata.cacheHit ? 'HIT' : 'MISS');
       res.set('X-Total-Count', String(result.pagination.total));
-      
+
       res.json(result);
     } catch (error: any) {
       console.error("Get leaderboard error:", error);
       res.status(500).json({ message: "Failed to fetch leaderboard" });
     }
   });
-  
+
   // Batched leaderboard endpoint - fetch multiple data points in one request
   app.post("/api/leaderboard/batch", leaderboardLimiter, async (req, res) => {
     try {
       const { requests } = req.body;
-      
+
       if (!Array.isArray(requests) || requests.length === 0 || requests.length > 5) {
         return res.status(400).json({ message: "Invalid batch request. Must include 1-5 requests." });
       }
-      
+
       const results = await Promise.all(
         requests.map(async (request: any) => {
           const { type, timeframe = "all", language = "en", limit = 20, offset = 0, userId, range = 5 } = request;
-          
+
           try {
             switch (type) {
               case "leaderboard":
@@ -1218,7 +1218,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     language,
                   }),
                 };
-              
+
               case "aroundMe":
                 if (!userId) {
                   return { type, error: "userId required for aroundMe request" };
@@ -1231,7 +1231,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     language,
                   }),
                 };
-              
+
               default:
                 return { type, error: "Unknown request type" };
             }
@@ -1240,7 +1240,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         })
       );
-      
+
       res.set('Cache-Control', 'public, max-age=300');
       res.json({ results });
     } catch (error: any) {
@@ -1256,12 +1256,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validTimeframes = ["all", "daily", "weekly", "monthly"];
       const timeframe = validTimeframes.includes(rawTimeframe) ? rawTimeframe as "all" | "daily" | "weekly" | "monthly" : "all";
       const language = (req.query.language as string) || "en";
-      
+
       const result = await leaderboardCache.getAroundMe("global", req.user!.id, { range, timeframe, language });
-      
+
       res.set('Cache-Control', 'private, max-age=10');
       res.set('X-Cache', result.cacheHit ? 'HIT' : 'MISS');
-      
+
       res.json({
         userRank: result.userRank,
         entries: result.entries,
@@ -1283,12 +1283,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const timeframe = rawTimeframe as "daily" | "weekly" | "monthly";
       const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 100);
       const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
-      
+
       const entries = await storage.getTimeBasedLeaderboard(timeframe, limit, offset);
       const total = await storage.getTimeBasedLeaderboardCount(timeframe);
-      
+
       res.set('Cache-Control', 'public, max-age=60');
-      
+
       res.json({
         entries,
         pagination: {
@@ -1334,7 +1334,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let days = req.query.days ? parseInt(req.query.days as string) : 30;
       if (isNaN(days) || days < 7) days = 7;
       if (days > 365) days = 365;
-      
+
       const analytics = await storage.getUserAnalytics(req.user!.id, days);
       res.json({ analytics });
     } catch (error: any) {
@@ -1356,14 +1356,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/analytics/keystrokes", isAuthenticated, async (req, res) => {
     try {
       const { testResultId, keystrokes } = req.body;
-      
+
       if (!testResultId || !Array.isArray(keystrokes) || keystrokes.length === 0) {
         return res.status(400).json({ message: "Invalid request: testResultId and keystrokes array required" });
       }
 
       // Verify test result belongs to authenticated user
       const ownsTest = await storage.verifyTestResultOwnership(testResultId, req.user!.id);
-      
+
       if (!ownsTest) {
         return res.status(403).json({ message: "Unauthorized: test result does not belong to user" });
       }
@@ -1435,7 +1435,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { platform, resultId } = req.body;
       const SHARE_BONUS_XP = 5; // Bonus XP for each share
-      
+
       // Get or create gamification profile
       let gamification = await storage.getUserGamification(req.user!.id);
       if (!gamification) {
@@ -1448,27 +1448,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalChallengesCompleted: 0,
         });
       }
-      
+
       // Increment share count and add bonus XP
       const newShareCount = (gamification.totalShares || 0) + 1;
       const newXP = gamification.experiencePoints + SHARE_BONUS_XP;
       const newPoints = gamification.totalPoints + SHARE_BONUS_XP;
       const newLevel = Math.floor(newXP / 100) + 1;
-      
+
       await storage.updateUserGamification(req.user!.id, {
         totalShares: newShareCount,
         experiencePoints: newXP,
         totalPoints: newPoints,
         level: newLevel,
       });
-      
+
       // Check for social sharing achievements
       achievementService.checkSocialAchievements(req.user!.id, newShareCount).catch(error => {
         console.error("Social achievement check error:", error);
       });
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         bonusXP: SHARE_BONUS_XP,
         totalShares: newShareCount,
         newXP: newXP,
@@ -1540,12 +1540,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/auth/delete-account", authLimiter, isAuthenticated, async (req, res) => {
     try {
       await storage.deleteUser(req.user!.id);
-      
+
       req.logout((err) => {
         if (err) {
           console.error("Logout error after account deletion:", err);
         }
-        
+
         req.session.destroy((destroyErr) => {
           if (destroyErr) {
             console.error("Session destroy error after account deletion:", destroyErr);
@@ -1562,7 +1562,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/forgot-password", authLimiter, payloadLimitMiddleware(5), async (req, res) => {
     const startTime = Date.now();
     const successMessage = "If an account exists with that email, a reset link has been sent.";
-    
+
     try {
       const { email, timezone } = req.body;
 
@@ -1594,7 +1594,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const user = await storage.getUserByEmail(normalizedEmail);
-      
+
       if (!user) {
         await addTimingJitter(150, 350);
         AuthLogger.logPasswordReset(req, normalizedEmail, "requested", "User not found (hidden)");
@@ -1647,7 +1647,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error,
         durationMs,
       });
-      
+
       await addTimingJitter(100, 300);
       res.json({ message: successMessage });
     }
@@ -1655,7 +1655,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/auth/validate-reset-token", async (req, res) => {
     res.setHeader("Referrer-Policy", "no-referrer");
-    
+
     try {
       const token = req.query.token as string;
 
@@ -1691,7 +1691,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/reset-password", authLimiter, payloadLimitMiddleware(5), async (req, res) => {
     res.setHeader("Referrer-Policy", "no-referrer");
     const startTime = Date.now();
-    
+
     try {
       const { token, password, timezone } = req.body;
 
@@ -1781,7 +1781,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const hashedPassword = await bcrypt.hash(password, 12);
       const ipAddress = req.ip || req.socket.remoteAddress || "unknown";
-      
+
       try {
         const result = await DatabaseErrorHandler.withRetry(async () => {
           return await storage.atomicPasswordReset(
@@ -1853,11 +1853,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error,
         durationMs,
       });
-      
+
       if (error instanceof AuthError) {
         return res.status(error.statusCode).json(error.toJSON());
       }
-      
+
       res.status(500).json({
         error: {
           code: AuthErrorCode.INTERNAL_ERROR,
@@ -1902,7 +1902,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/resend-verification", authLimiter, isAuthenticated, async (req, res) => {
     try {
       const user = await storage.getUser(req.user!.id);
-      
+
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -1929,22 +1929,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const customPrompt = req.query.customPrompt as string | undefined;
       const generateIfMissing = req.query.generate === "true";
       const forceGenerate = req.query.forceGenerate === "true";
-      
+
       let paragraph: any = undefined;
       let isGenerated = false;
-      
+
       // If forceGenerate is true, always create new AI content
       if (forceGenerate && mode) {
         console.log(`🔄 Force generating new AI paragraph for ${language}/${mode}/${difficulty || 'medium'}`);
-        
+
         try {
           const content = await generateTypingParagraph(
-            language, 
-            mode, 
+            language,
+            mode,
             (difficulty as "easy" | "medium" | "hard") || "medium"
           );
           const wordCount = content.split(/\s+/).length;
-          
+
           // Save to database
           paragraph = await storage.createTypingParagraph({
             language,
@@ -1953,7 +1953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             content,
             wordCount,
           });
-          
+
           isGenerated = true;
           console.log(`✅ Force generated and saved new paragraph`);
         } catch (aiError) {
@@ -1961,20 +1961,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Continue to try other methods
         }
       }
-      
+
       // If custom prompt is provided, always generate with AI
       if (!paragraph && customPrompt && customPrompt.trim()) {
         console.log(`🤖 Generating custom AI paragraph: "${customPrompt}"`);
-        
+
         try {
           const content = await generateTypingParagraph(
-            language, 
-            mode || "general", 
+            language,
+            mode || "general",
             (difficulty as "easy" | "medium" | "hard") || "medium",
             customPrompt.trim()
           );
           const wordCount = content.split(/\s+/).length;
-          
+
           // Save to database with custom mode name
           paragraph = await storage.createTypingParagraph({
             language,
@@ -1983,14 +1983,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             content,
             wordCount,
           });
-          
+
           isGenerated = true;
           console.log(`✅ Generated custom paragraph: ${wordCount} words`);
         } catch (aiError) {
           console.error("❌ Custom AI generation failed:", aiError);
           return res.status(500).json({ message: "Failed to generate custom content" });
         }
-      } 
+      }
       // Check for exact match first (no fallbacks)
       else if (mode) {
         console.log(`🔍 Looking for exact match: ${language}/${mode}/${difficulty || 'medium'}`);
@@ -2001,19 +2001,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`❌ No exact match found`);
         }
       }
-      
+
       // If no exact match found and AI generation is requested
       if (!paragraph && generateIfMissing && mode && !customPrompt) {
         console.log(`🤖 Generating AI paragraph for ${language}/${mode}/${difficulty || 'medium'}`);
-        
+
         try {
           const content = await generateTypingParagraph(
-            language, 
-            mode, 
+            language,
+            mode,
             (difficulty as "easy" | "medium" | "hard") || "medium"
           );
           const wordCount = content.split(/\s+/).length;
-          
+
           // Save to database
           paragraph = await storage.createTypingParagraph({
             language,
@@ -2022,7 +2022,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             content,
             wordCount,
           });
-          
+
           isGenerated = true;
           console.log(`✅ Successfully generated and saved paragraph: ID ${paragraph.id}, ${wordCount} words`);
         } catch (aiError) {
@@ -2035,7 +2035,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       }
-      
+
       // If still no paragraph, use fallback system
       if (!paragraph) {
         console.log(`🔄 Using fallback system for ${language}/${mode || 'any'}/${difficulty || 'any'}`);
@@ -2044,21 +2044,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`✅ Fallback paragraph: ID ${paragraph.id}, mode=${paragraph.mode}`);
         }
       }
-      
+
       if (!paragraph) {
         console.error(`❌ No paragraphs available for ${language}/${mode || 'any'}/${difficulty || 'any'}`);
         return res.status(500).json({ message: "No paragraphs available in database" });
       }
-      
+
       console.log(`📤 Returning paragraph ID ${paragraph.id} for ${language}/${mode || 'any'}/${difficulty || 'any'}`);
 
-      
+
       // Prevent caching so each request gets a new paragraph
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
-      
-      res.json({ 
+
+      res.json({
         paragraph,
         fallbackUsed: !isGenerated && (paragraph.language !== language || (mode && paragraph.mode !== mode)),
         isGenerated,
@@ -2076,16 +2076,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const mode = req.query.mode as string | undefined;
       const difficulty = req.query.difficulty as string | undefined;
       const count = Math.min(parseInt(req.query.count as string) || 5, 10); // Max 10
-      
+
       console.log(`📦 Batch request: ${count} paragraphs for ${language}/${mode || 'any'}/${difficulty || 'any'}`);
-      
+
       // Use efficient batch fetch with single query and shuffle
       const paragraphs = await storage.getRandomParagraphs(language, count, mode, difficulty);
-      
+
       console.log(`📤 Returning batch: ${paragraphs.length} paragraphs, IDs: [${paragraphs.map(p => p.id).join(', ')}]`);
-      
+
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-      res.json({ 
+      res.json({
         paragraphs,
         count: paragraphs.length,
       });
@@ -2237,7 +2237,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let hadSearch = false;
     let hadCacheHit = false;
     let hadError = false;
-    
+
     try {
       const { messages: requestMessages, conversationId } = req.body;
       const isAuthenticated = !!req.user;
@@ -2262,7 +2262,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let convId = conversationId;
       let isNewConversation = false;
-      
+
       // Only create/manage conversations for authenticated users
       if (isAuthenticated) {
         if (!convId) {
@@ -2299,25 +2299,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       try {
         let assistantResponse = "";
-        
+
         for await (const event of streamChatCompletionWithSearch(sanitizedMessages, true)) {
           switch (event.type) {
             case "searching":
               hadSearch = true;
               searchStartTime = Date.now();
-              res.write(`data: ${JSON.stringify({ 
-                type: "searching", 
+              res.write(`data: ${JSON.stringify({
+                type: "searching",
                 status: event.data.status,
                 query: event.data.query,
-                conversationId: convId 
+                conversationId: convId
               })}\n\n`);
               break;
             case "search_complete":
-              res.write(`data: ${JSON.stringify({ 
-                type: "search_complete", 
+              res.write(`data: ${JSON.stringify({
+                type: "search_complete",
                 results: event.data.results,
                 query: event.data.query,
-                conversationId: convId 
+                conversationId: convId
               })}\n\n`);
               break;
             case "content":
@@ -2325,10 +2325,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               res.write(`data: ${JSON.stringify({ content: event.data, conversationId: convId })}\n\n`);
               break;
             case "sources":
-              res.write(`data: ${JSON.stringify({ 
-                type: "sources", 
+              res.write(`data: ${JSON.stringify({
+                type: "sources",
                 sources: event.data,
-                conversationId: convId 
+                conversationId: convId
               })}\n\n`);
               break;
             case "error":
@@ -2337,7 +2337,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               break;
           }
         }
-        
+
         // Only save messages for authenticated users
         if (isAuthenticated && convId) {
           await storage.createMessage({
@@ -2362,19 +2362,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         } else {
           // For anonymous users, send a reminder to login to save conversations
-          res.write(`data: ${JSON.stringify({ 
-            type: "login_reminder", 
-            message: "Login to save your conversations" 
+          res.write(`data: ${JSON.stringify({
+            type: "login_reminder",
+            message: "Login to save your conversations"
           })}\n\n`);
         }
 
         res.write("data: [DONE]\n\n");
         res.end();
-        
+
         // Track metrics after successful completion
         const totalTime = Date.now() - requestStartTime;
         const searchTime = searchStartTime ? Date.now() - searchStartTime : undefined;
-        
+
         const { chatMetrics } = await import("./chat-metrics");
         chatMetrics.trackChatRequest({
           queryType: hadSearch ? "search" : "knowledge",
@@ -2384,13 +2384,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
           modelUsed: "gpt-4o",
           error: hadError ? "streaming_error" : undefined,
         });
-        
+
       } catch (streamError: any) {
-        console.error("Streaming error:", streamError);
         hadError = true;
-        res.write(`data: ${JSON.stringify({ error: streamError.message })}\n\n`);
-        res.end();
-        
+        console.error("Stream error in route:", streamError);
+
+        let errorCode = "UNKNOWN_ERROR";
+        let errorMessage = "An error occurred during generation.";
+        let retryable = true;
+
+        if (streamError.status === 429) {
+          errorCode = "RATE_LIMIT";
+          errorMessage = "You are sending requests too quickly. Please wait a moment.";
+          retryable = true;
+        } else if (streamError.status === 503 || streamError.status === 502) {
+          errorCode = "SERVICE_UNAVAILABLE";
+          errorMessage = "The AI service is currently unavailable. Please try again later.";
+          retryable = true;
+        }
+
+        res.write(`data: ${JSON.stringify({
+          error: {
+            code: errorCode,
+            message: errorMessage,
+            retryable: retryable
+          }
+        })}\n\n`);
+
         // Track error metrics
         const { chatMetrics } = await import("./chat-metrics");
         chatMetrics.trackChatRequest({
@@ -2400,11 +2420,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           modelUsed: "gpt-4o",
           error: streamError.message,
         });
+      } finally {
+        res.write("data: [DONE]\n\n");
+        res.end();
+
+        // Log telemetry
+        const duration = Date.now() - requestStartTime;
+        console.log(`[Chat Metrics] Duration: ${duration}ms, Search: ${hadSearch}, Error: ${hadError}, User: ${isAuthenticated ? req.user!.id : 'anon'}`);
       }
     } catch (error: any) {
       console.error("Chat API error:", error);
       res.status(500).json({ message: "Chat service error" });
-      
+
       // Track error metrics
       const { chatMetrics } = await import("./chat-metrics");
       chatMetrics.trackChatRequest({
@@ -2423,24 +2450,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.user;
       const { guestId, raceType, timeLimitSeconds } = req.body;
       let username: string;
-      
+
       if (user) {
         username = user.username;
       } else {
         username = generateGuestUsername();
       }
-      
+
       const avatarColor = user?.avatarColor || "bg-primary";
-      
+
       // Default to timed race with 60 seconds if not specified
       const effectiveRaceType = raceType || "timed";
       const effectiveTimeLimit = timeLimitSeconds || 60;
-      
+
       // Automatically assign random number of opponents (1-3) for natural feel
       const effectiveBotCount = Math.floor(Math.random() * 3) + 1; // 1, 2, or 3
 
       const activeRaces = await storage.getActiveRaces();
-      
+
       // Find a waiting public race with matching type/duration and available slots
       let availableRace = null;
       for (const r of activeRaces) {
@@ -2456,7 +2483,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               continue;
             }
           }
-          
+
           const participants = await storage.getRaceParticipants(r.id);
           // Count only human participants (bots can be replaced)
           const humanCount = participants.filter(p => p.isBot !== 1).length;
@@ -2470,10 +2497,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let race;
       let paragraphContent: string;
       let paragraphId: number | undefined;
-      
+
       if (availableRace) {
         race = availableRace;
-        
+
         // Joining existing race
         console.log(`[Quick Match] Joining existing race ${race.id}...`);
         const existingParticipants = await storage.getRaceParticipants(race.id);
@@ -2485,7 +2512,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Generate enough content for the duration (estimate ~60 WPM, 5 chars/word)
           const estimatedCharsNeeded = Math.ceil((effectiveTimeLimit / 60) * 60 * 5 * 2);
           let totalChars = 0;
-          
+
           while (totalChars < estimatedCharsNeeded) {
             const para = await storage.getRandomParagraph("english", "quote");
             if (para) {
@@ -2542,7 +2569,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!participant) {
         const inactive = await storage.findInactiveParticipant(race.id, user?.id, guestId);
-        
+
         if (inactive) {
           participant = await storage.reactivateRaceParticipant(inactive.id);
         } else {
@@ -2593,62 +2620,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { isPrivate, maxPlayers: rawMaxPlayers, guestId, timeLimitSeconds: rawTimeLimit, textSource } = req.body;
       const user = req.user;
-      
+
       // Validate and sanitize room settings
       const maxPlayers = Math.max(2, Math.min(10, Number(rawMaxPlayers) || 4));
-      
+
       // Validate duration (30, 60, 90, 120 seconds)
       const validDurations = [30, 60, 90, 120];
       const timeLimitSeconds = validDurations.includes(Number(rawTimeLimit)) ? Number(rawTimeLimit) : 60;
-      
+
       // Validate text source
       const validTextSources = ["general", "quotes", "programming", "technical", "news", "entertainment", "random"];
       const selectedTextSource = validTextSources.includes(textSource) ? textSource : "general";
-      
+
       // Automatically assign random number of opponents (1-3) for natural feel
       const botCount = Math.floor(Math.random() * 3) + 1; // 1, 2, or 3
-      
+
       let username: string;
-      
+
       if (user) {
         username = user.username;
       } else {
         username = generateGuestUsername();
       }
-      
+
       const avatarColor = user?.avatarColor || "bg-primary";
 
       let paragraphContent = "";
       let paragraphId: number | undefined;
-      
+
       // All races are timed - generate enough content for the maximum duration (120s)
       // Estimate: 80 WPM * 5 chars/word = 400 chars/min, add buffer for 2 min max
       const estimatedChars = Math.ceil((120 / 60) * 400 * 2);
       const paragraphsNeeded = Math.ceil(estimatedChars / 300);
-      
+
       const paragraphs: string[] = [];
-      
+
       // Map client text source to database mode names
       // Database modes: general, technical, entertainment, quotes, programming, business, stories, news
       const modeMapping: Record<string, string | null> = {
         "general": "general",
         "quotes": "quotes",
-        "programming": "programming", 
+        "programming": "programming",
         "technical": "technical",
         "news": "news",
         "entertainment": "entertainment",
         "random": null, // null means pick from all available modes
       };
-      
+
       const dbMode = modeMapping[selectedTextSource];
-      
+
       console.log(`[Race Create] Text source: ${selectedTextSource}, DB mode: ${dbMode}`);
-      
+
       if (dbMode === null) {
         // Random mode: pick from multiple categories for variety
         const availableModes = ["general", "quotes", "programming", "technical", "news", "entertainment"];
         const usedParagraphIds = new Set<number>();
-        
+
         for (let i = 0; i < Math.max(paragraphsNeeded, 3); i++) {
           // Pick a random mode for each paragraph
           const randomMode = availableModes[Math.floor(Math.random() * availableModes.length)];
@@ -2670,7 +2697,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         // Specific mode selected - use getRandomParagraphs for efficiency and uniqueness
         const selectedParagraphs = await storage.getRandomParagraphs("english", Math.max(paragraphsNeeded, 3), dbMode);
-        
+
         if (selectedParagraphs.length > 0) {
           for (let i = 0; i < selectedParagraphs.length; i++) {
             paragraphs.push(selectedParagraphs[i].content);
@@ -2686,7 +2713,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       }
-      
+
       paragraphContent = paragraphs.join(" ");
       console.log(`[Race Create] Generated ${paragraphs.length} paragraphs, total ${paragraphContent.length} chars`);
 
@@ -2732,7 +2759,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         console.log(`[Create Room] Private room - skipping bot opponents for race ${race.id}`);
       }
-      
+
       // Update race cache with all participants
       const { raceCache } = await import("./race-cache");
       const allParticipants = await storage.getRaceParticipants(race.id);
@@ -2752,13 +2779,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { guestId } = req.body;
       const user = req.user;
       let username: string;
-      
+
       if (user) {
         username = user.username;
       } else {
         username = generateGuestUsername();
       }
-      
+
       const avatarColor = user?.avatarColor || "bg-primary";
 
       const race = await storage.getRaceByCode(roomCode.toUpperCase());
@@ -2773,7 +2800,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           racing: "Race is in progress - cannot join an active race",
           finished: "Race has ended - please join a new room",
         };
-        return res.status(409).json({ 
+        return res.status(409).json({
           message: statusMessages[race.status] || "Race has already started",
           code: "RACE_STARTED"
         });
@@ -2784,12 +2811,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (raceWebSocket.isRoomLocked(race.id)) {
         // Check if this user is already a participant (allow re-joining)
         const existingParticipants = await storage.getRaceParticipants(race.id);
-        const isExistingParticipant = existingParticipants.some(p => 
+        const isExistingParticipant = existingParticipants.some(p =>
           (user && p.userId === user.id) || (!user && p.guestName === guestId)
         );
-        
+
         if (!isExistingParticipant) {
-          return res.status(403).json({ 
+          return res.status(403).json({
             message: "Room is locked - the host has locked this room to new players",
             code: "ROOM_LOCKED"
           });
@@ -2799,7 +2826,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const participants = await storage.getRaceParticipants(race.id);
-      
+
       let participant = participants.find(p => {
         if (user) {
           return p.userId === user.id;
@@ -2810,7 +2837,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!participant) {
         const inactive = await storage.findInactiveParticipant(race.id, user?.id, guestId);
-        
+
         if (inactive) {
           participant = await storage.reactivateRaceParticipant(inactive.id);
         } else {
@@ -2844,24 +2871,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
             isFinished: 0,
             isBot: 0,
           });
-          
+
           // CRITICAL: Update the race cache with the new participant
           // This ensures WebSocket can find the participant when they connect
           const { raceCache } = await import("./race-cache");
           const updatedParticipants = await storage.getRaceParticipants(race.id);
           raceCache.updateParticipants(race.id, updatedParticipants, race);
           console.log(`[Join Room] Updated race cache with new participant ${username} (${participant.id})`);
-          
+
           // CRITICAL: Broadcast to existing WebSocket clients that a new player joined
           // This ensures all players see the new participant immediately
           const { raceWebSocket } = await import("./websocket");
-          
+
           // First broadcast bot removal if applicable
           if (removedBotId) {
             raceWebSocket.broadcastParticipantRemoved(race.id, removedBotId, updatedParticipants);
             console.log(`[Join Room] Broadcast bot removal to existing WebSocket clients`);
           }
-          
+
           // Then broadcast the new participant
           raceWebSocket.broadcastNewParticipant(race.id, participant, updatedParticipants);
           console.log(`[Join Room] Broadcast new participant to existing WebSocket clients`);
@@ -2925,8 +2952,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('[Notifications] Race invite notification failed:', notificationError);
       }
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: `Invitation sent to ${targetUser.username}`,
         invitedUser: {
           id: targetUser.id,
@@ -2944,11 +2971,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { raceCache } = await import("./race-cache");
       const cachedRaces = raceCache.getActiveRaces();
-      
+
       if (cachedRaces.length > 0) {
         return res.json(cachedRaces);
       }
-      
+
       const activeRaces = await storage.getActiveRaces();
       res.json(activeRaces);
     } catch (error: any) {
@@ -2963,7 +2990,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { performHealthCheck } = await import("./health-check");
       const includeMetrics = req.query.metrics === "true";
       const result = await performHealthCheck(includeMetrics);
-      
+
       const statusCode = result.status === "healthy" ? 200 : result.status === "degraded" ? 200 : 503;
       res.status(statusCode).json(result);
     } catch (error: any) {
@@ -2998,13 +3025,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { chatCache } = await import("./chat-cache-service");
       const { requestDedup } = await import("./request-deduplication");
       const { chatHealthMonitor } = await import("./chat-health-monitor");
-      
+
       const windowMinutes = parseInt(req.query.window as string) || 60;
       const metrics = chatMetrics.getAggregatedMetrics(windowMinutes);
       const cacheStats = chatCache.getStats();
       const dedupStats = requestDedup.getStats();
       const healthStatus = chatHealthMonitor.getHealthStatus();
-      
+
       res.json({
         performance: metrics,
         cache: cacheStats,
@@ -3028,7 +3055,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { raceWebSocket } = await import("./websocket");
       const { metricsCollector } = await import("./metrics");
-      
+
       res.json({
         websocket: raceWebSocket.getStats(),
         cache: raceWebSocket.getCacheStats(),
@@ -3047,7 +3074,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/races/:id", async (req, res) => {
     try {
       const id = req.params.id;
-      
+
       let raceData;
       if (/^\d+$/.test(id)) {
         const raceId = parseInt(id);
@@ -3058,7 +3085,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           raceData = await storage.getRaceWithParticipants(race.id);
         }
       }
-      
+
       if (!raceData) {
         return res.status(404).json({ message: "Race not found" });
       }
@@ -3101,25 +3128,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 100);
       const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
       const cursor = req.query.cursor as string | undefined;
-      
+
       if (tier && !["bronze", "silver", "gold", "platinum", "diamond", "master", "grandmaster"].includes(tier)) {
         return res.status(400).json({ message: "Invalid tier" });
       }
-      
+
       const actualOffset = cursor ? leaderboardCache.decodeCursor(cursor) : offset;
-      
+
       const result = await leaderboardCache.getRatingLeaderboard({
         tier,
         limit,
         offset: actualOffset,
       });
-      
+
       const { eloRatingService } = await import("./elo-rating-service");
       const enrichedEntries = result.entries.map((entry: any) => ({
         ...entry,
         tierInfo: eloRatingService.getTierInfo(entry.tier),
       }));
-      
+
       res.set('Cache-Control', 'public, max-age=15');
       res.set('X-Cache', result.metadata.cacheHit ? 'HIT' : 'MISS');
       res.set('X-Total-Count', String(result.pagination.total));
@@ -3138,12 +3165,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const tier = req.query.tier as string | undefined;
       const range = Math.min(Math.max(1, parseInt(req.query.range as string) || 5), 20);
-      
+
       const result = await leaderboardCache.getAroundMe("rating", req.user!.id, { tier, range });
-      
+
       res.set('Cache-Control', 'private, max-age=10');
       res.set('X-Cache', result.cacheHit ? 'HIT' : 'MISS');
-      
+
       res.json({
         userRank: result.userRank,
         entries: result.entries,
@@ -3157,13 +3184,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/ratings/:userId", ratingLimiter, async (req, res) => {
     try {
       const userId = req.params.userId;
-      
+
       if (!userId || typeof userId !== 'string' || userId.length > 100) {
         return res.status(400).json({ message: "Invalid user ID" });
       }
-      
+
       const rating = await storage.getUserRating(userId);
-      
+
       if (!rating) {
         return res.status(404).json({ message: "Rating not found" });
       }
@@ -3206,19 +3233,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/replays/:raceId", ratingLimiter, async (req, res) => {
     try {
       const raceIdParam = req.params.raceId;
-      
+
       if (!raceIdParam || !/^\d+$/.test(raceIdParam)) {
         return res.status(400).json({ message: "Invalid race ID" });
       }
-      
+
       const raceId = parseInt(raceIdParam);
-      
+
       if (raceId <= 0 || raceId > 2147483647) {
         return res.status(400).json({ message: "Invalid race ID" });
       }
-      
+
       const replay = await storage.getRaceReplay(raceId);
-      
+
       if (!replay) {
         return res.status(404).json({ message: "Replay not found" });
       }
@@ -3229,7 +3256,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const participants = await storage.getRaceParticipants(raceId);
           const userId = req.user?.id;
           const isParticipant = userId && participants.some(p => p.userId === userId);
-          
+
           if (!isParticipant) {
             return res.status(403).json({ message: "Access denied: private replay" });
           }
@@ -3248,11 +3275,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/races/:raceId/chat", ratingLimiter, async (req, res) => {
     try {
       const raceIdParam = req.params.raceId;
-      
+
       if (!raceIdParam || !/^\d+$/.test(raceIdParam)) {
         return res.status(400).json({ message: "Invalid race ID" });
       }
-      
+
       const raceId = parseInt(raceIdParam);
       const limitParam = req.query.limit ? parseInt(req.query.limit as string) : 100;
       const limit = Math.min(Math.max(1, limitParam), 500);
@@ -3268,7 +3295,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/anti-cheat/certification", isAuthenticated, async (req, res) => {
     try {
       const certification = await storage.getUserCertification(req.user!.id);
-      res.json({ 
+      res.json({
         certified: !!certification,
         certification: certification || null,
       });
@@ -3299,7 +3326,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tolerance = Math.min(Math.max(50, toleranceParam), 500);
       const { eloRatingService } = await import("./elo-rating-service");
       const pool = await eloRatingService.getMatchmakingPool(req.user!.id, tolerance);
-      
+
       const enrichedPool = await Promise.all(
         pool.map(async (rating) => {
           const user = await storage.getUser(rating.userId);
@@ -3334,7 +3361,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/code/snippet", aiGenerationLimiter, async (req, res) => {
     try {
       const { z } = await import("zod");
-      
+
       const querySchema = z.object({
         language: z.string().min(1).max(50).regex(/^[a-zA-Z0-9+#_-]+$/),
         difficulty: z.enum(["easy", "medium", "hard"]).optional(),
@@ -3345,21 +3372,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         testMode: z.enum(["normal", "expert", "master"]).optional(),
         customPrompt: z.string().max(500).optional(),
       });
-      
+
       const parsed = querySchema.safeParse(req.query);
-      
+
       if (!parsed.success) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Invalid request parameters",
           errors: fromError(parsed.error).toString()
         });
       }
-      
+
       const { language, difficulty, framework, generate, forceNew, timeLimit, testMode, customPrompt } = parsed.data;
       const timeLimitNum = timeLimit ? parseInt(timeLimit, 10) : 0;
 
       let snippet = null;
-      
+
       // Only use cached snippets if not forcing new generation
       if (forceNew !== "true") {
         snippet = await storage.getRandomCodeSnippet(language, difficulty, framework);
@@ -3368,7 +3395,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate new snippet if none found or force new is requested
       if ((!snippet || forceNew === "true") && generate === "true") {
         console.log(`🤖 Generating fresh code snippet for ${language}/${difficulty || 'medium'} (${timeLimitNum}s, ${testMode || 'normal'} mode)${customPrompt ? ` [Custom: ${customPrompt.substring(0, 50)}...]` : ''}`);
-        
+
         try {
           const { content, description } = await generateCodeSnippet(
             language,
@@ -3378,10 +3405,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             testMode || "normal",
             customPrompt
           );
-          
+
           const lineCount = content.split('\n').length;
           const characterCount = content.length;
-          
+
           snippet = await storage.createCodeSnippet({
             programmingLanguage: language,
             framework,
@@ -3391,7 +3418,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             characterCount,
             description,
           });
-          
+
           console.log(`✅ Generated and saved ${lineCount}-line ${language} code snippet`);
         } catch (error) {
           console.error("❌ Code generation failed:", error);
@@ -3502,19 +3529,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 100);
       const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
       const cursor = req.query.cursor as string | undefined;
-      
+
       const actualOffset = cursor ? leaderboardCache.decodeCursor(cursor) : offset;
-      
+
       const result = await leaderboardCache.getCodeLeaderboard({
         language,
         limit,
         offset: actualOffset,
       });
-      
+
       res.set('Cache-Control', 'public, max-age=30');
       res.set('X-Cache', result.metadata.cacheHit ? 'HIT' : 'MISS');
       res.set('X-Total-Count', String(result.pagination.total));
-      
+
       res.json(result);
     } catch (error: any) {
       console.error("Get code leaderboard error:", error);
@@ -3528,12 +3555,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validLanguages = ["javascript", "typescript", "python", "java", "go", "rust", "csharp"];
       const language = rawLanguage && validLanguages.includes(rawLanguage) ? rawLanguage : undefined;
       const range = Math.min(Math.max(1, parseInt(req.query.range as string) || 5), 20);
-      
+
       const result = await leaderboardCache.getAroundMe("code", req.user!.id, { language, range });
-      
+
       res.set('Cache-Control', 'private, max-age=10');
       res.set('X-Cache', result.cacheHit ? 'HIT' : 'MISS');
-      
+
       res.json({
         userRank: result.userRank,
         entries: result.entries,
@@ -3547,7 +3574,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/code/share", isAuthenticated, async (req, res) => {
     try {
       const user = req.user as any;
-      
+
       const sanitizedCodeContent = DOMPurify.sanitize(req.body.codeContent, {
         ALLOWED_TAGS: [],
         ALLOWED_ATTR: [],
@@ -3560,7 +3587,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       while (attempts < maxAttempts) {
         try {
           const shareId = Math.random().toString(36).substring(2, 12).toUpperCase();
-          
+
           const dataToValidate = {
             shareId,
             userId: user.id,
@@ -3581,14 +3608,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           if (!validationResult.success) {
             const validationError = fromError(validationResult.error);
-            return res.status(400).json({ 
-              message: "Validation error", 
-              error: validationError.toString() 
+            return res.status(400).json({
+              message: "Validation error",
+              error: validationError.toString()
             });
           }
-          
+
           sharedResult = await storage.createSharedCodeResult(validationResult.data);
-          
+
           break;
         } catch (err: any) {
           if (err.code === '23505' && err.constraint === 'shared_code_results_share_id_unique') {
@@ -3601,7 +3628,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           throw err;
         }
       }
-      
+
       res.json(sharedResult);
     } catch (error: any) {
       console.error("Share code result error:", error);
@@ -3612,35 +3639,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/code/share/:shareId", async (req, res) => {
     try {
       const { shareId } = req.params;
-      
+
       // Validate shareId format
       if (!shareId || typeof shareId !== 'string') {
         return res.status(400).json({ message: "Invalid share link format" });
       }
-      
+
       const sanitizedShareId = shareId.trim().toUpperCase();
       if (!/^[A-Z0-9]{10}$/.test(sanitizedShareId)) {
         return res.status(400).json({ message: "Invalid share link" });
       }
-      
+
       // Fetch with timeout protection
       const sharedResult = await Promise.race([
         storage.getSharedCodeResult(sanitizedShareId),
-        new Promise((_, reject) => 
+        new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Database query timeout')), 10000)
         )
       ]) as any;
-      
+
       if (!sharedResult) {
         return res.status(404).json({ message: "Shared result not found" });
       }
-      
+
       // Validate required fields
       if (!sharedResult.codeContent || sharedResult.wpm == null || sharedResult.accuracy == null) {
         console.error(`[Share] Incomplete code share data for ${sanitizedShareId}`);
         return res.status(500).json({ message: "Shared result data is incomplete" });
       }
-      
+
       // Fetch certificate (non-critical)
       let certificate = null;
       try {
@@ -3648,19 +3675,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (certErr) {
         console.error(`[Share] Failed to fetch certificate for code test ${sharedResult.id}:`, certErr);
       }
-      
+
       // Sanitize code content (defense in depth)
       const safeCodeContent = DOMPurify.sanitize(sharedResult.codeContent, {
         ALLOWED_TAGS: [],
         ALLOWED_ATTR: [],
       });
-      
+
       // Validate sanitization didn't completely strip content
       if (!safeCodeContent || safeCodeContent.trim().length === 0) {
         console.error(`[Share] Code content was completely sanitized for ${sanitizedShareId}`);
         return res.status(500).json({ message: "Unable to display code content safely" });
       }
-      
+
       res.set('Cache-Control', 'public, max-age=60');
       res.set('X-Content-Type-Options', 'nosniff');
       res.json({
@@ -3682,15 +3709,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("[Share] Get shared code result error:", error);
-      
+
       if (error.message === 'Database query timeout') {
         return res.status(504).json({ message: "Request timed out. Please try again." });
       }
-      
+
       if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
         return res.status(503).json({ message: "Service temporarily unavailable" });
       }
-      
+
       res.status(500).json({ message: "Failed to fetch shared result" });
     }
   });
@@ -3701,41 +3728,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const topic = req.query.topic as string | undefined;
       const durationMode = req.query.durationMode ? parseInt(req.query.durationMode as string) : undefined;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
-      
+
       if (difficulty && !['easy', 'medium', 'hard'].includes(difficulty)) {
-        return res.status(400).json({ 
-          message: "Invalid difficulty", 
+        return res.status(400).json({
+          message: "Invalid difficulty",
           code: "INVALID_DIFFICULTY",
-          validValues: ['easy', 'medium', 'hard'] 
+          validValues: ['easy', 'medium', 'hard']
         });
       }
-      
+
       if (durationMode && ![30, 60, 90, 120].includes(durationMode)) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Invalid duration mode",
           code: "INVALID_DURATION",
           validValues: [30, 60, 90, 120]
         });
       }
-      
+
       if (limit < 1 || limit > 100) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Limit must be between 1 and 100",
           code: "INVALID_LIMIT"
         });
       }
-      
+
       const paragraphs = await storage.getBookParagraphs({
         difficulty,
         topic,
         durationMode,
         limit,
       });
-      
+
       res.json({ paragraphs });
     } catch (error: any) {
       console.error("Get book paragraphs error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to fetch book paragraphs",
         code: "SERVER_ERROR"
       });
@@ -3747,33 +3774,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const difficulty = req.query.difficulty as string | undefined;
       const topic = req.query.topic as string | undefined;
       const durationMode = req.query.durationMode ? parseInt(req.query.durationMode as string) : undefined;
-      
+
       if (difficulty && !['easy', 'medium', 'hard'].includes(difficulty)) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Invalid difficulty",
           code: "INVALID_DIFFICULTY",
           validValues: ['easy', 'medium', 'hard']
         });
       }
-      
+
       const paragraph = await storage.getRandomBookParagraph({
         difficulty,
         topic,
         durationMode,
       });
-      
+
       if (!paragraph) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           message: "No paragraphs found matching your filters. Try different settings.",
           code: "NO_PARAGRAPHS",
           filters: { difficulty, topic, durationMode }
         });
       }
-      
+
       res.json(paragraph);
     } catch (error: any) {
       console.error("Get random book paragraph error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to fetch random book paragraph",
         code: "SERVER_ERROR"
       });
@@ -3783,28 +3810,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/book-paragraphs/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      
+
       if (isNaN(id) || id < 1) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Invalid paragraph ID. Must be a positive integer.",
           code: "INVALID_ID"
         });
       }
-      
+
       const paragraph = await storage.getBookParagraphById(id);
-      
+
       if (!paragraph) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           message: "Book paragraph not found",
           code: "NOT_FOUND",
           id
         });
       }
-      
+
       res.json({ paragraph });
     } catch (error: any) {
       console.error("Get book paragraph by ID error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to fetch book paragraph",
         code: "SERVER_ERROR"
       });
@@ -3815,36 +3842,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const bookId = parseInt(req.params.bookId);
       const paragraphIndex = parseInt(req.params.paragraphIndex);
-      
+
       if (isNaN(bookId) || bookId < 1) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Invalid book ID. Must be a positive integer.",
           code: "INVALID_BOOK_ID"
         });
       }
-      
+
       if (isNaN(paragraphIndex) || paragraphIndex < 0) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Invalid paragraph index. Must be a non-negative integer.",
           code: "INVALID_PARAGRAPH_INDEX"
         });
       }
-      
+
       const nextParagraph = await storage.getNextBookParagraph(bookId, paragraphIndex);
-      
+
       if (!nextParagraph) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           message: "No more paragraphs available in this book",
           code: "END_OF_BOOK",
           bookId,
           lastIndex: paragraphIndex
         });
       }
-      
+
       res.json(nextParagraph);
     } catch (error: any) {
       console.error("Get next book paragraph error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to fetch next book paragraph",
         code: "SERVER_ERROR"
       });
@@ -3854,12 +3881,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/book-topics", async (req, res) => {
     try {
       const topics = await storage.getBookTopics();
-      
+
       res.set('Cache-Control', 'public, max-age=300');
       res.json({ topics });
     } catch (error: any) {
       console.error("Get book topics error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to fetch book topics",
         code: "SERVER_ERROR"
       });
@@ -3869,12 +3896,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/books", async (req, res) => {
     try {
       const books = await storage.getAllBooks();
-      
+
       res.set('Cache-Control', 'public, max-age=60');
       res.json(books);
     } catch (error: any) {
       console.error("Get all books error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to fetch books",
         code: "SERVER_ERROR"
       });
@@ -3884,29 +3911,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/books/:slug", async (req, res) => {
     try {
       const { slug } = req.params;
-      
+
       if (!slug || slug.length < 1 || slug.length > 200) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Invalid book slug",
           code: "INVALID_SLUG"
         });
       }
-      
+
       const book = await storage.getBookBySlug(slug);
-      
+
       if (!book) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           message: "Book not found",
           code: "NOT_FOUND",
           slug
         });
       }
-      
+
       res.set('Cache-Control', 'public, max-age=300');
       res.json(book);
     } catch (error: any) {
       console.error("Get book by slug error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to fetch book",
         code: "SERVER_ERROR"
       });
@@ -3916,32 +3943,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/books/:bookId/chapters", async (req, res) => {
     try {
       const bookId = parseInt(req.params.bookId);
-      
+
       if (isNaN(bookId) || bookId < 1) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Invalid book ID. Must be a positive integer.",
           code: "INVALID_BOOK_ID"
         });
       }
-      
+
       const chapters = await storage.getBookChapters(bookId);
-      
+
       if (chapters.length === 0) {
         const bookExists = await storage.getBookById(bookId);
         if (!bookExists) {
-          return res.status(404).json({ 
+          return res.status(404).json({
             message: "Book not found",
             code: "BOOK_NOT_FOUND",
             bookId
           });
         }
       }
-      
+
       res.set('Cache-Control', 'public, max-age=300');
       res.json(chapters);
     } catch (error: any) {
       console.error("Get book chapters error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to fetch chapters",
         code: "SERVER_ERROR"
       });
@@ -3952,45 +3979,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const bookId = parseInt(req.params.bookId);
       const chapter = parseInt(req.params.chapter);
-      
+
       if (isNaN(bookId) || bookId < 1) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Invalid book ID. Must be a positive integer.",
           code: "INVALID_BOOK_ID"
         });
       }
-      
+
       if (isNaN(chapter) || chapter < 1) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Invalid chapter number. Must be a positive integer.",
           code: "INVALID_CHAPTER"
         });
       }
-      
+
       const paragraphs = await storage.getChapterParagraphs(bookId, chapter);
-      
+
       if (paragraphs.length === 0) {
         const bookExists = await storage.getBookById(bookId);
         if (!bookExists) {
-          return res.status(404).json({ 
+          return res.status(404).json({
             message: "Book not found",
             code: "BOOK_NOT_FOUND",
             bookId
           });
         }
-        return res.status(404).json({ 
+        return res.status(404).json({
           message: "Chapter not found",
           code: "CHAPTER_NOT_FOUND",
           bookId,
           chapter
         });
       }
-      
+
       res.set('Cache-Control', 'public, max-age=300');
       res.json(paragraphs);
     } catch (error: any) {
       console.error("Get chapter paragraphs error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to fetch chapter paragraphs",
         code: "SERVER_ERROR"
       });
@@ -4018,7 +4045,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           code: "INVALID_WPM"
         });
       }
-      
+
       if (parsed.data.accuracy < 0 || parsed.data.accuracy > 100) {
         return res.status(400).json({
           message: "Invalid accuracy value. Must be between 0 and 100.",
@@ -4027,21 +4054,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const result = await storage.createBookTestResult(parsed.data);
-      res.status(201).json({ 
-        message: "Book test result saved", 
-        result 
+      res.status(201).json({
+        message: "Book test result saved",
+        result
       });
     } catch (error: any) {
       console.error("Save book test result error:", error);
-      
+
       if (error.code === '23503') {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Invalid paragraph ID",
           code: "INVALID_PARAGRAPH_ID"
         });
       }
-      
-      res.status(500).json({ 
+
+      res.status(500).json({
         message: "Failed to save book test result",
         code: "SERVER_ERROR"
       });
@@ -4051,19 +4078,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/book-tests", isAuthenticated, async (req, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
-      
+
       if (limit < 1 || limit > 100) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Limit must be between 1 and 100",
           code: "INVALID_LIMIT"
         });
       }
-      
+
       const results = await storage.getBookTestResults(req.user!.id, limit);
       res.json({ results });
     } catch (error: any) {
       console.error("Get book test results error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to fetch book test results",
         code: "SERVER_ERROR"
       });
@@ -4075,18 +4102,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const difficulty = req.query.difficulty as string | undefined;
       const category = req.query.category as string | undefined;
       const excludeIdsParam = req.query.excludeIds as string | undefined;
-      
+
       let excludeIds: number[] | undefined;
       if (excludeIdsParam) {
         excludeIds = excludeIdsParam.split(',').map(id => parseInt(id, 10)).filter(id => !isNaN(id));
       }
-      
+
       const sentence = await storage.getRandomDictationSentence(difficulty, category, excludeIds);
-      
+
       if (!sentence) {
         return res.status(404).json({ message: "No sentences available" });
       }
-      
+
       res.json({ sentence });
     } catch (error: any) {
       console.error("Get dictation sentence error:", error);
@@ -4145,18 +4172,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 100);
       const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
       const cursor = req.query.cursor as string | undefined;
-      
+
       const actualOffset = cursor ? leaderboardCache.decodeCursor(cursor) : offset;
-      
+
       const result = await leaderboardCache.getDictationLeaderboard({
         limit,
         offset: actualOffset,
       });
-      
+
       res.set('Cache-Control', 'public, max-age=30');
       res.set('X-Cache', result.metadata.cacheHit ? 'HIT' : 'MISS');
       res.set('X-Total-Count', String(result.pagination.total));
-      
+
       res.json(result);
     } catch (error: any) {
       console.error("Get dictation leaderboard error:", error);
@@ -4167,12 +4194,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/dictation/leaderboard/around-me", isAuthenticated, leaderboardAroundMeLimiter, async (req, res) => {
     try {
       const range = Math.min(Math.max(1, parseInt(req.query.range as string) || 5), 20);
-      
+
       const result = await leaderboardCache.getAroundMe("dictation", req.user!.id, { range });
-      
+
       res.set('Cache-Control', 'private, max-age=10');
       res.set('X-Cache', result.cacheHit ? 'HIT' : 'MISS');
-      
+
       res.json({
         userRank: result.userRank,
         entries: result.entries,
@@ -4193,19 +4220,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
       const cursor = req.query.cursor as string | undefined;
       const topic = req.query.topic as string | undefined;
-      
+
       const actualOffset = cursor ? leaderboardCache.decodeCursor(cursor) : offset;
-      
+
       const result = await leaderboardCache.getBookLeaderboard({
         topic,
         limit,
         offset: actualOffset,
       });
-      
+
       res.set('Cache-Control', 'public, max-age=30');
       res.set('X-Cache', result.metadata.cacheHit ? 'HIT' : 'MISS');
       res.set('X-Total-Count', String(result.pagination.total));
-      
+
       res.json(result);
     } catch (error: any) {
       console.error("Get book leaderboard error:", error);
@@ -4217,12 +4244,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const range = Math.min(Math.max(1, parseInt(req.query.range as string) || 5), 20);
       const topic = req.query.topic as string | undefined;
-      
+
       const result = await leaderboardCache.getAroundMe("book", req.user!.id, { topic, range });
-      
+
       res.set('Cache-Control', 'private, max-age=10');
       res.set('X-Cache', result.cacheHit ? 'HIT' : 'MISS');
-      
+
       res.json({
         userRank: result.userRank,
         entries: result.entries,
@@ -4236,30 +4263,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/dictation/tts", async (req, res) => {
     try {
       const { text, voice = "alloy", speed = 1.0 } = req.body;
-      
+
       if (!text || typeof text !== "string" || text.trim().length === 0) {
         return res.status(400).json({ message: "Text is required" });
       }
-      
+
       if (text.length > 1000) {
         return res.status(400).json({ message: "Text too long (max 1000 characters)" });
       }
-      
+
       // Support multiple env var names for compatibility with different deployments
-      const apiKey = process.env.OPENAI_TTS_API_KEY 
-        || process.env.OPENAI_API_KEY 
+      const apiKey = process.env.OPENAI_TTS_API_KEY
+        || process.env.OPENAI_API_KEY
         || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
       if (!apiKey) {
-        return res.status(503).json({ 
-          message: "TTS not available", 
-          fallback: true 
+        return res.status(503).json({
+          message: "TTS not available",
+          fallback: true
         });
       }
-      
+
       const validVoices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
       const selectedVoice = validVoices.includes(voice) ? voice : "alloy";
       const selectedSpeed = Math.max(0.25, Math.min(4.0, speed));
-      
+
       const response = await fetch("https://api.openai.com/v1/audio/speech", {
         method: "POST",
         headers: {
@@ -4274,30 +4301,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
           response_format: "mp3",
         }),
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error("OpenAI TTS error:", response.status, errorText);
-        return res.status(503).json({ 
-          message: "TTS generation failed", 
-          fallback: true 
+        return res.status(503).json({
+          message: "TTS generation failed",
+          fallback: true
         });
       }
-      
+
       const audioBuffer = await response.arrayBuffer();
-      
+
       res.set({
         "Content-Type": "audio/mpeg",
         "Content-Length": audioBuffer.byteLength.toString(),
         "Cache-Control": "public, max-age=3600",
       });
-      
+
       res.send(Buffer.from(audioBuffer));
     } catch (error: any) {
       console.error("TTS error:", error);
-      res.status(503).json({ 
-        message: "TTS service error", 
-        fallback: true 
+      res.status(503).json({
+        message: "TTS service error",
+        fallback: true
       });
     }
   });
@@ -4307,29 +4334,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/dictation/tts/stream", async (req, res) => {
     try {
       const { text, voice = "alloy", speed = 1.0 } = req.body;
-      
+
       if (!text || typeof text !== "string" || text.trim().length === 0) {
         return res.status(400).json({ message: "Text is required" });
       }
-      
+
       if (text.length > 1000) {
         return res.status(400).json({ message: "Text too long (max 1000 characters)" });
       }
-      
-      const apiKey = process.env.OPENAI_TTS_API_KEY 
-        || process.env.OPENAI_API_KEY 
+
+      const apiKey = process.env.OPENAI_TTS_API_KEY
+        || process.env.OPENAI_API_KEY
         || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
       if (!apiKey) {
-        return res.status(503).json({ 
-          message: "TTS not available", 
-          fallback: true 
+        return res.status(503).json({
+          message: "TTS not available",
+          fallback: true
         });
       }
-      
+
       const validVoices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
       const selectedVoice = validVoices.includes(voice) ? voice : "alloy";
       const selectedSpeed = Math.max(0.25, Math.min(4.0, speed));
-      
+
       // Use PCM format for lowest latency (no encoding/decoding overhead)
       const response = await fetch("https://api.openai.com/v1/audio/speech", {
         method: "POST",
@@ -4345,13 +4372,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           response_format: "pcm",
         }),
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error("OpenAI TTS streaming error:", response.status, errorText);
-        return res.status(503).json({ 
-          message: "TTS generation failed", 
-          fallback: true 
+        return res.status(503).json({
+          message: "TTS generation failed",
+          fallback: true
         });
       }
 
@@ -4368,7 +4395,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Pipe OpenAI's streaming response directly to the client
       if (response.body) {
         const reader = response.body.getReader();
-        
+
         try {
           while (true) {
             const { done, value } = await reader.read();
@@ -4390,9 +4417,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("TTS streaming error:", error);
       if (!res.headersSent) {
-        res.status(503).json({ 
-          message: "TTS service error", 
-          fallback: true 
+        res.status(503).json({
+          message: "TTS service error",
+          fallback: true
         });
       }
     }
@@ -4417,7 +4444,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { insertStressTestSchema } = await import("@shared/schema");
       const { validateStressTestSubmission, logSuspiciousSubmission } = await import("./stress-test-anticheat");
-      
+
       const parsed = insertStressTestSchema.safeParse({
         ...req.body,
         userId: req.user!.id,
@@ -4473,14 +4500,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (streakError) {
         console.warn('[Streak] Failed to update streak for stress test:', streakError);
       }
-      
+
       // Check if this score makes it to the leaderboard (top 50)
       const leaderboard = await storage.getStressTestLeaderboard(parsed.data.difficulty, 50);
-      const isLeaderboardEntry = leaderboard.length < 50 || 
+      const isLeaderboardEntry = leaderboard.length < 50 ||
         parsed.data.stressScore > (leaderboard[leaderboard.length - 1]?.stressScore || 0);
-      
-      res.status(201).json({ 
-        message: isNewPersonalBest ? "New personal best saved!" : "Score recorded", 
+
+      res.status(201).json({
+        message: isNewPersonalBest ? "New personal best saved!" : "Score recorded",
         result,
         isNewPersonalBest,
         isLeaderboardEntry,
@@ -4501,19 +4528,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 100);
       const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
       const cursor = req.query.cursor as string | undefined;
-      
+
       const actualOffset = cursor ? leaderboardCache.decodeCursor(cursor) : offset;
-      
+
       const result = await leaderboardCache.getStressLeaderboard({
         difficulty,
         limit,
         offset: actualOffset,
       });
-      
+
       res.set('Cache-Control', 'public, max-age=5');
       res.set('X-Cache', result.metadata.cacheHit ? 'HIT' : 'MISS');
       res.set('X-Total-Count', String(result.pagination.total));
-      
+
       res.json(result);
     } catch (error: any) {
       console.error("Get stress test leaderboard error:", error);
@@ -4527,12 +4554,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validDifficulties = ["beginner", "intermediate", "expert", "nightmare", "impossible"];
       const difficulty = rawDifficulty && validDifficulties.includes(rawDifficulty) ? rawDifficulty : undefined;
       const range = Math.min(Math.max(1, parseInt(req.query.range as string) || 5), 20);
-      
+
       const result = await leaderboardCache.getAroundMe("stress", req.user!.id, { difficulty, range });
-      
+
       res.set('Cache-Control', 'private, max-age=10');
       res.set('X-Cache', result.cacheHit ? 'HIT' : 'MISS');
-      
+
       res.json({
         userRank: result.userRank,
         entries: result.entries,
@@ -4573,7 +4600,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!resultId) {
         return res.status(400).json({ message: "Result ID is required" });
       }
-      
+
       // Validate resultId is a valid number
       const parsedResultId = parseInt(resultId);
       if (isNaN(parsedResultId) || parsedResultId <= 0) {
@@ -4601,13 +4628,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.warn(`[Share] Unauthorized access to dictation test ${parsedResultId} by user ${req.user?.id}`);
             return res.status(403).json({ message: "Unauthorized: cannot share another user's result" });
           }
-          
+
           // Validate dictation test has required fields
           if (dictationTest.wpm == null || dictationTest.accuracy == null || dictationTest.errors == null) {
             console.error(`[Share] Incomplete dictation test data for ${parsedResultId}:`, dictationTest);
             return res.status(400).json({ message: "Incomplete test result data" });
           }
-          
+
           statsData = {
             wpm: Math.max(0, Math.min(300, dictationTest.wpm)),
             accuracy: Math.max(0, Math.min(100, dictationTest.accuracy)),
@@ -4629,12 +4656,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!req.user || testResult.userId !== req.user.id) {
             return res.status(403).json({ message: "Unauthorized: cannot share another user's result" });
           }
-          
+
           // Validate test result has required fields
           if (testResult.wpm == null || testResult.accuracy == null || testResult.errors == null) {
             return res.status(400).json({ message: "Incomplete test result data" });
           }
-          
+
           // Map integer mode to string (best-effort)
           const modeMap: Record<number, string> = {
             0: 'normal',
@@ -4642,9 +4669,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             2: 'practice',
             3: 'challenge',
           };
-          
+
           const storedMode = modeMap[testResult.mode] || 'typing';
-          
+
           statsData = {
             wpm: Math.max(0, Math.min(300, testResult.wpm)),
             accuracy: Math.max(0, Math.min(100, testResult.accuracy)),
@@ -4658,8 +4685,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         case 'code':
         case 'book':
         case 'multiplayer':
-          return res.status(501).json({ 
-            message: `Sharing for ${mode} mode is not yet implemented. Currently supported: dictation, normal, timed, practice, challenge` 
+          return res.status(501).json({
+            message: `Sharing for ${mode} mode is not yet implemented. Currently supported: dictation, normal, timed, practice, challenge`
           });
 
         default:
@@ -4670,16 +4697,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!statsData || typeof statsData !== 'object') {
         return res.status(500).json({ message: "Failed to process test statistics" });
       }
-      
+
       if (statsData.wpm < 0 || statsData.wpm > 300 ||
-          statsData.accuracy < 0 || statsData.accuracy > 100 ||
-          statsData.errors < 0 ||
-          (statsData.duration && statsData.duration < 0) ||
-          (statsData.characters && statsData.characters < 0)) {
+        statsData.accuracy < 0 || statsData.accuracy > 100 ||
+        statsData.errors < 0 ||
+        (statsData.duration && statsData.duration < 0) ||
+        (statsData.characters && statsData.characters < 0)) {
         console.error(`[Share] Invalid stats detected:`, statsData);
         return res.status(400).json({ message: "Invalid statistics detected" });
       }
-      
+
       // Additional sanity checks
       if (statsData.wpm === 0 && statsData.accuracy === 0 && statsData.errors === 0) {
         return res.status(400).json({ message: "Cannot share empty test result" });
@@ -4691,7 +4718,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // extremely rare fallback to guarantee length
         shareToken = (shareToken + crypto.randomBytes(9).toString("base64url")).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 12);
       }
-      
+
       const shareData = {
         shareToken,
         userId: req.user?.id || null,
@@ -4713,7 +4740,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let sharedResult;
       let dataToInsert = { ...parsed.data };
       const maxRetries = 3;
-      
+
       for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
           sharedResult = await storage.createSharedResult(dataToInsert);
@@ -4738,7 +4765,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           throw err;
         }
       }
-      
+
       // If we exhausted retries without success
       if (!sharedResult) {
         console.error(`[Share] Failed to create shared result after ${maxRetries} attempts`);
@@ -4751,7 +4778,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const host = forwardedHost || req.get('host');
       const proto = forwardedProto || req.protocol;
       let baseUrlRaw = '';
-      
+
       if (process.env.NODE_ENV === "production") {
         baseUrlRaw = (process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || '').toString();
         if (!baseUrlRaw) {
@@ -4765,32 +4792,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         baseUrlRaw = `${proto}://${host || 'localhost:5000'}`;
       }
-      
+
       const baseUrl = baseUrlRaw.replace(/\/+$/, '');
-      
+
       // Validate base URL is well-formed
       if (!baseUrl || !/^https?:\/\/.+/.test(baseUrl)) {
         console.error(`[Share] Invalid base URL generated: ${baseUrl}`);
         return res.status(500).json({ message: "Failed to generate share URL" });
       }
 
-      res.status(201).json({ 
+      res.status(201).json({
         message: "Result shared successfully",
         shareToken: sharedResult.shareToken,
         shareUrl: `${baseUrl}/result/${sharedResult.shareToken}`
       });
     } catch (error: any) {
       console.error("[Share] Create shared result error:", error);
-      
+
       // Categorize errors for better user feedback
       if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
         return res.status(503).json({ message: "Database connection error. Please try again." });
       }
-      
+
       if (error.name === 'ValidationError') {
         return res.status(400).json({ message: "Invalid data format" });
       }
-      
+
       // Generic error
       res.status(500).json({ message: "Failed to create share link. Please try again later." });
     }
@@ -4799,26 +4826,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/share/:shareToken", async (req, res) => {
     try {
       const { shareToken } = req.params;
-      
+
       // Validate token format strictly
       if (!shareToken || typeof shareToken !== 'string') {
         return res.status(400).json({ message: "Invalid share link format" });
       }
-      
+
       // Sanitize and validate token
       const sanitizedToken = shareToken.trim();
       if (!/^[A-Za-z0-9_-]{12}$/.test(sanitizedToken)) {
         return res.status(400).json({ message: "Invalid share link" });
       }
-      
+
       // Fetch shared result with timeout protection
       const sharedResult = await Promise.race([
         storage.getSharedResult(sanitizedToken),
-        new Promise((_, reject) => 
+        new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Database query timeout')), 10000)
         )
       ]) as any;
-      
+
       if (!sharedResult) {
         return res.status(404).json({ message: "Shared result not found" });
       }
@@ -4851,21 +4878,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         viewCount: Math.max(0, (sharedResult.viewCount || 0) + 1),
         createdAt: sharedResult.createdAt,
       } as const;
-      
+
       res.set('Cache-Control', 'public, max-age=60');
       res.set('X-Content-Type-Options', 'nosniff');
       res.json({ result: safe });
     } catch (error: any) {
       console.error("[Share] Get shared result error:", error);
-      
+
       if (error.message === 'Database query timeout') {
         return res.status(504).json({ message: "Request timed out. Please try again." });
       }
-      
+
       if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
         return res.status(503).json({ message: "Service temporarily unavailable" });
       }
-      
+
       res.status(500).json({ message: "Failed to fetch shared result" });
     }
   });
@@ -4894,7 +4921,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log('[Analytics Save] burstWpm:', analytics.burstWpm, 'adjustedWpm:', analytics.adjustedWpm, 'typingRhythm:', analytics.typingRhythm);
         const savedAnalytics = await storage.saveTypingAnalytics(analyticsData);
         console.log('[Analytics Save] Saved ID:', savedAnalytics.id, 'burstWpm in DB:', savedAnalytics.burstWpm);
-        return res.json({ 
+        return res.json({
           message: "Analytics saved successfully",
           analyticsId: savedAnalytics.id
         });
@@ -4926,7 +4953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       const analytics = await storage.getTypingAnalyticsById(id);
-      
+
       if (!analytics) {
         return res.status(404).json({ message: "Analytics not found" });
       }
@@ -5012,12 +5039,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    
+
     const admin = await storage.getFeedbackAdmin(req.user.id);
     if (!admin) {
       return res.status(403).json({ message: "Access denied. Admin privileges required." });
     }
-    
+
     req.feedbackAdmin = admin;
     next();
   }
@@ -5035,7 +5062,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/feedback", feedbackLimiter, async (req, res) => {
     try {
       const parsed = submitFeedbackSchema.safeParse(req.body);
-      
+
       if (!parsed.success) {
         return res.status(400).json({
           message: "Validation failed",
@@ -5044,31 +5071,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { honeypot, ...feedbackData } = parsed.data;
-      
+
       if (honeypot && honeypot.length > 0) {
         console.log("[Feedback] Honeypot triggered, marking as spam");
-        return res.status(201).json({ 
+        return res.status(201).json({
           message: "Thank you for your feedback!",
           feedbackId: 0,
         });
       }
 
-      const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || 
-                       req.socket.remoteAddress || 
-                       'unknown';
-      
+      const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ||
+        req.socket.remoteAddress ||
+        'unknown';
+
       const identifier = req.user ? req.user.id : ipAddress;
       const identifierType = req.user ? 'user' : 'ip';
-      
+
       const rateCheck = await storage.checkFeedbackRateLimit(identifier, identifierType);
       if (!rateCheck.allowed) {
         if (rateCheck.blockedUntil) {
-          return res.status(429).json({ 
+          return res.status(429).json({
             message: "You have been temporarily blocked from submitting feedback.",
             blockedUntil: rateCheck.blockedUntil,
           });
         }
-        return res.status(429).json({ 
+        return res.status(429).json({
           message: "Too many feedback submissions. Please try again later.",
           remaining: rateCheck.remaining,
           resetAt: rateCheck.resetAt,
@@ -5101,9 +5128,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       const newFeedback = await storage.createFeedback(feedbackToCreate);
-      
+
       await storage.recordFeedbackSubmission(identifier, identifierType);
-      
+
       await storage.recordFeedbackStatusHistory({
         feedbackId: newFeedback.id,
         previousStatus: null,
@@ -5127,7 +5154,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         storage
       );
 
-      res.status(201).json({ 
+      res.status(201).json({
         message: "Thank you for your feedback!",
         feedbackId: newFeedback.id,
       });
@@ -5146,7 +5173,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const userUpvotes = await storage.getUserFeedbackUpvotes(req.user!.id);
       const hasUpvoted = userUpvotes.some(u => u.feedbackId === feedbackId);
-      
+
       res.json({ upvoted: hasUpvoted });
     } catch (error: any) {
       console.error("Get upvote status error:", error);
@@ -5167,7 +5194,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const result = await storage.toggleFeedbackUpvote(feedbackId, req.user!.id);
-      
+
       res.json(result);
     } catch (error: any) {
       console.error("Toggle upvote error:", error);
@@ -5325,7 +5352,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         (async () => {
           try {
             const { emailService } = require("./email-service");
-            
+
             let recipientEmail: string | null = null;
             let username: string | undefined;
 
@@ -5347,7 +5374,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 username,
                 status: parsed.data.status,
               });
-              
+
               if (emailResult.success) {
                 await storage.updateFeedback(feedbackId, { userNotified: true });
                 console.log(`[Feedback] Resolution email sent to ${recipientEmail} for feedback #${feedback.id}`);
@@ -5363,7 +5390,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         })();
       }
 
-      res.json({ 
+      res.json({
         message: "Feedback status updated successfully",
         feedback: updatedFeedback,
       });
@@ -5409,7 +5436,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       if (feedback.status === 'new') {
-        await storage.updateFeedback(feedbackId, { 
+        await storage.updateFeedback(feedbackId, {
           status: 'under_review',
           updatedAt: new Date(),
         });
@@ -5425,7 +5452,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      res.status(201).json({ 
+      res.status(201).json({
         message: "Response added successfully",
         response,
       });
@@ -5496,7 +5523,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         userId
       });
-      
+
       if (!parsed.success) {
         return res.status(400).json({
           message: "Invalid certificate data",
@@ -5588,7 +5615,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const certificateType = req.query.type as string | undefined;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
       const offset = req.query.offset ? parseInt(req.query.offset as string) : undefined;
-      
+
       const certificates = await storage.getUserCertificates(userId, certificateType, limit, offset);
       res.json(certificates);
     } catch (error: any) {
@@ -5601,13 +5628,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user!.id;
       const certificateId = parseInt(req.params.id);
-      
+
       if (isNaN(certificateId)) {
         return res.status(400).json({ message: "Invalid certificate ID" });
       }
 
       const certificate = await storage.getCertificateById(certificateId);
-      
+
       if (!certificate) {
         return res.status(404).json({ message: "Certificate not found" });
       }
@@ -5626,9 +5653,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/share/certificate/:shareId", async (req, res) => {
     try {
       const shareId = req.params.shareId;
-      
+
       const certificate = await storage.getCertificateByShareId(shareId);
-      
+
       if (!certificate) {
         return res.status(404).json({ message: "Certificate not found" });
       }
@@ -5646,13 +5673,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user!.id;
       const certificateId = parseInt(req.params.id);
-      
+
       if (isNaN(certificateId)) {
         return res.status(400).json({ message: "Invalid certificate ID" });
       }
 
       const certificate = await storage.getCertificateById(certificateId);
-      
+
       if (!certificate) {
         return res.status(404).json({ message: "Certificate not found" });
       }
@@ -5678,7 +5705,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Generate unique request ID for tracking/debugging
     const requestId = `VRF-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 8)}`.toUpperCase();
     const requestTimestamp = new Date().toISOString();
-    
+
     try {
       const { verificationId: rawVerificationId } = req.params;
       const clientIp = req.ip || req.socket.remoteAddress || null;
@@ -5943,7 +5970,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(createNotificationRoutes(storage, notificationScheduler));
 
   const httpServer = createServer(app);
-  
+
   raceWebSocket.initialize(httpServer);
 
   // Cleanup on server shutdown

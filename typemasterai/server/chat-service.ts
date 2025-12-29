@@ -35,11 +35,11 @@ export interface ChatError {
 function parseOpenAIError(error: any): ChatError {
   const errorMessage = error?.message || String(error);
   const statusCode = error?.status || error?.response?.status;
-  
+
   // Rate limiting
   if (statusCode === 429 || errorMessage.includes("rate limit")) {
-    const retryAfter = error?.headers?.["retry-after"] 
-      ? parseInt(error.headers["retry-after"]) 
+    const retryAfter = error?.headers?.["retry-after"]
+      ? parseInt(error.headers["retry-after"])
       : 30;
     return {
       code: ChatErrorCode.RATE_LIMITED,
@@ -49,7 +49,7 @@ function parseOpenAIError(error: any): ChatError {
       retryAfter,
     };
   }
-  
+
   // Invalid API key
   if (statusCode === 401 || errorMessage.includes("Incorrect API key") || errorMessage.includes("invalid_api_key")) {
     return {
@@ -59,7 +59,7 @@ function parseOpenAIError(error: any): ChatError {
       retryable: false,
     };
   }
-  
+
   // Context length exceeded
   if (errorMessage.includes("context_length_exceeded") || errorMessage.includes("maximum context length")) {
     return {
@@ -69,7 +69,7 @@ function parseOpenAIError(error: any): ChatError {
       retryable: false,
     };
   }
-  
+
   // Content filtered
   if (errorMessage.includes("content_filter") || errorMessage.includes("content_policy_violation")) {
     return {
@@ -79,7 +79,7 @@ function parseOpenAIError(error: any): ChatError {
       retryable: false,
     };
   }
-  
+
   // Service unavailable
   if (statusCode === 503 || statusCode === 502 || errorMessage.includes("overloaded")) {
     return {
@@ -90,7 +90,7 @@ function parseOpenAIError(error: any): ChatError {
       retryAfter: 10,
     };
   }
-  
+
   // Timeout
   if (errorMessage.includes("timeout") || errorMessage.includes("ETIMEDOUT")) {
     return {
@@ -100,7 +100,7 @@ function parseOpenAIError(error: any): ChatError {
       retryable: true,
     };
   }
-  
+
   // Network errors
   if (errorMessage.includes("ECONNREFUSED") || errorMessage.includes("ENOTFOUND") || errorMessage.includes("network")) {
     return {
@@ -110,7 +110,7 @@ function parseOpenAIError(error: any): ChatError {
       retryable: true,
     };
   }
-  
+
   // Default unknown error
   return {
     code: ChatErrorCode.UNKNOWN_ERROR,
@@ -140,29 +140,29 @@ async function retryWithExponentialBackoff<T>(
   initialDelay: number = 1000
 ): Promise<T> {
   let lastError: any;
-  
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       return await fn();
     } catch (error) {
       lastError = error;
-      
+
       // Check if error is retryable
       const chatError = parseOpenAIError(error);
       if (!chatError.retryable || attempt === maxRetries - 1) {
         throw error;
       }
-      
+
       // Calculate delay with exponential backoff
-      const delay = chatError.retryAfter 
-        ? chatError.retryAfter * 1000 
+      const delay = chatError.retryAfter
+        ? chatError.retryAfter * 1000
         : initialDelay * Math.pow(2, attempt);
-      
+
       console.log(`[Retry] Attempt ${attempt + 1}/${maxRetries} failed, retrying in ${delay}ms...`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
-  
+
   throw lastError;
 }
 
@@ -239,14 +239,14 @@ START YOUR RESPONSE WITH [ AND END WITH ]`
     const urlPattern = /\[([^\]]+)\]\(([^)]+)\)|(?:https?:\/\/[^\s\])"]+)/g;
     const extractedResults: SearchResult[] = [];
     let match;
-    
+
     while ((match = urlPattern.exec(responseText)) !== null && extractedResults.length < 10) {
       const title = match[1] || match[0].split('/').pop()?.substring(0, 50) || "Web Result";
       const url = match[2] || match[0];
-      
+
       // Skip if we already have this URL
       if (extractedResults.some(r => r.url === url)) continue;
-      
+
       // Get surrounding text as snippet
       const snippetStart = Math.max(0, match.index - 100);
       const snippetEnd = Math.min(responseText.length, match.index + match[0].length + 200);
@@ -255,7 +255,7 @@ START YOUR RESPONSE WITH [ AND END WITH ]`
         .replace(/https?:\/\/[^\s]+/g, '')
         .replace(/[\[\]]/g, '')
         .trim();
-      
+
       if (url.startsWith('http')) {
         extractedResults.push({
           title: title.substring(0, 100),
@@ -285,12 +285,12 @@ START YOUR RESPONSE WITH [ AND END WITH ]`
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`[OpenAI Web Search] ❌ Error: ${errorMessage}`);
-    
+
     // Log more details for debugging
     if (error instanceof Error && 'response' in error) {
       console.error(`[OpenAI Web Search] Response status:`, (error as any).response?.status);
     }
-    
+
     return [];
   }
 }
@@ -333,7 +333,7 @@ async function getOrCreateBingGroundingAgent(): Promise<string> {
 
   // If not provided, try creating agent (requires write permissions)
   console.log("[Azure Bing Grounding] AZURE_BING_AGENT_ID not found, attempting to create agent...");
-  
+
   try {
     const client = getAzureClient();
     const agentsClient = client.agents;
@@ -372,11 +372,11 @@ Be concise and focus only on factual search results.`,
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`[Azure Bing Grounding] ❌ Failed to create agent: ${errorMessage}`);
-    
+
     if (errorMessage.includes("write") || errorMessage.includes("permission") || errorMessage.includes("401")) {
       console.error("[Azure Bing Grounding] 💡 SOLUTION: Create an agent in Azure AI Foundry portal and set AZURE_BING_AGENT_ID environment variable");
     }
-    
+
     throw new Error(`Azure Bing Grounding agent unavailable: ${errorMessage}`);
   }
 }
@@ -418,21 +418,21 @@ async function scrapeWebPage(url: string): Promise<ScrapedData | null> {
     $("script, style, nav, footer, iframe, noscript, header, aside, [role='navigation'], [role='banner'], .advertisement, .ads, .sidebar").remove();
 
     const title = $("title").text() || $("h1").first().text();
-    
+
     const mainContent = $("article, main, .content, .post-content, .entry-content, .article-content, .blog-post, [role='main']").first();
     const container = mainContent.length ? mainContent : $("body");
-    
+
     const headings = container.find("h1, h2, h3")
       .map((_, el) => `### ${$(el).text().trim()}`)
       .get()
       .filter((text) => text.length > 4);
-    
+
     const paragraphs = container.find("p, li, td, dd, blockquote")
       .map((_, el) => $(el).text().trim())
       .get()
-      .filter((text) => 
-        text.length > 20 && 
-        !text.toLowerCase().includes("cookie") && 
+      .filter((text) =>
+        text.length > 20 &&
+        !text.toLowerCase().includes("cookie") &&
         !text.toLowerCase().includes("privacy policy") &&
         !text.toLowerCase().includes("terms of service") &&
         !text.toLowerCase().includes("subscribe") &&
@@ -445,7 +445,7 @@ async function scrapeWebPage(url: string): Promise<ScrapedData | null> {
     let content = "";
     let charCount = 0;
     const maxChars = 6000;
-    
+
     for (let i = 0; i < paragraphs.length && charCount < maxChars; i++) {
       const para = paragraphs[i];
       if (charCount + para.length <= maxChars) {
@@ -469,7 +469,7 @@ async function scrapeWebPage(url: string): Promise<ScrapedData | null> {
 
 async function searchWithBing(query: string): Promise<SearchResult[]> {
   let threadId: string | null = null;
-  
+
   try {
     console.log(`[Azure Bing Grounding] Starting search for: "${query}"`);
     const startTime = Date.now();
@@ -527,7 +527,7 @@ async function searchWithBing(query: string): Promise<SearchResult[]> {
       // Retrieve messages
       const messages = agentsClient.messages.list(threadId);
       const messagesArray = [];
-      
+
       for await (const msg of messages) {
         messagesArray.push(msg);
       }
@@ -537,7 +537,7 @@ async function searchWithBing(query: string): Promise<SearchResult[]> {
 
       if (assistantMessage && assistantMessage.content && assistantMessage.content.length > 0) {
         const content = assistantMessage.content[0];
-        
+
         if (content.type === "text") {
           // Type-safe access to text content
           const textContent = content.type === "text" && "text" in content ? content.text : null;
@@ -552,7 +552,7 @@ async function searchWithBing(query: string): Promise<SearchResult[]> {
               const results = JSON.parse(jsonMatch[0]);
               if (Array.isArray(results)) {
                 console.log(`[Azure Bing Grounding] ✅ Parsed ${results.length} search results`);
-                
+
                 return results.slice(0, 10).map((r: any) => ({
                   title: r.title || "",
                   url: r.url || "",
@@ -566,7 +566,7 @@ async function searchWithBing(query: string): Promise<SearchResult[]> {
 
           // Fallback: create synthetic results from the response
           console.log("[Azure Bing Grounding] Using fallback result extraction");
-          
+
           return [{
             title: "Search Results",
             url: "https://www.bing.com/search?q=" + encodeURIComponent(query),
@@ -734,8 +734,8 @@ Respond with JSON only:
     });
 
     const result = JSON.parse(response.choices[0]?.message?.content || "{}");
-    const queries = result.queries && Array.isArray(result.queries) && result.queries.length > 0 
-      ? result.queries 
+    const queries = result.queries && Array.isArray(result.queries) && result.queries.length > 0
+      ? result.queries
       : [originalQuery];
     console.log(`[DeepSearch] Generated ${queries.length} search queries:`, queries);
     return queries.slice(0, 3);
@@ -747,15 +747,15 @@ Respond with JSON only:
 
 export async function performWebSearch(query: string): Promise<{ results: SearchResult[]; content: string }> {
   console.log(`[WebSearch] Searching for: "${query}"`);
-  
+
   // Only use Bing Grounding
   const results = await searchWithBing(query);
-  
+
   if (results.length === 0) {
     console.warn("[WebSearch] No results found from Bing Grounding");
     return { results: [], content: "" };
   }
-  
+
   console.log(`[WebSearch] Found ${results.length} results via Bing Grounding`);
 
   let extractedContent = "";
@@ -798,39 +798,39 @@ export async function performWebSearch(query: string): Promise<{ results: Search
  */
 export async function performOptimizedWebSearch(query: string): Promise<{ results: SearchResult[]; content: string }> {
   console.log(`[OptimizedSearch] Starting search for: "${query}"`);
-  
+
   const startTime = Date.now();
   const MAX_SEARCH_TIME = 15000; // 15 seconds hard timeout
-  
+
   try {
     // Single search with OpenAI Web Search
     const searchPromise = searchWithOpenAI(query);
-    const timeoutPromise = new Promise<SearchResult[]>((_, reject) => 
+    const timeoutPromise = new Promise<SearchResult[]>((_, reject) =>
       setTimeout(() => reject(new Error('Search timeout')), MAX_SEARCH_TIME)
     );
-    
+
     const results = await Promise.race([searchPromise, timeoutPromise]);
-    
+
     if (results.length === 0) {
       console.log("[OptimizedSearch] No results found");
       return { results: [], content: "" };
     }
-    
+
     console.log(`[OptimizedSearch] Found ${results.length} results in ${Date.now() - startTime}ms`);
-    
+
     // Scrape top 3-5 pages max
     let extractedContent = "";
     const scrapedUrls: string[] = [];
     const maxPages = Math.min(results.length, 5);
     const remainingTime = MAX_SEARCH_TIME - (Date.now() - startTime);
-    
+
     if (remainingTime > 2000) { // Only scrape if we have at least 2s left
       for (let i = 0; i < maxPages; i++) {
         if (Date.now() - startTime > MAX_SEARCH_TIME - 1000) {
           console.log(`[OptimizedSearch] Approaching timeout, stopping scrape`);
           break;
         }
-        
+
         const result = results[i];
         try {
           const scraped = await scrapeWebPage(result.url);
@@ -838,7 +838,7 @@ export async function performOptimizedWebSearch(query: string): Promise<{ result
             extractedContent += `\n\n---\n**Source ${scrapedUrls.length + 1}: ${scraped.title}**\nURL: ${result.url}\n\n${scraped.content}\n`;
             scrapedUrls.push(result.url);
             console.log(`[OptimizedSearch] Scraped ${scraped.content.length} chars from ${result.url}`);
-            
+
             // Limit to 20k chars (half of old limit for faster processing)
             if (extractedContent.length > 20000) {
               console.log(`[OptimizedSearch] Content limit reached, stopping scrape`);
@@ -850,10 +850,10 @@ export async function performOptimizedWebSearch(query: string): Promise<{ result
         }
       }
     }
-    
+
     const totalTime = Date.now() - startTime;
     console.log(`[OptimizedSearch] Completed: ${scrapedUrls.length} pages scraped, ${extractedContent.length} chars, ${totalTime}ms`);
-    
+
     // Fallback to snippets if no content scraped
     if (extractedContent.length === 0) {
       for (let i = 0; i < Math.min(results.length, 5); i++) {
@@ -862,13 +862,13 @@ export async function performOptimizedWebSearch(query: string): Promise<{ result
       }
       console.log(`[OptimizedSearch] Using snippets as fallback`);
     }
-    
+
     return { results: results.slice(0, 10), content: extractedContent };
-    
+
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`[OptimizedSearch] Error: ${errorMessage}`);
-    
+
     // Graceful degradation - return empty results instead of throwing
     return { results: [], content: "" };
   }
@@ -876,67 +876,67 @@ export async function performOptimizedWebSearch(query: string): Promise<{ result
 
 export async function performDeepWebSearch(query: string): Promise<{ results: SearchResult[]; content: string }> {
   console.log(`[DeepSearch] Starting deep search for: "${query}"`);
-  
+
   const startTime = Date.now();
   const MAX_TOTAL_TIME = 60000;
-  
+
   const queries = await generateSearchQueries(query);
-  
+
   const allResults: SearchResult[] = [];
   const seenUrls = new Set<string>();
-  
+
   for (const searchQuery of queries) {
     if (Date.now() - startTime > MAX_TOTAL_TIME) {
       console.log(`[DeepSearch] Reached time limit, stopping query execution`);
       break;
     }
-    
+
     console.log(`[DeepSearch] Executing query: "${searchQuery}"`);
-    
+
     // Try OpenAI Web Search first (primary), then Azure Bing Grounding (fallback)
     let queryResults = await searchWithOpenAI(searchQuery);
-    
+
     if (queryResults.length > 0) {
       console.log(`[DeepSearch] ✅ Found ${queryResults.length} results via OpenAI Web Search for "${searchQuery}"`);
     } else {
       // Fallback to Azure Bing Grounding
       console.log(`[DeepSearch] OpenAI returned no results, trying Azure Bing Grounding...`);
       queryResults = await searchWithBing(searchQuery);
-      
+
       if (queryResults.length > 0) {
         console.log(`[DeepSearch] ✅ Found ${queryResults.length} results via Azure Bing Grounding for "${searchQuery}"`);
       } else {
         console.log(`[DeepSearch] Both search providers returned no results for "${searchQuery}"`);
       }
     }
-    
+
     for (const result of queryResults) {
       if (!seenUrls.has(result.url)) {
         seenUrls.add(result.url);
         allResults.push(result);
       }
     }
-    
+
     if (allResults.length >= 15) break;
   }
-  
+
   console.log(`[DeepSearch] Total unique results: ${allResults.length}`);
-  
+
   if (allResults.length === 0) {
     console.log("[DeepSearch] No results found");
     return { results: [], content: "" };
   }
-  
+
   let extractedContent = "";
   const scrapedUrls: string[] = [];
   const maxPages = Math.min(allResults.length, 10);
-  
+
   for (let i = 0; i < maxPages; i++) {
     if (Date.now() - startTime > MAX_TOTAL_TIME) {
       console.log(`[DeepSearch] Reached time limit, stopping scrape`);
       break;
     }
-    
+
     const result = allResults[i];
     try {
       const scraped = await scrapeWebPage(result.url);
@@ -944,7 +944,7 @@ export async function performDeepWebSearch(query: string): Promise<{ results: Se
         extractedContent += `\n\n---\n**Source ${scrapedUrls.length + 1}: ${scraped.title}**\nURL: ${result.url}\n\n${scraped.content}\n`;
         scrapedUrls.push(result.url);
         console.log(`[DeepSearch] Scraped ${scraped.content.length} chars from ${result.url}`);
-        
+
         if (extractedContent.length > 40000) {
           console.log(`[DeepSearch] Reached content limit (40k chars), stopping scrape`);
           break;
@@ -954,9 +954,9 @@ export async function performDeepWebSearch(query: string): Promise<{ results: Se
       console.log(`[DeepSearch] Failed to scrape ${result.url}`);
     }
   }
-  
+
   console.log(`[DeepSearch] Scraped ${scrapedUrls.length} pages successfully. Total content: ${extractedContent.length} chars. Total time: ${Date.now() - startTime}ms`);
-  
+
   if (extractedContent.length === 0 && allResults.length > 0) {
     for (let i = 0; i < Math.min(allResults.length, 10); i++) {
       const result = allResults[i];
@@ -964,7 +964,7 @@ export async function performDeepWebSearch(query: string): Promise<{ results: Se
     }
     console.log(`[DeepSearch] Using snippets as fallback. Total content: ${extractedContent.length} chars`);
   }
-  
+
   return { results: allResults.slice(0, 10), content: extractedContent };
 }
 
@@ -981,12 +981,12 @@ export function decideIfSearchNeeded(message: string): SearchDecision {
   const hasFileAnalysis = message.includes("[Attached file:") || message.includes("# File Analysis:");
   if (hasFileAnalysis) {
     const explicitSearchTriggers = [
-      "search this", "search the document", "search about this", 
+      "search this", "search the document", "search about this",
       "web search", "look this up", "search online", "google this",
       "research this", "find more online"
     ];
     const wantsSearch = explicitSearchTriggers.some(t => lowerMessage.includes(t));
-    
+
     if (wantsSearch) {
       const topicMatch = message.match(/## (?:Document Overview|Content Summary|Key Content)[\s\S]*?(?:topic|subject|about)[:\s]*([^\n]+)/i);
       const searchQuery = topicMatch ? topicMatch[1].trim() : message.substring(0, 200);
@@ -997,7 +997,7 @@ export function decideIfSearchNeeded(message: string): SearchDecision {
         reason: "Explicit search request",
       };
     }
-    
+
     console.log(`[Smart Search] Document analysis - no search needed`);
     return {
       shouldSearch: false,
@@ -1014,12 +1014,12 @@ export function decideIfSearchNeeded(message: string): SearchDecision {
     "thanks", "thank you", "thx", "ty", "bye", "goodbye", "see you",
     "ok", "okay", "sure", "yes", "no", "yep", "nope", "cool", "nice"
   ];
-  
+
   const isGreeting = greetingsAndCasual.some(g => {
     const normalized = lowerMessage.replace(/[!?.]/g, '').trim();
     return normalized === g || normalized.startsWith(g + ' ') || normalized.endsWith(' ' + g);
   });
-  
+
   if (isGreeting && lowerMessage.length < 50) {
     console.log(`[Smart Search] Greeting/casual - no search`);
     return {
@@ -1040,7 +1040,7 @@ export function decideIfSearchNeeded(message: string): SearchDecision {
     /\bhow (do|can|should) (i|you)\s+(improve|practice|learn|master)\b/i,
     /\bwhat (is|are) (the )?(best|good)\s+(way|method|practice|technique)\b/i,
   ];
-  
+
   const isTypingKnowledge = typingKnowledgePatterns.some(pattern => pattern.test(message));
   if (isTypingKnowledge && !lowerMessage.includes("latest") && !lowerMessage.includes("2024") && !lowerMessage.includes("2025")) {
     console.log(`[Smart Search] Typing knowledge - no search needed`);
@@ -1057,10 +1057,10 @@ export function decideIfSearchNeeded(message: string): SearchDecision {
     /\b(explain|tell me about|what does|can you help)\b.*\?$/i,
     /\b(advice|tip|suggestion|recommend|guide) (on|for|about)\b/i,
   ];
-  
+
   const isGeneralHowTo = generalHowToPatterns.some(pattern => pattern.test(message));
   const hasCurrentDataKeywords = /\b(latest|recent|current|new|2024|2025|today|this (week|month|year)|news|update)\b/i.test(message);
-  
+
   if (isGeneralHowTo && !hasCurrentDataKeywords) {
     console.log(`[Smart Search] General how-to - no search needed`);
     return {
@@ -1089,7 +1089,7 @@ export function decideIfSearchNeeded(message: string): SearchDecision {
     /\b(price|cost|stock|weather|forecast|score|result) (of|for|in)\b/i,
     /\b(bitcoin|crypto|eth|btc|stock market)\b/i,
   ];
-  
+
   if (realtimeDataPatterns.some(pattern => pattern.test(message))) {
     console.log(`[Smart Search] Real-time data - search enabled`);
     return {
@@ -1107,7 +1107,7 @@ export function decideIfSearchNeeded(message: string): SearchDecision {
     /\b(compare|vs|versus|difference between|better than)\b/i,
     /\b(review|rating|comparison) (of|for)\b/i,
   ];
-  
+
   if (specificEntityPatterns.some(pattern => pattern.test(message))) {
     console.log(`[Smart Search] Specific entity query - search enabled`);
     return {
@@ -1123,7 +1123,7 @@ export function decideIfSearchNeeded(message: string): SearchDecision {
     /\b(help me|assist me) (write|draft|create|compose)\b/i,
     /\bwhat (do|would|should) you (think|suggest|recommend)\b/i,
   ];
-  
+
   if (creativePatterns.some(pattern => pattern.test(message))) {
     console.log(`[Smart Search] Creative/subjective - no search`);
     return {
@@ -1136,7 +1136,7 @@ export function decideIfSearchNeeded(message: string): SearchDecision {
   // 9. CODING/TECHNICAL HELP - Search only if asking for specific libraries/tools
   const codingPatterns = /\b(code|coding|program|debug|fix|error|javascript|python|react|typescript|css|html)\b/i;
   const specificToolPatterns = /\b(what is|how to use|documentation for|api for|install|setup|configure)\s+[\w-]+\b/i;
-  
+
   if (codingPatterns.test(message)) {
     if (specificToolPatterns.test(message) && hasCurrentDataKeywords) {
       console.log(`[Smart Search] Specific coding tool + current - search enabled`);
@@ -1213,13 +1213,13 @@ export async function* streamChatCompletionWithSearch(
   useAISearch: boolean = true
 ): AsyncGenerator<StreamEvent, void, unknown> {
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-  
+
   // Check cache first (for simple queries with no conversation context)
   if (lastMessage && lastMessage.role === "user" && messages.length <= 2) {
     const cached = chatCache.get(lastMessage.content);
     if (cached) {
       console.log("[Chat] Cache HIT - streaming cached response");
-      
+
       // Stream cached response word by word for natural feel
       const words = cached.response.split(/(\s+)/);
       for (const word of words) {
@@ -1227,23 +1227,23 @@ export async function* streamChatCompletionWithSearch(
         // Small delay to simulate streaming
         await new Promise(resolve => setTimeout(resolve, 10));
       }
-      
+
       if (cached.sources && cached.sources.length > 0) {
-        yield { 
-          type: "sources", 
+        yield {
+          type: "sources",
           data: cached.sources
         };
       }
-      
+
       yield { type: "done" };
       return;
     }
   }
-  
+
   // Fast search decision (synchronous, no API call)
   let shouldSearch = false;
   let searchQuery = "";
-  
+
   if (lastMessage && lastMessage.role === "user") {
     if (useAISearch) {
       const decision = decideIfSearchNeeded(lastMessage.content);
@@ -1255,16 +1255,16 @@ export async function* streamChatCompletionWithSearch(
       searchQuery = lastMessage.content;
     }
   }
-  
+
   // Start search in parallel (don't await)
   let searchPromise: Promise<{ results: SearchResult[]; content: string }> | null = null;
   let searchResults: { results: SearchResult[]; content: string } = { results: [], content: "" };
-  
+
   if (shouldSearch) {
     yield { type: "searching", data: { status: "searching", query: searchQuery } };
     searchPromise = performOptimizedWebSearch(searchQuery);
   }
-  
+
   // Create initial system message (without search results)
   const createSystemMessage = (hasSearchResults: boolean, searchContent: string = "") => ({
     role: "system" as const,
@@ -1311,6 +1311,37 @@ When file content is in the conversation:
 - Use markdown: headings, lists, code blocks, tables
 - Write naturally without excessive bold/italics
 - Use blockquotes (>) for important notes or tips
+- For structured data comparison, ALWAYS use markdown tables
+- For mathematical expressions and formulas, YOU MUST use standard LaTeX syntax enclosed in typical delimiters.
+- Use $ for inline math: $E = mc^2$
+- Use $$ for display math (block formulas):
+$$
+\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
+$$
+- Do NOT use [ ] or ( ) for LaTeX delimiters for math. Use $ and $$ only.
+
+## Visualizations (Use these for data/structure):
+
+### Diagrams (Workflow, Process, Relations)
+Use mermaid code blocks:
+\`\`\`mermaid
+graph TD;
+    A[Start] --> B{Decision};
+    B -->|Yes| C[Action];
+\`\`\`
+
+### Charts (Statistical Data)
+Use json-chart code blocks for Bar, Line, Area, or Pie charts.
+Structure:
+\`\`\`json-chart
+{
+  "type": "bar", // or "line", "area", "pie"
+  "title": "Monthly Sales",
+  "data": [{"name": "Jan", "value": 100}, {"name": "Feb", "value": 150}],
+  "xKey": "name",
+  "series": [{"key": "value", "name": "Sales", "color": "#00ffff"}]
+}
+\`\`\`
 ${hasSearchResults ? `
 
 # CURRENT WEB SEARCH RESULTS
@@ -1331,7 +1362,7 @@ INSTRUCTIONS:
     // Optimize conversation context to prevent token limit errors
     const optimizedMessages = await conversationSummarizer.optimizeConversationContext(messages);
     const validation = conversationSummarizer.validateContext(optimizedMessages);
-    
+
     if (!validation.valid) {
       console.warn(`[Chat] Context still too long after optimization (${validation.tokens} tokens), emergency truncating`);
       const truncatedMessages = conversationSummarizer.emergencyTruncate(optimizedMessages);
@@ -1339,9 +1370,49 @@ INSTRUCTIONS:
     } else {
       messages = optimizedMessages.filter(m => m.role !== "system");
     }
-    
-    // START RESPONSE IMMEDIATELY (don't wait for search)
-    const systemMessage = createSystemMessage(false);
+
+    // Wait for search to complete BEFORE starting generation
+    // This ensures the AI has the context to answer correctly
+    let finalSources: any[] = [];
+    if (searchPromise) {
+      try {
+        // Advanced Edge Case: Search Timeout
+        // If web search hangs, we shouldn't block the user forever.
+        // Race the search against a 10s timeout.
+        const timeoutPromise = new Promise<{ results: SearchResult[]; content: string }>((_, reject) => {
+          setTimeout(() => reject(new Error("Search timed out after 10s")), 10000);
+        });
+
+        searchResults = await Promise.race([searchPromise, timeoutPromise]);
+
+        if (searchResults.results.length > 0) {
+          console.log(`[Progressive Stream] Search completed with ${searchResults.results.length} results`);
+          yield { type: "search_complete", data: { query: searchQuery, results: searchResults.results } };
+
+          finalSources = searchResults.results.slice(0, 10).map(r => ({
+            title: r.title,
+            url: r.url,
+            snippet: r.snippet?.substring(0, 150) || "",
+          }));
+
+          // Send sources immediately so UI can show them
+          yield {
+            type: "sources",
+            data: finalSources
+          };
+        } else {
+          console.log(`[Progressive Stream] Search completed with no results`);
+          yield { type: "search_complete", data: { query: searchQuery, results: [] } };
+        }
+      } catch (searchError) {
+        console.error("[Progressive Stream] Search failed (gracefully continuing):", searchError);
+        // Graceful degradation - don't block response if search fails
+        // We don't yield an error here, just log and continue without search results
+      }
+    }
+
+    // Now create system message WITH search results
+    const systemMessage = createSystemMessage(!!searchPromise && searchResults.results.length > 0, searchResults.content);
     const allMessages = [systemMessage, ...messages];
 
     const stream = await openai.chat.completions.create({
@@ -1362,35 +1433,6 @@ INSTRUCTIONS:
       }
     }
 
-    // Wait for search to complete (if it was running)
-    let finalSources: any[] = [];
-    if (searchPromise) {
-      try {
-        searchResults = await searchPromise;
-        
-        if (searchResults.results.length > 0) {
-          console.log(`[Progressive Stream] Search completed with ${searchResults.results.length} results`);
-          
-          finalSources = searchResults.results.slice(0, 10).map(r => ({
-            title: r.title,
-            url: r.url,
-            snippet: r.snippet?.substring(0, 150) || "",
-          }));
-          
-          // Send sources after response completes
-          yield { 
-            type: "sources", 
-            data: finalSources
-          };
-        } else {
-          console.log(`[Progressive Stream] Search completed with no results`);
-        }
-      } catch (searchError) {
-        // Graceful degradation - don't block response if search fails
-        console.error("[Progressive Stream] Search failed (gracefully continuing):", searchError);
-      }
-    }
-
     // Cache response for future use (only for simple queries)
     if (lastMessage && lastMessage.role === "user" && messages.length <= 2 && fullResponse.length > 0) {
       chatCache.set(
@@ -1402,13 +1444,13 @@ INSTRUCTIONS:
     }
 
     yield { type: "done" };
-    
+
   } catch (error: any) {
     const chatError = parseOpenAIError(error);
     logChatError("streamChatCompletionWithSearch", error, chatError);
-    
-    yield { 
-      type: "error", 
+
+    yield {
+      type: "error",
       data: {
         code: chatError.code,
         message: chatError.userMessage,
@@ -1424,7 +1466,7 @@ export async function* streamChatCompletion(
   performSearch: boolean = false
 ): AsyncGenerator<string, void, unknown> {
   const generator = streamChatCompletionWithSearch(messages, performSearch);
-  
+
   for await (const event of generator) {
     if (event.type === "content") {
       yield event.data;
@@ -1472,12 +1514,12 @@ Examples:
     });
 
     const title = response.choices[0]?.message?.content?.trim();
-    
+
     // Fallback if empty or too long
     if (!title || title.length > 50) {
       return generateFallbackTitle(userMessage);
     }
-    
+
     // Remove any quotes that might be in the response
     return title.replace(/^["']|["']$/g, '').trim();
   } catch (error) {
@@ -1495,14 +1537,14 @@ function generateFallbackTitle(message: string): string {
     .replace(/[^\w\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  
+
   // Take first few words
   const words = cleaned.split(' ').slice(0, 5);
-  
+
   // Capitalize first letter of each word
   const title = words
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
-  
+
   return title.length > 40 ? title.substring(0, 40) + '...' : title;
 }
