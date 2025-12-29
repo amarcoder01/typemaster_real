@@ -15,6 +15,10 @@ import { Loader2, User as UserIcon, TrendingUp, MapPin, Keyboard, Edit, Award, F
 import { useUserCertificates, useDeleteCertificate } from "@/hooks/useCertificates";
 import { DictationCertificate } from "@/components/DictationCertificate";
 import { StressCertificate } from "@/components/StressCertificate";
+import { CodeCertificate } from "@/components/CodeCertificate";
+import { BookCertificate } from "@/components/BookCertificate";
+import { RaceCertificate } from "@/components/RaceCertificate";
+import { CertificateGenerator } from "@/components/certificate-generator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { BADGES, TOTAL_BADGES, type UserBadgeProgress, getTierColor, getTierBorder, type Badge as BadgeType } from "@shared/badges";
@@ -1065,12 +1069,11 @@ export default function Profile() {
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="all" className="w-full" onValueChange={(value) => setCertificateFilter(value)}>
-              <TabsList className="grid w-full grid-cols-7">
+              <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="all">All</TabsTrigger>
                 <TabsTrigger value="standard">Standard</TabsTrigger>
                 <TabsTrigger value="code">Code</TabsTrigger>
                 <TabsTrigger value="book">Book</TabsTrigger>
-                <TabsTrigger value="chapter">Chapter</TabsTrigger>
                 <TabsTrigger value="dictation">Dictation</TabsTrigger>
                 <TabsTrigger value="stress">Stress</TabsTrigger>
               </TabsList>
@@ -1155,38 +1158,120 @@ export default function Profile() {
             </DialogHeader>
             {selectedCertificate && (
               <div className="mt-4">
-                {selectedCertificate.certificateType === 'dictation' ? (
-                  <DictationCertificate
-                    wpm={selectedCertificate.wpm}
-                    accuracy={selectedCertificate.accuracy}
-                    consistency={selectedCertificate.consistency}
-                    speedLevel={selectedCertificate.metadata?.speedLevel || 'Normal'}
-                    sentencesCompleted={selectedCertificate.metadata?.sentencesCompleted || 0}
-                    totalWords={selectedCertificate.metadata?.totalWords || 0}
-                    duration={selectedCertificate.duration}
-                    username={selectedCertificate.metadata?.username || user?.username || 'Typing Expert'}
-                    verificationId={selectedCertificate.verificationId}
-                  />
-                ) : selectedCertificate.certificateType === 'stress' ? (
-                  <StressCertificate
-                    wpm={selectedCertificate.wpm}
-                    accuracy={selectedCertificate.accuracy}
-                    consistency={selectedCertificate.consistency}
-                    difficulty={selectedCertificate.metadata?.difficulty || 'Beginner'}
-                    stressScore={selectedCertificate.metadata?.stressScore || 0}
-                    survivalTime={selectedCertificate.metadata?.survivalTime || selectedCertificate.duration}
-                    completionRate={selectedCertificate.metadata?.completionRate || 0}
-                    maxCombo={selectedCertificate.metadata?.maxCombo || 0}
-                    activeChallenges={selectedCertificate.metadata?.activeChallenges || []}
-                    duration={selectedCertificate.duration}
-                    username={selectedCertificate.metadata?.username || user?.username || 'Typing Expert'}
-                    verificationId={selectedCertificate.verificationId}
-                  />
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-muted-foreground">Certificate preview not available for this type</p>
-                  </div>
-                )}
+                {(() => {
+                  const certType = (selectedCertificate.certificateType || '').toLowerCase().trim();
+                  
+                  if (certType === 'dictation') {
+                    return (
+                      <DictationCertificate
+                        wpm={selectedCertificate.wpm}
+                        accuracy={selectedCertificate.accuracy}
+                        consistency={selectedCertificate.consistency}
+                        speedLevel={selectedCertificate.metadata?.speedLevel || 'Normal'}
+                        sentencesCompleted={selectedCertificate.metadata?.sentencesCompleted || 0}
+                        totalWords={selectedCertificate.metadata?.totalWords || 0}
+                        duration={selectedCertificate.duration}
+                        username={selectedCertificate.metadata?.username || user?.username || 'Typing Expert'}
+                        verificationId={selectedCertificate.verificationId}
+                      />
+                    );
+                  } else if (certType === 'stress') {
+                    return (
+                      <StressCertificate
+                        wpm={selectedCertificate.wpm}
+                        accuracy={selectedCertificate.accuracy}
+                        consistency={selectedCertificate.consistency}
+                        difficulty={selectedCertificate.metadata?.difficulty || 'Beginner'}
+                        stressScore={selectedCertificate.metadata?.stressScore || 0}
+                        survivalTime={selectedCertificate.metadata?.survivalTime || selectedCertificate.duration}
+                        completionRate={selectedCertificate.metadata?.completionRate || 0}
+                        maxCombo={selectedCertificate.metadata?.maxCombo || 0}
+                        activeChallenges={selectedCertificate.metadata?.activeChallenges || []}
+                        duration={selectedCertificate.duration}
+                        username={selectedCertificate.metadata?.username || user?.username || 'Typing Expert'}
+                        verificationId={selectedCertificate.verificationId}
+                      />
+                    );
+                  } else if (certType === 'code') {
+                    return (
+                      <CodeCertificate
+                        wpm={selectedCertificate.wpm}
+                        rawWpm={selectedCertificate.metadata?.rawWpm || selectedCertificate.wpm}
+                        accuracy={selectedCertificate.accuracy}
+                        consistency={selectedCertificate.consistency}
+                        language={selectedCertificate.metadata?.language || 'javascript'}
+                        languageName={selectedCertificate.metadata?.languageName || 'JavaScript'}
+                        difficulty={selectedCertificate.metadata?.difficulty || 'medium'}
+                        characters={selectedCertificate.metadata?.characters || 0}
+                        errors={selectedCertificate.metadata?.errors || 0}
+                        time={selectedCertificate.metadata?.time || `${Math.floor(selectedCertificate.duration / 60)}:${String(selectedCertificate.duration % 60).padStart(2, '0')}`}
+                        username={selectedCertificate.metadata?.username || user?.username || 'Typing Expert'}
+                        date={selectedCertificate.createdAt ? new Date(selectedCertificate.createdAt) : new Date()}
+                        verificationId={selectedCertificate.verificationId}
+                      />
+                    );
+                  } else if (certType === 'book') {
+                    return (
+                      <BookCertificate
+                        wpm={selectedCertificate.wpm}
+                        accuracy={selectedCertificate.accuracy}
+                        consistency={selectedCertificate.consistency}
+                        bookTitle={selectedCertificate.metadata?.bookTitle || 'Unknown Book'}
+                        author={selectedCertificate.metadata?.author || 'Unknown Author'}
+                        chapter={selectedCertificate.metadata?.chapter}
+                        chapterTitle={selectedCertificate.metadata?.chapterTitle}
+                        paragraphsCompleted={selectedCertificate.metadata?.paragraphsCompleted || 0}
+                        wordsTyped={selectedCertificate.metadata?.wordsTyped || 0}
+                        duration={selectedCertificate.duration}
+                        username={selectedCertificate.metadata?.username || user?.username || 'Typing Expert'}
+                        date={selectedCertificate.createdAt ? new Date(selectedCertificate.createdAt) : new Date()}
+                        difficulty={selectedCertificate.metadata?.difficulty}
+                        characters={selectedCertificate.metadata?.characters}
+                        errors={selectedCertificate.metadata?.errors}
+                        verificationId={selectedCertificate.verificationId}
+                      />
+                    );
+                  } else if (certType === 'race') {
+                    return (
+                      <RaceCertificate
+                        wpm={selectedCertificate.wpm}
+                        accuracy={selectedCertificate.accuracy}
+                        consistency={selectedCertificate.consistency}
+                        placement={selectedCertificate.metadata?.placement || 1}
+                        totalParticipants={selectedCertificate.metadata?.totalParticipants || 1}
+                        characters={selectedCertificate.metadata?.characters || 0}
+                        errors={selectedCertificate.metadata?.errors || 0}
+                        duration={selectedCertificate.duration}
+                        username={selectedCertificate.metadata?.username || user?.username || 'Typing Expert'}
+                        date={selectedCertificate.createdAt ? new Date(selectedCertificate.createdAt) : new Date()}
+                        raceId={selectedCertificate.metadata?.raceId}
+                        verificationId={selectedCertificate.verificationId}
+                      />
+                    );
+                  } else if (certType === 'standard') {
+                    return (
+                      <CertificateGenerator
+                        username={selectedCertificate.metadata?.username || user?.username || 'Typing Expert'}
+                        wpm={selectedCertificate.wpm}
+                        accuracy={selectedCertificate.accuracy}
+                        mode={selectedCertificate.metadata?.mode || selectedCertificate.duration}
+                        date={selectedCertificate.createdAt ? new Date(selectedCertificate.createdAt) : new Date()}
+                        freestyle={selectedCertificate.metadata?.freestyle || false}
+                        characters={selectedCertificate.metadata?.characters || 0}
+                        words={selectedCertificate.metadata?.words || 0}
+                        consistency={selectedCertificate.consistency}
+                        verificationId={selectedCertificate.verificationId}
+                        modeLabel={selectedCertificate.metadata?.modeLabel}
+                      />
+                    );
+                  } else {
+                    return (
+                      <div className="text-center py-8">
+                        <p className="text-muted-foreground">Certificate preview not available for type: {certType || 'unknown'}</p>
+                      </div>
+                    );
+                  }
+                })()}
               </div>
             )}
           </DialogContent>

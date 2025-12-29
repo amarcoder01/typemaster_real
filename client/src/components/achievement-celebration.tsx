@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Trophy, Star, Sparkles, Share2, X, Zap, Target, Flame, TrendingUp, Award, Moon, Sunrise, Rocket, Timer, Image } from "lucide-react";
 import { BadgeShareCard } from "@/components/badge-share-card";
-import { BADGES } from "@shared/badges";
+import { BADGES, getTierIconColor } from "@shared/badges";
 import { useAuth } from "@/lib/auth-context";
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -52,11 +52,11 @@ export function useAchievementCelebration() {
 }
 
 const tierColors = {
-  bronze: { bg: "from-orange-600 to-orange-800", border: "border-orange-500", text: "text-orange-400" },
-  silver: { bg: "from-slate-400 to-slate-600", border: "border-slate-400", text: "text-slate-300" },
-  gold: { bg: "from-yellow-500 to-amber-600", border: "border-yellow-400", text: "text-yellow-400" },
-  platinum: { bg: "from-cyan-400 to-blue-600", border: "border-cyan-400", text: "text-cyan-400" },
-  diamond: { bg: "from-purple-400 to-pink-600", border: "border-purple-400", text: "text-purple-400" },
+  bronze: { bg: "from-orange-600 to-orange-800", border: "border-orange-500", text: "text-orange-100" },
+  silver: { bg: "from-slate-400 to-slate-600", border: "border-slate-400", text: "text-slate-100" },
+  gold: { bg: "from-yellow-500 to-amber-600", border: "border-yellow-400", text: "text-amber-900" },
+  platinum: { bg: "from-cyan-400 to-blue-600", border: "border-cyan-400", text: "text-cyan-900" },
+  diamond: { bg: "from-purple-400 to-pink-600", border: "border-purple-400", text: "text-purple-100" },
 };
 
 const tierEmojis = {
@@ -271,7 +271,7 @@ function AchievementCelebrationModal({ achievement, isOpen, onClose, queueLength
                 }}
                 transition={{ duration: 0.5, delay: 0.5 }}
               >
-                <IconComponent className="w-14 h-14 text-white drop-shadow-lg" />
+                <IconComponent className={cn("w-14 h-14 drop-shadow-lg", getTierIconColor(achievement.tier))} />
               </motion.div>
             </motion.div>
 
@@ -303,7 +303,7 @@ function AchievementCelebrationModal({ achievement, isOpen, onClose, queueLength
             >
               <Button
                 onClick={onClose}
-                className={cn("w-full bg-gradient-to-r", colors.bg)}
+                className={cn("w-full bg-gradient-to-r", colors.bg, colors.text)}
                 size="lg"
                 data-testid="button-continue"
               >

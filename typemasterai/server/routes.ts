@@ -3492,7 +3492,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.warn('[Streak] Failed to update streak for code test:', streakError);
       }
 
-      res.status(201).json({ message: "Code typing test saved", test });
+      // Auto-create certificate for code typing test
+      let certificate = null;
+      try {
+        const { generateVerificationData } = await import("./certificate-verification-service");
+        const user = await storage.getUser(req.user!.id);
+        
+        const testDuration = test.duration || 0;
+        const testConsistency = test.consistency || 100;
+
+        const verificationData = generateVerificationData({
+          userId: req.user!.id,
+          certificateType: "code",
+          wpm: test.wpm,
+          accuracy: test.accuracy,
+          consistency: testConsistency,
+          duration: testDuration,
+          codeTestId: test.id,
+          metadata: {
+            username: user?.username || "Typing Expert",
+            language: test.programmingLanguage,
+            languageName: test.programmingLanguage?.charAt(0).toUpperCase() + test.programmingLanguage?.slice(1),
+            difficulty: test.difficulty || 'medium',
+            characters: test.characters || 0,
+            errors: test.errors || 0,
+            rawWpm: test.rawWpm || test.wpm,
+            time: `${Math.floor(testDuration / 60)}:${String(testDuration % 60).padStart(2, '0')}`,
+          },
+        });
+
+        certificate = await storage.createCertificate({
+          certificateType: "code",
+          codeTestId: test.id,
+          wpm: test.wpm,
+          accuracy: test.accuracy,
+          consistency: testConsistency,
+          duration: testDuration,
+          userId: req.user!.id,
+          metadata: {
+            username: user?.username || "Typing Expert",
+            language: test.programmingLanguage,
+            languageName: test.programmingLanguage?.charAt(0).toUpperCase() + test.programmingLanguage?.slice(1),
+            difficulty: test.difficulty || 'medium',
+            characters: test.characters || 0,
+            errors: test.errors || 0,
+            rawWpm: test.rawWpm || test.wpm,
+            time: `${Math.floor(testDuration / 60)}:${String(testDuration % 60).padStart(2, '0')}`,
+          },
+          ...verificationData,
+        });
+
+        console.log(`[Certificate] Auto-created code certificate ${verificationData.verificationId} for code test ${test.id}`);
+      } catch (certError) {
+        console.error("[Certificate] Code test auto-creation failed:", certError);
+        // Don't fail the request if certificate creation fails
+      }
+
+      res.status(201).json({ message: "Code typing test saved", test, certificate });
     } catch (error: any) {
       console.error("Save code test error:", error);
       res.status(500).json({ message: "Failed to save code typing test" });
@@ -4506,9 +4562,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isLeaderboardEntry = leaderboard.length < 50 ||
         parsed.data.stressScore > (leaderboard[leaderboard.length - 1]?.stressScore || 0);
 
+      // Auto-create certificate for stress test
+      let certificate = null;
+      try {
+        const { generateVerificationData } = await import("./certificate-verification-service");
+        const user = await storage.getUser(req.user!.id);
+        
+        const testDuration = result.duration || 0;
+        const testConsistency = result.consistency || 100;
+
+        const verificationData = generateVerificationData({
+          userId: req.user!.id,
+          certificateType: "stress",
+          wpm: result.wpm,
+          accuracy: result.accuracy,
+          consistency: testConsistency,
+          duration: testDuration,
+          stressTestId: result.id,
+          metadata: {
+            username: user?.username || "Typing Expert",
+            difficulty: result.difficulty,
+            stressScore: result.stressScore,
+            survivalTime: result.survivalTime,
+            completionRate: result.completionRate,
+            maxCombo: result.maxCombo,
+            activeChallenges: result.activeChallenges || [],
+          },
+        });
+
+        certificate = await storage.createCertificate({
+          certificateType: "stress",
+          stressTestId: result.id,
+          wpm: result.wpm,
+          accuracy: result.accuracy,
+          consistency: testConsistency,
+          duration: testDuration,
+          userId: req.user!.id,
+          metadata: {
+            username: user?.username || "Typing Expert",
+            difficulty: result.difficulty,
+            stressScore: result.stressScore,
+            survivalTime: result.survivalTime,
+            completionRate: result.completionRate,
+            maxCombo: result.maxCombo,
+            activeChallenges: result.activeChallenges || [],
+          },
+          ...verificationData,
+        });
+
+        console.log(`[Certificate] Auto-created stress certificate ${verificationData.verificationId} for stress test ${result.id}`);
+      } catch (certError) {
+        console.error("[Certificate] Stress test auto-creation failed:", certError);
+        // Don't fail the request if certificate creation fails
+      }
+
       res.status(201).json({
         message: isNewPersonalBest ? "New personal best saved!" : "Score recorded",
         result,
+        certificate,
         isNewPersonalBest,
         isLeaderboardEntry,
         // Include anti-cheat flags in response (for admin debugging)

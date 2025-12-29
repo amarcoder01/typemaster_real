@@ -23,6 +23,20 @@ export function useCreateCertificate() {
 
   return useMutation({
     mutationFn: async (data: CreateCertificateData) => {
+      // Validate required fields before sending
+      if (!data.certificateType) {
+        throw new Error("Certificate type is required");
+      }
+      if (typeof data.wpm !== 'number' || data.wpm < 0) {
+        throw new Error("Valid WPM is required");
+      }
+      if (typeof data.accuracy !== 'number' || data.accuracy < 0 || data.accuracy > 100) {
+        throw new Error("Valid accuracy (0-100) is required");
+      }
+      if (typeof data.duration !== 'number' || data.duration <= 0) {
+        throw new Error("Valid duration is required");
+      }
+
       const response = await fetch("/api/certificates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -31,26 +45,69 @@ export function useCreateCertificate() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to create certificate");
+        let errorMessage = "Failed to create certificate";
+        let errorCode = "UNKNOWN_ERROR";
+        
+        try {
+          const error = await response.json();
+          errorMessage = error.message || errorMessage;
+          errorCode = error.code || errorCode;
+        } catch {
+          // If response is not JSON, use status text
+          errorMessage = response.statusText || errorMessage;
+        }
+
+        // Provide user-friendly error messages based on error code
+        if (errorCode === "VALIDATION_ERROR") {
+          errorMessage = "Invalid certificate data. Please check all fields.";
+        } else if (errorCode === "OWNERSHIP_DENIED" || errorCode === "PARTICIPATION_DENIED") {
+          errorMessage = "You don't have permission to create a certificate for this test.";
+        } else if (errorCode === "DUPLICATE_CERTIFICATE") {
+          errorMessage = "A certificate already exists for this test.";
+        } else if (errorCode === "INVALID_REFERENCE") {
+          errorMessage = "The test result is invalid or no longer exists.";
+        }
+
+        const error = new Error(errorMessage);
+        (error as any).code = errorCode;
+        throw error;
       }
 
-      return response.json() as Promise<Certificate>;
+      const certificate = await response.json() as Certificate;
+      
+      if (!certificate || !certificate.id) {
+        throw new Error("Invalid certificate data received from server");
+      }
+
+      return certificate;
     },
-    onSuccess: () => {
+    onSuccess: (certificate) => {
       queryClient.invalidateQueries({ queryKey: ["certificates"] });
       toast({
         title: "Certificate Created! 🎉",
         description: "Your achievement certificate has been generated successfully.",
       });
     },
-    onError: (error: Error) => {
+    onError: (error: Error & { code?: string }) => {
+      console.error("[Certificate] Creation failed:", error);
       toast({
         title: "Certificate Creation Failed",
-        description: error.message,
+        description: error.message || "An unexpected error occurred. Please try again.",
         variant: "destructive",
       });
     },
+    retry: (failureCount, error: any) => {
+      // Don't retry on client validation errors or permission errors
+      if (error?.code === "VALIDATION_ERROR" || 
+          error?.code === "OWNERSHIP_DENIED" || 
+          error?.code === "PARTICIPATION_DENIED" ||
+          error?.code === "DUPLICATE_CERTIFICATE") {
+        return false;
+      }
+      // Retry up to 2 times for network/server errors
+      return failureCount < 2;
+    },
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
   });
 }
 
@@ -58,6 +115,10 @@ export function useUserCertificates(userId?: string, certificateType?: string) {
   return useQuery({
     queryKey: ["certificates", userId, certificateType],
     queryFn: async () => {
+      if (!userId) {
+        return [];
+      }
+
       const params = new URLSearchParams();
       if (certificateType && certificateType !== "all") {
         params.append("type", certificateType);
@@ -68,13 +129,30 @@ export function useUserCertificates(userId?: string, certificateType?: string) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch certificates");
+        let errorMessage = "Failed to fetch certificates";
+        try {
+          const error = await response.json();
+          errorMessage = error.message || errorMessage;
+        } catch {
+          errorMessage = response.statusText || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
-      return response.json() as Promise<Certificate[]>;
+      const data = await response.json();
+      
+      // Ensure we always return an array
+      if (!Array.isArray(data)) {
+        console.error("[Certificate] API returned non-array:", typeof data);
+        return [];
+      }
+
+      return data as Certificate[];
     },
     enabled: !!userId,
     staleTime: 30000,
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
   });
 }
 

@@ -377,6 +377,44 @@ export function getCategoryColor(category: Badge["category"]): string {
   }
 }
 
+/**
+ * Returns appropriate text color for tier badges to ensure WCAG AA contrast compliance.
+ * Light backgrounds (yellow/gold/amber/bronze) use dark text, dark backgrounds use light text.
+ */
+export function getTierTextColor(tier: Badge["tier"]): string {
+  switch (tier) {
+    case "bronze":
+      return "text-amber-900"; // Dark text on amber/copper background
+    case "silver":
+      return "text-gray-900"; // Dark text on light silver background
+    case "gold":
+      return "text-amber-900"; // Dark text on yellow/gold background
+    case "platinum":
+      return "text-cyan-900"; // Dark text on light cyan background
+    case "diamond":
+      return "text-white"; // Light text on dark purple/pink background
+  }
+}
+
+/**
+ * Returns appropriate icon color for tier badges to ensure visibility.
+ * Light backgrounds (yellow/gold/amber/bronze) use dark icons, dark backgrounds use light icons.
+ */
+export function getTierIconColor(tier: Badge["tier"]): string {
+  switch (tier) {
+    case "bronze":
+      return "text-amber-900"; // Dark icon on amber/copper background
+    case "silver":
+      return "text-gray-900"; // Dark icon on light silver background
+    case "gold":
+      return "text-amber-900"; // Dark icon on yellow/gold background
+    case "platinum":
+      return "text-cyan-900"; // Dark icon on light cyan background
+    case "diamond":
+      return "text-white"; // Light icon on dark purple/pink background
+  }
+}
+
 export interface UserBadgeProgress {
   badge: Badge;
   unlocked: boolean;

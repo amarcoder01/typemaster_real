@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Lock, Zap, Target, Flame, TrendingUp, Star, Award, Share2, Moon, Sunrise, Rocket, Sparkles, Timer, HelpCircle } from "lucide-react";
-import { getTierColor, getTierBorder, getCategoryColor, type Badge as BadgeType } from "@shared/badges";
+import { getTierColor, getTierBorder, getCategoryColor, getTierTextColor, getTierIconColor, type Badge as BadgeType } from "@shared/badges";
 import { cn } from "@/lib/utils";
 
 const tierDescriptions: Record<string, string> = {
@@ -121,7 +121,7 @@ export function BadgeCard({ badge, unlocked, progress = 0, currentValue = 0, unl
           variant={unlocked ? "default" : "secondary"}
           className={cn(
             "text-[10px] px-2 py-0.5",
-            unlocked && `bg-gradient-to-r ${getTierColor(badge.tier)} border-0 text-white`,
+            unlocked && `bg-gradient-to-r ${getTierColor(badge.tier)} border-0 ${getTierTextColor(badge.tier)}`,
             isHiddenSecret && "bg-indigo-500/20 text-indigo-400 border-indigo-500/30"
           )}
         >
@@ -141,7 +141,7 @@ export function BadgeCard({ badge, unlocked, progress = 0, currentValue = 0, unl
           )}
         >
           {unlocked ? (
-            <IconComponent className="w-10 h-10 text-white drop-shadow-lg" />
+            <IconComponent className={cn("w-10 h-10 drop-shadow-lg", getTierIconColor(badge.tier))} />
           ) : isHiddenSecret ? (
             <HelpCircle className="w-10 h-10 text-indigo-400" />
           ) : (

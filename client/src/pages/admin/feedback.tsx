@@ -378,6 +378,13 @@ function AdminFeedbackDashboardContent() {
     });
   };
 
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["admin-feedback-list"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-feedback-analytics"] });
+    queryClient.invalidateQueries({ queryKey: ["feedback-categories"] });
+    toast.success("Refreshing feedback data...");
+  };
+
   if (adminCheckLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -470,7 +477,7 @@ function AdminFeedbackDashboardContent() {
           <h1 className="text-3xl font-bold tracking-tight">Feedback Dashboard</h1>
           <p className="text-muted-foreground">Manage and respond to user feedback</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetchFeedback()} data-testid="button-refresh-feedback">
+        <Button variant="outline" size="sm" onClick={handleRefresh} data-testid="button-refresh-feedback">
           <RefreshCw className="h-4 w-4 mr-2" />
           Refresh
         </Button>

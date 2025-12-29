@@ -250,7 +250,7 @@ export function DictationSessionComplete({
                   <Badge
                     key={achievement.id}
                     variant="secondary"
-                    className="px-3 py-1.5 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border-yellow-500/20 gap-2"
+                    className="px-3 py-1.5 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border-yellow-500/20 text-amber-900 gap-2"
                   >
                     {ACHIEVEMENT_ICONS[achievement.id] || <Trophy className="w-4 h-4" />}
                     {achievement.name}

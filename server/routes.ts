@@ -953,6 +953,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           },
         });
 
+        // Calculate words from characters (approximate: 5 characters per word)
+        const estimatedWords = Math.round(result.characters / 5);
+        
         certificate = await storage.createCertificate({
           certificateType: "standard",
           testResultId: result.id,
@@ -966,6 +969,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             mode: result.mode,
             language: result.language,
             freestyle: result.freestyle,
+            characters: result.characters,
+            words: estimatedWords,
+            modeLabel: result.mode === 15 ? '15s' : result.mode === 30 ? '30s' : result.mode === 60 ? '1min' : `${result.mode}s`,
           },
           ...verificationData,
         });
@@ -5421,10 +5427,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
 
   app.post("/api/certificates", isAuthenticated, async (req, res) => {
+    const requestId = `CERT-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 8)}`.toUpperCase();
+    const userId = req.user!.id;
+    
     try {
-      const userId = req.user!.id;
-      // Invalidate cache if exists
-      // await invalidateCache(`certificates:${userId}`);
+      // Validate required fields before processing
+      if (!req.body.certificateType) {
+        console.error(`[Certificate] [${requestId}] Missing certificateType for user ${userId}`);
+        return res.status(400).json({
+          message: "Certificate type is required",
+          code: "MISSING_CERTIFICATE_TYPE",
+        });
+      }
+
+      if (typeof req.body.wpm !== 'number' || req.body.wpm < 0) {
+        console.error(`[Certificate] [${requestId}] Invalid WPM: ${req.body.wpm} for user ${userId}`);
+        return res.status(400).json({
+          message: "Valid WPM is required",
+          code: "INVALID_WPM",
+        });
+      }
+
+      if (typeof req.body.accuracy !== 'number' || req.body.accuracy < 0 || req.body.accuracy > 100) {
+        console.error(`[Certificate] [${requestId}] Invalid accuracy: ${req.body.accuracy} for user ${userId}`);
+        return res.status(400).json({
+          message: "Valid accuracy (0-100) is required",
+          code: "INVALID_ACCURACY",
+        });
+      }
+
+      if (typeof req.body.duration !== 'number' || req.body.duration <= 0) {
+        console.error(`[Certificate] [${requestId}] Invalid duration: ${req.body.duration} for user ${userId}`);
+        return res.status(400).json({
+          message: "Valid duration is required",
+          code: "INVALID_DURATION",
+        });
+      }
 
       // We need to inject userId into the validation because insertCertificateSchema requires it
       const parsed = insertCertificateSchema.safeParse({
@@ -5433,9 +5471,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       if (!parsed.success) {
+        console.error(`[Certificate] [${requestId}] Validation failed for user ${userId}:`, fromError(parsed.error).toString());
         return res.status(400).json({
           message: "Invalid certificate data",
           errors: fromError(parsed.error).toString(),
+          code: "VALIDATION_ERROR",
         });
       }
 
@@ -5445,75 +5485,138 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (certificateData.testResultId) {
         const isOwner = await storage.verifyTestResultOwnership(certificateData.testResultId, userId);
         if (!isOwner) {
-          return res.status(403).json({ message: "Access denied: You don't own this test result" });
+          console.warn(`[Certificate] [${requestId}] Ownership check failed for testResultId ${certificateData.testResultId}, user ${userId}`);
+          return res.status(403).json({ 
+            message: "Access denied: You don't own this test result",
+            code: "OWNERSHIP_DENIED",
+          });
         }
       }
 
       if (certificateData.codeTestId) {
         const codeTest = await storage.getCodeTypingTestById(certificateData.codeTestId);
         if (!codeTest || codeTest.userId !== userId) {
-          return res.status(403).json({ message: "Access denied: You don't own this code test" });
+          console.warn(`[Certificate] [${requestId}] Ownership check failed for codeTestId ${certificateData.codeTestId}, user ${userId}`);
+          return res.status(403).json({ 
+            message: "Access denied: You don't own this code test",
+            code: "OWNERSHIP_DENIED",
+          });
         }
       }
 
       if (certificateData.bookTestId) {
         const bookTest = await storage.getBookTypingTestById(certificateData.bookTestId);
         if (!bookTest || bookTest.userId !== userId) {
-          return res.status(403).json({ message: "Access denied: You don't own this book test" });
+          console.warn(`[Certificate] [${requestId}] Ownership check failed for bookTestId ${certificateData.bookTestId}, user ${userId}`);
+          return res.status(403).json({ 
+            message: "Access denied: You don't own this book test",
+            code: "OWNERSHIP_DENIED",
+          });
         }
       }
 
       if (certificateData.raceId) {
         const participation = await storage.getRaceParticipationByRaceAndUser(certificateData.raceId, userId);
         if (!participation) {
-          return res.status(403).json({ message: "Access denied: You didn't participate in this race" });
+          console.warn(`[Certificate] [${requestId}] Participation check failed for raceId ${certificateData.raceId}, user ${userId}`);
+          return res.status(403).json({ 
+            message: "Access denied: You didn't participate in this race",
+            code: "PARTICIPATION_DENIED",
+          });
         }
       }
 
       if (certificateData.dictationTestId) {
         const dictationTest = await storage.getDictationTestById(certificateData.dictationTestId);
         if (!dictationTest || dictationTest.userId !== userId) {
-          return res.status(403).json({ message: "Access denied: You don't own this dictation test" });
+          console.warn(`[Certificate] [${requestId}] Ownership check failed for dictationTestId ${certificateData.dictationTestId}, user ${userId}`);
+          return res.status(403).json({ 
+            message: "Access denied: You don't own this dictation test",
+            code: "OWNERSHIP_DENIED",
+          });
         }
       }
 
       if (certificateData.stressTestId) {
         const stressTest = await storage.getStressTestById(certificateData.stressTestId);
         if (!stressTest || stressTest.userId !== userId) {
-          return res.status(403).json({ message: "Access denied: You don't own this stress test" });
+          console.warn(`[Certificate] [${requestId}] Ownership check failed for stressTestId ${certificateData.stressTestId}, user ${userId}`);
+          return res.status(403).json({ 
+            message: "Access denied: You don't own this stress test",
+            code: "OWNERSHIP_DENIED",
+          });
         }
       }
 
       // Generate verification data (cryptographically secure)
-      const { generateVerificationData } = await import("./certificate-verification-service");
-      const verificationData = generateVerificationData({
-        userId,
-        certificateType: certificateData.certificateType,
-        wpm: certificateData.wpm,
-        accuracy: certificateData.accuracy,
-        consistency: certificateData.consistency,
-        duration: certificateData.duration,
-        testResultId: certificateData.testResultId,
-        codeTestId: certificateData.codeTestId,
-        bookTestId: certificateData.bookTestId,
-        raceId: certificateData.raceId,
-        dictationTestId: certificateData.dictationTestId,
-        stressTestId: certificateData.stressTestId,
-        metadata: certificateData.metadata,
-      });
+      let verificationData;
+      try {
+        const { generateVerificationData } = await import("./certificate-verification-service");
+        verificationData = generateVerificationData({
+          userId,
+          certificateType: certificateData.certificateType,
+          wpm: certificateData.wpm,
+          accuracy: certificateData.accuracy,
+          consistency: certificateData.consistency,
+          duration: certificateData.duration,
+          testResultId: certificateData.testResultId,
+          codeTestId: certificateData.codeTestId,
+          bookTestId: certificateData.bookTestId,
+          raceId: certificateData.raceId,
+          dictationTestId: certificateData.dictationTestId,
+          stressTestId: certificateData.stressTestId,
+          metadata: certificateData.metadata,
+        });
+      } catch (verificationError: any) {
+        console.error(`[Certificate] [${requestId}] Verification data generation failed for user ${userId}:`, verificationError);
+        return res.status(500).json({
+          message: "Failed to generate certificate verification data",
+          code: "VERIFICATION_ERROR",
+        });
+      }
 
-      const certificate = await storage.createCertificate({
-        ...certificateData,
-        userId,
-        ...verificationData, // Add verification ID, signature, issuedAt, issuerVersion
-      });
+      // Create certificate with transaction-like error handling
+      let certificate;
+      try {
+        certificate = await storage.createCertificate({
+          ...certificateData,
+          userId,
+          ...verificationData, // Add verification ID, signature, issuedAt, issuerVersion
+        });
+      } catch (dbError: any) {
+        console.error(`[Certificate] [${requestId}] Database error creating certificate for user ${userId}:`, dbError);
+        
+        // Handle specific database errors
+        if (dbError.code === '23505') { // Unique constraint violation
+          return res.status(409).json({
+            message: "Certificate already exists for this test",
+            code: "DUPLICATE_CERTIFICATE",
+          });
+        }
+        
+        if (dbError.code === '23503') { // Foreign key constraint violation
+          return res.status(400).json({
+            message: "Invalid reference: Related test not found",
+            code: "INVALID_REFERENCE",
+          });
+        }
 
-      console.log(`[Certificate] Created verified certificate ${verificationData.verificationId} for user ${userId}`);
+        return res.status(500).json({
+          message: "Failed to save certificate to database",
+          code: "DATABASE_ERROR",
+        });
+      }
+
+      console.log(`[Certificate] [${requestId}] Successfully created certificate ${verificationData.verificationId} for user ${userId}, type: ${certificateData.certificateType}`);
 
       res.json(certificate);
     } catch (error: any) {
-      console.error("Create certificate error:", error);
-      res.status(500).json({ message: "Failed to create certificate" });
+      console.error(`[Certificate] [${requestId}] Unexpected error creating certificate for user ${userId}:`, error);
+      res.status(500).json({ 
+        message: "Failed to create certificate",
+        code: "INTERNAL_ERROR",
+        requestId,
+      });
     }
   });
 
@@ -5524,11 +5627,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
       const offset = req.query.offset ? parseInt(req.query.offset as string) : undefined;
       
-      const certificates = await storage.getUserCertificates(userId, certificateType, limit, offset);
+      // Validate certificate type if provided
+      if (certificateType && certificateType !== 'all') {
+        const validTypes = ['standard', 'code', 'book', 'race', 'dictation', 'stress'];
+        if (!validTypes.includes(certificateType)) {
+          return res.status(400).json({
+            message: `Invalid certificate type. Must be one of: ${validTypes.join(', ')}`,
+            code: "INVALID_CERTIFICATE_TYPE",
+          });
+        }
+      }
+
+      // Validate limit and offset
+      if (limit !== undefined && (isNaN(limit) || limit < 0 || limit > 1000)) {
+        return res.status(400).json({
+          message: "Limit must be between 0 and 1000",
+          code: "INVALID_LIMIT",
+        });
+      }
+
+      if (offset !== undefined && (isNaN(offset) || offset < 0)) {
+        return res.status(400).json({
+          message: "Offset must be a non-negative number",
+          code: "INVALID_OFFSET",
+        });
+      }
+      
+      const certificates = await storage.getUserCertificates(userId, certificateType === 'all' ? undefined : certificateType, limit, offset);
+      
+      if (!Array.isArray(certificates)) {
+        console.error(`[Certificate] getUserCertificates returned non-array for user ${userId}:`, typeof certificates);
+        return res.status(500).json({
+          message: "Invalid response from database",
+          code: "INVALID_RESPONSE",
+        });
+      }
+
+      console.log(`[Certificate] Retrieved ${certificates.length} certificate(s) for user ${userId}, type: ${certificateType || 'all'}`);
       res.json(certificates);
     } catch (error: any) {
-      console.error("Get certificates error:", error);
-      res.status(500).json({ message: "Failed to fetch certificates" });
+      console.error(`[Certificate] Error fetching certificates for user ${req.user!.id}:`, error);
+      res.status(500).json({ 
+        message: "Failed to fetch certificates",
+        code: "FETCH_ERROR",
+      });
     }
   });
 

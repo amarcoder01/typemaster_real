@@ -184,6 +184,12 @@ import { eq, desc, sql, and, notInArray, or, isNull, inArray } from "drizzle-orm
 
 neonConfig.webSocketConstructor = ws;
 
+// Configure Neon WebSocket settings for better reliability
+neonConfig.pipelineConnect = false;
+neonConfig.pipelineTLS = false;
+neonConfig.useSecureWebSocket = true;
+neonConfig.fetchConnectionCache = true;
+
 if (!process.env.DATABASE_URL) {
   throw new Error(
     "DATABASE_URL must be set. Did you forget to provision a database?",
@@ -195,15 +201,25 @@ const pool = new Pool({
   // Performance optimizations for Neon serverless
   max: 10, // Maximum connections in pool
   idleTimeoutMillis: 30000, // Close idle connections after 30s
-  connectionTimeoutMillis: 10000, // Wait max 10s for connection
+  connectionTimeoutMillis: 15000, // Increased to 15s for slow networks
 });
 
 // Handle pool-level errors gracefully to prevent server crashes
 // Neon serverless can terminate connections unexpectedly due to scaling/idle timeouts
 pool.on('error', (err: any) => {
-  console.error('[Database Pool] Unexpected connection error (will auto-reconnect):', err.message);
+  // Only log non-fatal errors - don't crash on connection timeouts
+  if (err.code === 'ETIMEDOUT' || err.message?.includes('timeout')) {
+    console.warn('[Database Pool] Connection timeout (will retry):', err.message);
+  } else if (err.message?.includes('Connection terminated')) {
+    console.warn('[Database Pool] Connection terminated (will reconnect):', err.message);
+  } else {
+    console.error('[Database Pool] Connection error (will auto-reconnect):', err.message);
+  }
   // Don't crash - the pool will create new connections on next query
 });
+
+// Note: uncaughtException handling is done in graceful-shutdown.ts
+// to avoid multiple handlers
 
 export const db = drizzle({ client: pool });
 
@@ -5832,34 +5848,85 @@ export class DatabaseStorage implements IStorage {
   // ============================================================================
 
   async createCertificate(certificate: InsertCertificate): Promise<Certificate> {
-    const result = await db
-      .insert(certificates)
-      .values(certificate)
-      .returning();
-    return result[0];
+    try {
+      // Validate required fields
+      if (!certificate.userId) {
+        throw new Error("Certificate userId is required");
+      }
+      if (!certificate.certificateType) {
+        throw new Error("Certificate type is required");
+      }
+      if (typeof certificate.wpm !== 'number' || certificate.wpm < 0) {
+        throw new Error("Valid WPM is required");
+      }
+      if (typeof certificate.accuracy !== 'number' || certificate.accuracy < 0 || certificate.accuracy > 100) {
+        throw new Error("Valid accuracy (0-100) is required");
+      }
+
+      const result = await db
+        .insert(certificates)
+        .values(certificate)
+        .returning();
+      
+      if (!result || result.length === 0) {
+        throw new Error("Failed to create certificate: No data returned");
+      }
+
+      return result[0];
+    } catch (error: any) {
+      console.error("[Storage] Error creating certificate:", error);
+      // Re-throw with context for better error handling upstream
+      if (error.code === '23505') {
+        throw new Error("Certificate already exists for this test");
+      }
+      if (error.code === '23503') {
+        throw new Error("Invalid reference: Related test not found");
+      }
+      throw error;
+    }
   }
 
   async getUserCertificates(userId: string, certificateType?: string, limit?: number, offset?: number): Promise<Certificate[]> {
-    const conditions = [eq(certificates.userId, userId)];
-    if (certificateType) {
-      conditions.push(eq(certificates.certificateType, certificateType));
+    try {
+      if (!userId) {
+        console.warn("[Storage] getUserCertificates called with empty userId");
+        return [];
+      }
+
+      const conditions = [eq(certificates.userId, userId)];
+      if (certificateType && certificateType !== 'all') {
+        conditions.push(eq(certificates.certificateType, certificateType));
+      }
+
+      let baseQuery = db
+        .select()
+        .from(certificates)
+        .where(and(...conditions))
+        .orderBy(desc(certificates.createdAt));
+
+      let result: Certificate[];
+      if (limit !== undefined && offset !== undefined) {
+        result = await baseQuery.limit(limit).offset(offset);
+      } else if (limit !== undefined) {
+        result = await baseQuery.limit(limit);
+      } else if (offset !== undefined) {
+        result = await baseQuery.offset(offset);
+      } else {
+        result = await baseQuery;
+      }
+
+      // Ensure we always return an array
+      if (!Array.isArray(result)) {
+        console.error("[Storage] getUserCertificates returned non-array:", typeof result);
+        return [];
+      }
+
+      return result;
+    } catch (error: any) {
+      console.error(`[Storage] Error fetching certificates for user ${userId}:`, error);
+      // Return empty array instead of throwing to prevent UI crashes
+      return [];
     }
-
-    let baseQuery = db
-      .select()
-      .from(certificates)
-      .where(and(...conditions))
-      .orderBy(desc(certificates.createdAt));
-
-    if (limit !== undefined && offset !== undefined) {
-      return await baseQuery.limit(limit).offset(offset);
-    } else if (limit !== undefined) {
-      return await baseQuery.limit(limit);
-    } else if (offset !== undefined) {
-      return await baseQuery.offset(offset);
-    }
-
-    return await baseQuery;
   }
 
   async getCodeTypingTestById(id: number): Promise<CodeTypingTest | undefined> {

@@ -1465,7 +1465,7 @@ export default function DictationTest() {
                     {achievements.filter(a => a.unlocked).map((achievement) => (
                       <Tooltip key={achievement.id}>
                         <TooltipTrigger asChild>
-                          <Badge variant="default" className="bg-yellow-500/20 text-yellow-600 border-yellow-500/50 px-3 py-1.5">
+                          <Badge variant="default" className="bg-yellow-500/20 text-amber-900 border-yellow-500/50 px-3 py-1.5">
                             <span className="mr-1">{achievement.icon}</span>
                             {achievement.name}
                           </Badge>
