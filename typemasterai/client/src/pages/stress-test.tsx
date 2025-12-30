@@ -1237,7 +1237,7 @@ export default function StressTest() {
                 <TooltipTrigger asChild>
                   <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-destructive/10 text-destructive text-sm cursor-help">
                     <AlertTriangle className="w-4 h-4" />
-                    <span>⚠️ WARNING: May cause EXTREME frustration!</span>
+                    <span>WARNING: May cause EXTREME frustration!</span>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="max-w-sm">
