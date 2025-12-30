@@ -16,11 +16,33 @@ export function registerShutdownHandlers(server: Server): void {
   process.on("SIGINT", () => handleShutdown("SIGINT"));
   
   process.on("uncaughtException", (error) => {
+    const msg = (error && (error as any).message) || "";
+    const stack = (error && (error as any).stack) || "";
+    if (
+      msg.includes("Connection terminated") ||
+      msg.includes("ETIMEDOUT") ||
+      msg.includes("WebSocket") ||
+      stack.includes("@neondatabase")
+    ) {
+      console.warn("[Shutdown] Suppressed database connection error:", msg);
+      return;
+    }
     console.error("[Shutdown] Uncaught exception:", error);
     handleShutdown("uncaughtException");
   });
   
   process.on("unhandledRejection", (reason) => {
+    const msg = typeof reason === "string" ? reason : (reason as any)?.message || "";
+    const stack = (reason as any)?.stack || "";
+    if (
+      msg.includes("Connection terminated") ||
+      msg.includes("ETIMEDOUT") ||
+      msg.includes("WebSocket") ||
+      stack.includes("@neondatabase")
+    ) {
+      console.warn("[Shutdown] Suppressed database connection rejection:", String(msg).slice(0, 200));
+      return;
+    }
     console.error("[Shutdown] Unhandled rejection:", reason);
   });
 

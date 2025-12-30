@@ -103,6 +103,14 @@ export function getCodePerformanceRating(wpm: number, accuracy: number): Perform
   return { emoji: "🎯", title: "Rising Coder", badge: "Bronze", color: "#cd7f32", bgGradient: ["#0f172a", "#3d2a1a", "#0f172a"] };
 }
 
+export function getStressPerformanceRating(stressScore: number): PerformanceRating {
+  if (stressScore >= 5000) return { emoji: "💎", title: "Chaos Master", badge: "Diamond", color: "#00d4ff", bgGradient: ["#0f172a", "#0d3d56", "#0f172a"] };
+  if (stressScore >= 3000) return { emoji: "🏆", title: "Stress Survivor", badge: "Platinum", color: "#e5e4e2", bgGradient: ["#0f172a", "#2d3748", "#0f172a"] };
+  if (stressScore >= 1500) return { emoji: "🔥", title: "Focus Fighter", badge: "Gold", color: "#ffd700", bgGradient: ["#0f172a", "#3d2914", "#0f172a"] };
+  if (stressScore >= 500) return { emoji: "💪", title: "Calm Under Pressure", badge: "Silver", color: "#c0c0c0", bgGradient: ["#0f172a", "#374151", "#0f172a"] };
+  return { emoji: "🎯", title: "Chaos Beginner", badge: "Bronze", color: "#cd7f32", bgGradient: ["#0f172a", "#3d2a1a", "#0f172a"] };
+}
+
 export function getLanguageIcon(language: string): string {
   return LANGUAGE_ICONS[language.toLowerCase()] || "💻";
 }
@@ -187,6 +195,29 @@ Think you can beat my score? Try it now! 🎯
 #TypingTest #TypeMasterAI #WPM`;
 }
 
+export function buildStressShareText(
+  stressScore: number,
+  wpm: number,
+  accuracy: number,
+  completionRate: number,
+  survivalTime: number,
+  difficultyName: string,
+  rating: PerformanceRating
+): string {
+  return `${rating.emoji} I survived the TypeMasterAI Stress Test with ${stressScore} points!
+
+⚡ ${difficultyName} Difficulty
+⌨️ ${wpm} WPM | ✨ ${accuracy.toFixed(1)}% Accuracy
+🎯 ${completionRate.toFixed(1)}% Completed | ⏱️ ${Math.round(survivalTime)}s Survived
+🏅 ${rating.title} - ${rating.badge} Tier
+
+Can you handle the chaos? 😈
+
+🔗 https://typemasterai.com/stress-test
+
+#StressTest #TypeMasterAI #TypingChallenge #Chaos`;
+}
+
 export interface CardDimensions {
   width: number;
   height: number;
@@ -195,6 +226,7 @@ export interface CardDimensions {
 export const CARD_DIMENSIONS: Record<string, CardDimensions> = {
   standard: { width: 600, height: 400 },
   code: { width: 600, height: 450 }, // Slightly taller for code mode metadata
+  stress: { width: 600, height: 480 }, // Taller for stress test stats
 };
 
 export function drawCardBackground(

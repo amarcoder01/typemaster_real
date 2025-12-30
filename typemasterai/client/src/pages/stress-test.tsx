@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, useLayoutEffect } from 'react';
 import { Link, useLocation } from 'wouter';
-import { ArrowLeft, Zap, Trophy, Volume2, VolumeX, AlertTriangle, Clock, Target, Flame, XCircle, Timer, BarChart3, RefreshCw, Home, LogIn, WifiOff, Award, X, ChevronRight, Play, Sparkles, Eye, HelpCircle } from 'lucide-react';
+import { ArrowLeft, Zap, Trophy, Volume2, VolumeX, AlertTriangle, Clock, Target, Flame, XCircle, Timer, BarChart3, RefreshCw, Home, LogIn, WifiOff, Award, X, ChevronRight, Play, Sparkles, Eye, HelpCircle, Share2, Twitter, MessageCircle, Linkedin, Send, Copy, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Tooltip,
   TooltipContent,
@@ -18,8 +20,11 @@ import { calculateWPM, calculateAccuracy } from '@/lib/typing-utils';
 import { useAuth } from '@/lib/auth-context';
 import { useNetwork } from '@/lib/network-context';
 import { StressCertificate } from '@/components/StressCertificate';
+import { StressShareCard } from '@/components/StressShareCard';
+import StressResultsComplete from '@/components/StressResultsComplete';
 import { TormentGrid, type TormentType } from '@/components/TormentIndicator';
 import { TormentsMatrix } from '@/components/TormentsMatrix';
+import { getStressPerformanceRating, buildStressShareText } from '@/lib/share-utils';
 
 type Difficulty = 'beginner' | 'intermediate' | 'expert' | 'nightmare' | 'impossible';
 
@@ -335,6 +340,7 @@ function getSharedAudioContext(): AudioContext | null {
 export default function StressTest() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const [copied, setCopied] = useState(false);
   
   const lastToastTimeRef = useRef<Record<string, number>>({});
   const showDebouncedToast = useCallback((key: string, title: string, description: string, variant: "default" | "destructive" = "default", debounceMs = 2000) => {
@@ -599,7 +605,7 @@ export default function StressTest() {
       stressScore: number;
       enabledEffects: StressEffects;
     }) => {
-      const res = await fetch('/api/stress-test/save', {
+      const res = await fetch('/api/stress-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -691,14 +697,14 @@ export default function StressTest() {
       const resultData = {
         difficulty,
         enabledEffects: difficultyConfig.effects,
-        wpm,
+        wpm: Math.round(wpm),
         accuracy,
         errors: totalErrors,
         maxCombo: bestCombo,
         totalCharacters: typed.length,
         duration: difficultyConfig.duration,
-        survivalTime: totalTime,
-        completionRate,
+        survivalTime: Math.round(totalTime),
+        completionRate: Math.min(100, Math.max(0, completionRate)),
         stressScore,
       };
       
@@ -1492,344 +1498,29 @@ export default function StressTest() {
       <TooltipProvider delayDuration={200}>
         <div className="min-h-screen bg-background">
           <div className="container mx-auto px-4 py-12">
-            <div className="max-w-2xl mx-auto">
-              {/* Header */}
-              <div className="text-center mb-8">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4 cursor-help" style={{ backgroundColor: `${tier.color}20` }}>
-                      <Trophy className="w-10 h-10" style={{ color: tier.color }} />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>{tier.desc}</p>
-                  </TooltipContent>
-                </Tooltip>
-                
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <h1 className="text-3xl font-bold mb-2 cursor-help">
-                      {completionRate >= 100 ? 'Challenge Complete!' : 'Test Survived!'}
-                    </h1>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>{completionRate >= 100 ? 'You typed all the text! Amazing focus!' : 'Time ran out, but you survived the chaos!'}</p>
-                  </TooltipContent>
-                </Tooltip>
-                
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center justify-center gap-2 mb-4 cursor-help">
-                      <span className="text-2xl">{config?.icon}</span>
-                      <span className="text-xl font-medium" style={{ color: config?.color }}>
-                        {config?.name}
-                      </span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>{config?.difficulty} difficulty • {config?.multiplier}x score multiplier</p>
-                  </TooltipContent>
-                </Tooltip>
-                
-                {/* Score Badge */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className={`inline-flex flex-col items-center px-8 py-4 rounded-2xl cursor-help ${tier.bg}`}>
-                      <span className="text-sm text-muted-foreground uppercase tracking-wider">
-                        {tier.name} Tier
-                      </span>
-                      <span className="text-5xl font-bold" style={{ color: tier.color }}>
-                        {stressScore}
-                      </span>
-                      <span className="text-sm text-muted-foreground">Stress Score</span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-xs">
-                    <div className="space-y-1">
-                      <p className="font-semibold">{tier.name} Tier</p>
-                      <p className="text-xs">{tier.desc}</p>
-                      <p className="text-xs text-muted-foreground">Score = (WPM × Accuracy% × Completion%) × {config?.multiplier}x + Combo Bonus</p>
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Card className="cursor-help hover:border-blue-500/50 transition-colors">
-                      <CardContent className="p-4 text-center">
-                        <BarChart3 className="w-5 h-5 mx-auto mb-2 text-blue-500" />
-                        <div className="text-2xl font-bold text-blue-500">{wpm}</div>
-                        <div className="text-xs text-muted-foreground uppercase">WPM</div>
-                      </CardContent>
-                    </Card>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>Words Per Minute - Your typing speed under chaos</p>
-                  </TooltipContent>
-                </Tooltip>
-                
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Card className="cursor-help hover:border-green-500/50 transition-colors">
-                      <CardContent className="p-4 text-center">
-                        <Target className="w-5 h-5 mx-auto mb-2 text-green-500" />
-                        <div className="text-2xl font-bold text-green-500">{accuracy.toFixed(1)}%</div>
-                        <div className="text-xs text-muted-foreground uppercase">Accuracy</div>
-                      </CardContent>
-                    </Card>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>Typing accuracy - Correct keystrokes vs total attempts</p>
-                  </TooltipContent>
-                </Tooltip>
-                
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Card className="cursor-help hover:border-orange-500/50 transition-colors">
-                      <CardContent className="p-4 text-center">
-                        <Eye className="w-5 h-5 mx-auto mb-2 text-orange-500" />
-                        <div className="text-2xl font-bold text-orange-500">{completionRate.toFixed(1)}%</div>
-                        <div className="text-xs text-muted-foreground uppercase">Completed</div>
-                      </CardContent>
-                    </Card>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>Completion rate - How much of the text you typed</p>
-                  </TooltipContent>
-                </Tooltip>
-                
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Card className="cursor-help hover:border-purple-500/50 transition-colors">
-                      <CardContent className="p-4 text-center">
-                        <Flame className="w-5 h-5 mx-auto mb-2 text-purple-500" />
-                        <div className="text-2xl font-bold text-purple-500">{maxCombo}</div>
-                        <div className="text-xs text-muted-foreground uppercase">Max Combo</div>
-                      </CardContent>
-                    </Card>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>Longest streak of correct keystrokes. Every 10 = bonus points!</p>
-                  </TooltipContent>
-                </Tooltip>
-                
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Card className="cursor-help hover:border-red-500/50 transition-colors">
-                      <CardContent className="p-4 text-center">
-                        <XCircle className="w-5 h-5 mx-auto mb-2 text-red-500" />
-                        <div className="text-2xl font-bold text-red-500">{errors}</div>
-                        <div className="text-xs text-muted-foreground uppercase">Errors</div>
-                      </CardContent>
-                    </Card>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>Total mistakes - Each error breaks your combo and shakes the screen!</p>
-                  </TooltipContent>
-                </Tooltip>
-                
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Card className="cursor-help hover:border-cyan-500/50 transition-colors">
-                      <CardContent className="p-4 text-center">
-                        <Timer className="w-5 h-5 mx-auto mb-2 text-cyan-500" />
-                        <div className="text-2xl font-bold text-cyan-500">{Math.round(survivalTime)}s</div>
-                        <div className="text-xs text-muted-foreground uppercase">Survival</div>
-                      </CardContent>
-                    </Card>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>Time survived in the chaos (out of {config?.duration}s)</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-
-              {/* Login Prompt */}
-              {!user && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Card className="mb-6 border-amber-500/50 bg-amber-500/5 cursor-help">
-                      <CardContent className="p-4 flex items-center gap-4">
-                        <LogIn className="w-6 h-6 text-amber-500 flex-shrink-0" />
-                        <div className="flex-1">
-                          <p className="font-medium text-amber-600 dark:text-amber-400">Login to save your results</p>
-                          <p className="text-sm text-muted-foreground">Your score won't be saved without an account.</p>
-                        </div>
-                        <Link href="/login">
-                          <Button variant="outline" size="sm" className="border-amber-500/50 text-amber-600">
-                            Login
-                          </Button>
-                        </Link>
-                      </CardContent>
-                    </Card>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>Create a free account to save scores and compete on the leaderboard!</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-
-              {/* Save Status */}
-              {user && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Card className={`mb-6 cursor-help ${
-                      !isOnline || pendingResultData 
-                        ? 'border-amber-500/50 bg-amber-500/5' 
-                        : saveResultMutation.isError 
-                          ? 'border-red-500/50 bg-red-500/5'
-                          : saveResultMutation.isSuccess
-                            ? 'border-green-500/50 bg-green-500/5'
-                            : ''
-                    }`}>
-                      <CardContent className="p-4 text-center">
-                        {!isOnline ? (
-                          <div className="flex items-center justify-center gap-2 text-amber-600">
-                            <WifiOff className="w-4 h-4" />
-                            <span className="text-sm">Offline - Will save when reconnected</span>
-                          </div>
-                        ) : pendingResultData ? (
-                          <div className="flex items-center justify-center gap-2 text-amber-600">
-                            <RefreshCw className={`w-4 h-4 ${saveResultMutation.isPending ? 'animate-spin' : ''}`} />
-                            <span className="text-sm">
-                              {saveResultMutation.isPending ? 'Saving...' : 'Pending - '}
-                            </span>
-                            {!saveResultMutation.isPending && (
-                              <Button variant="ghost" size="sm" onClick={retrySave} className="h-6 px-2 text-amber-600">
-                                Retry
-                              </Button>
-                            )}
-                          </div>
-                        ) : saveResultMutation.isError ? (
-                          <div className="flex items-center justify-center gap-2 text-red-500">
-                            <span className="text-sm">Failed to save</span>
-                            <Button variant="ghost" size="sm" onClick={retrySave} className="h-6 px-2 text-red-500">
-                              Retry
-                            </Button>
-                          </div>
-                        ) : saveResultMutation.isSuccess ? (
-                          <p className="text-sm text-green-600 dark:text-green-400">✓ Result saved!</p>
-                        ) : saveResultMutation.isPending ? (
-                          <p className="text-sm text-muted-foreground">Saving...</p>
-                        ) : null}
-                      </CardContent>
-                    </Card>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>{saveResultMutation.isSuccess ? 'Your score has been saved to your profile and leaderboard!' : 'Saving your score to the database...'}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-
-              {/* Certificate */}
-              {certificateData && !showCertificate && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button 
-                      onClick={() => setShowCertificate(true)} 
-                      className="w-full mb-6 gap-2"
-                      variant="outline"
-                    >
-                      <Award className="w-5 h-5" />
-                      View Certificate
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>View and download your achievement certificate!</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-
-              {showCertificate && certificateData && (
-                <div className="mb-6">
-                  <div className="flex justify-between items-center mb-4">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <h3 className="text-lg font-semibold cursor-help">Achievement Certificate</h3>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        <p>Your official stress test completion certificate</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button onClick={() => setShowCertificate(false)} variant="ghost" size="sm">
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        <p>Hide certificate</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <StressCertificate {...certificateData} />
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="space-y-3">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button 
-                      onClick={() => selectedDifficulty && handleStart(selectedDifficulty)} 
-                      className="w-full gap-2"
-                      size="lg"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      Retry {config?.name}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>Try the same difficulty again. Can you beat your score?</p>
-                  </TooltipContent>
-                </Tooltip>
-                
-                <div className="grid grid-cols-3 gap-3">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button onClick={handleReset} variant="outline" className="gap-2">
-                        <Zap className="w-4 h-4" />
-                        Change
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <p>Select a different difficulty level</p>
-                    </TooltipContent>
-                  </Tooltip>
-                  
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Link href="/stress-leaderboard">
-                        <Button variant="outline" className="w-full gap-2">
-                          <Trophy className="w-4 h-4" />
-                          Ranks
-                        </Button>
-                      </Link>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <p>View global leaderboard rankings</p>
-                    </TooltipContent>
-                  </Tooltip>
-                  
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Link href="/">
-                        <Button variant="outline" className="w-full gap-2">
-                          <Home className="w-4 h-4" />
-                          Home
-                        </Button>
-                      </Link>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <p>Return to home page</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
-            </div>
+            <StressResultsComplete
+              username={user?.username || null}
+              wpm={wpm}
+              accuracy={accuracy}
+              completionRate={completionRate}
+              stressScore={stressScore}
+              survivalTime={survivalTime}
+              duration={config?.duration || 60}
+              maxCombo={maxCombo}
+              errors={errors}
+              difficulty={selectedDifficulty || 'beginner'}
+              difficultyName={config?.name || 'Unknown'}
+              difficultyIcon={config?.icon || '🎯'}
+              difficultyColor={config?.color || '#fff'}
+              certificateData={certificateData}
+              isOnline={isOnline}
+              pendingResultData={pendingResultData}
+              saveResultMutation={{ isError: !!saveResultMutation.isError, isSuccess: !!saveResultMutation.isSuccess, isPending: !!saveResultMutation.isPending }}
+              onRetry={() => selectedDifficulty && handleStart(selectedDifficulty)}
+              onChangeDifficulty={handleReset}
+              onCopyLink={() => {}}
+              onRetrySave={retrySave}
+            />
           </div>
         </div>
       </TooltipProvider>
