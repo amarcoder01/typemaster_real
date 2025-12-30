@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, useLayoutEffect } from 'react';
 import { Link, useLocation } from 'wouter';
-import { ArrowLeft, Zap, Skull, Trophy, Eye, Volume2, VolumeX, AlertTriangle, HelpCircle, Clock, Target, Flame, XCircle, Timer, BarChart3, RefreshCw, Home, Info, LogIn, WifiOff, Award, X } from 'lucide-react';
+import { ArrowLeft, Zap, Skull, Trophy, Eye, Volume2, VolumeX, AlertTriangle, HelpCircle, Clock, Target, Flame, XCircle, Timer, BarChart3, RefreshCw, Home, Info, LogIn, WifiOff, Award, X, ChevronDown, Play, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -12,6 +12,8 @@ import { useAuth } from '@/lib/auth-context';
 import { useNetwork } from '@/lib/network-context';
 import { StressCertificate } from '@/components/StressCertificate';
 import { useCreateCertificate } from '@/hooks/useCertificates';
+import { TormentIndicator, TormentGrid, type TormentType, TORMENT_CONFIG } from '@/components/TormentIndicator';
+import { TormentsMatrix } from '@/components/TormentsMatrix';
 import {
   Tooltip,
   TooltipContent,
@@ -64,6 +66,9 @@ const DIFFICULTY_CONFIGS: Record<Difficulty, {
   duration: number;
   icon: string;
   color: string;
+  neonColor: string;
+  borderGlow: string;
+  textGlow: string;
   baseShakeIntensity: number;
   particleFrequency: number;
   multiplier: number;
@@ -104,6 +109,9 @@ const DIFFICULTY_CONFIGS: Record<Difficulty, {
     duration: 30,
     icon: '🔥',
     color: 'from-amber-500/20 to-orange-500/20',
+    neonColor: '#f59e0b',
+    borderGlow: 'shadow-[0_0_20px_rgba(245,158,11,0.4)]',
+    textGlow: 'drop-shadow-[0_0_8px_rgba(245,158,11,0.8)]',
     baseShakeIntensity: 3,
     particleFrequency: 0.15,
     multiplier: 1,
@@ -132,6 +140,9 @@ const DIFFICULTY_CONFIGS: Record<Difficulty, {
     duration: 45,
     icon: '⚡',
     color: 'from-purple-500/20 to-pink-500/20',
+    neonColor: '#a855f7',
+    borderGlow: 'shadow-[0_0_20px_rgba(168,85,247,0.4)]',
+    textGlow: 'drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]',
     baseShakeIntensity: 8,
     particleFrequency: 0.3,
     multiplier: 2,
@@ -160,6 +171,9 @@ const DIFFICULTY_CONFIGS: Record<Difficulty, {
     duration: 60,
     icon: '💀',
     color: 'from-red-500/20 to-orange-500/20',
+    neonColor: '#ef4444',
+    borderGlow: 'shadow-[0_0_20px_rgba(239,68,68,0.4)]',
+    textGlow: 'drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]',
     baseShakeIntensity: 25,
     particleFrequency: 0.7,
     multiplier: 3,
@@ -188,6 +202,9 @@ const DIFFICULTY_CONFIGS: Record<Difficulty, {
     duration: 90,
     icon: '☠️',
     color: 'from-black/40 to-red-900/40',
+    neonColor: '#f43f5e',
+    borderGlow: 'shadow-[0_0_25px_rgba(244,63,94,0.5)]',
+    textGlow: 'drop-shadow-[0_0_10px_rgba(244,63,94,0.9)]',
     baseShakeIntensity: 8,
     particleFrequency: 0.3,
     multiplier: 4,
@@ -201,42 +218,45 @@ const DIFFICULTY_CONFIGS: Record<Difficulty, {
   },
   impossible: {
     name: 'IMPOSSIBLE',
-    description: 'Stronger blur, subtle double vision.',
+    description: 'ALL effects active - reality ceases to exist',
     effects: {
       screenShake: true,
       distractions: true,
       sounds: true,
-      speedIncrease: false,
+      speedIncrease: true,
       limitedVisibility: true,
-      colorShift: false,
-      gravity: false,
-      rotation: false,
+      colorShift: true,
+      gravity: true,
+      rotation: true,
       glitch: true,
-      textFade: false,
+      textFade: true,
       reverseText: true,
-      randomJumps: false,
+      randomJumps: true,
       screenInvert: true,
-      zoomChaos: false,
-      screenFlip: false,
+      zoomChaos: true,
+      screenFlip: true,
     },
     duration: 120,
     icon: '🌀',
     color: 'from-purple-900/60 to-black/60',
-    baseShakeIntensity: 12,
-    particleFrequency: 0.4,
+    neonColor: '#d946ef',
+    borderGlow: 'shadow-[0_0_30px_rgba(217,70,239,0.6)]',
+    textGlow: 'drop-shadow-[0_0_12px_rgba(217,70,239,1)]',
+    baseShakeIntensity: 25,
+    particleFrequency: 0.8,
     multiplier: 5,
     difficulty: 'Legendary - Only 1% survive',
-    maxBlur: 2.5,
+    maxBlur: 3.5,
     blurPulse: true,
-    constantBlur: 0.5,
-    blurPulseSpeed: 0.15,
-    realityDistortion: false,
+    constantBlur: 0.8,
+    blurPulseSpeed: 0.2,
+    realityDistortion: true,
     chromaticAberration: true,
-    textScramble: false,
-    multiEffectCombos: false,
-    extremeChaosWaves: false,
+    textScramble: true,
+    multiEffectCombos: true,
+    extremeChaosWaves: true,
     doubleVision: true,
-    textWarp: false,
+    textWarp: true,
     chaosIntensityMultiplier: 1,
   },
 };
@@ -356,6 +376,7 @@ export default function StressTest() {
   const { isOnline, isServerReachable, addPendingAction, checkConnection } = useNetwork();
   const [, setLocation] = useLocation();
   const [showCertificate, setShowCertificate] = useState(false);
+  const [showMatrix, setShowMatrix] = useState(false);
   const [certificateData, setCertificateData] = useState<any>(null);
   const [lastTestResultId, setLastTestResultId] = useState<number | null>(null);
   const [pendingResultData, setPendingResultData] = useState<{
@@ -1516,12 +1537,37 @@ export default function StressTest() {
   if (!selectedDifficulty || (!isStarted && !isFinished && countdown === 0)) {
     return (
       <TooltipProvider delayDuration={200}>
-        <div className="container mx-auto px-4 py-8">
+        {/* Animated Background */}
+        <div className="fixed inset-0 -z-10 overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-black via-gray-950 to-black" />
+          <div 
+            className="absolute inset-0 opacity-30"
+            style={{
+              backgroundImage: `radial-gradient(circle at 20% 50%, rgba(0, 245, 255, 0.1) 0%, transparent 50%),
+                               radial-gradient(circle at 80% 20%, rgba(168, 85, 247, 0.1) 0%, transparent 50%),
+                               radial-gradient(circle at 40% 80%, rgba(239, 68, 68, 0.08) 0%, transparent 50%)`,
+            }}
+          />
+          {!prefersReducedMotion && (
+            <div className="absolute inset-0 opacity-5">
+              <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-cyan-500 rounded-full blur-[100px] animate-pulse" style={{ animationDuration: '4s' }} />
+              <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500 rounded-full blur-[100px] animate-pulse" style={{ animationDuration: '6s', animationDelay: '2s' }} />
+            </div>
+          )}
+        </div>
+
+        <div className="container mx-auto px-4 py-8 relative">
+          {/* Navigation Bar */}
           <div className="mb-8 flex items-center justify-between">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link href="/">
-                  <Button variant="ghost" size="sm" className="gap-2" data-testid="button-back">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="gap-2 bg-black/20 backdrop-blur-sm border border-white/10 hover:border-cyan-500/30 hover:bg-black/40 transition-all"
+                    data-testid="button-back"
+                  >
                     <ArrowLeft className="w-4 h-4" />
                     Back
                   </Button>
@@ -1535,7 +1581,12 @@ export default function StressTest() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link href="/stress-leaderboard">
-                  <Button variant="outline" size="sm" className="gap-2" data-testid="button-leaderboard">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="gap-2 bg-black/20 backdrop-blur-sm border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 hover:border-cyan-400/50 shadow-[0_0_15px_rgba(0,245,255,0.15)] transition-all"
+                    data-testid="button-leaderboard"
+                  >
                     <Trophy className="w-4 h-4" />
                     Leaderboard
                   </Button>
@@ -1547,13 +1598,15 @@ export default function StressTest() {
             </Tooltip>
           </div>
 
-          <div className="max-w-4xl mx-auto">
-            <div className="text-center mb-12">
-              <div className="inline-flex items-center gap-3 mb-4">
+          <div className="max-w-6xl mx-auto">
+            {/* Hero Section */}
+            <div className="text-center mb-16">
+              <div className="inline-flex items-center gap-4 mb-6">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div>
-                      <Zap className={`w-12 h-12 text-primary cursor-help ${prefersReducedMotion ? '' : 'animate-pulse'}`} />
+                    <div className="relative">
+                      <Zap className={`w-14 h-14 text-cyan-400 cursor-help ${prefersReducedMotion ? '' : 'animate-pulse'}`} />
+                      <div className="absolute inset-0 bg-cyan-400/20 blur-xl rounded-full" />
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="top">
@@ -1561,14 +1614,20 @@ export default function StressTest() {
                   </TooltipContent>
                 </Tooltip>
                 
-                <h1 className="text-5xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500">
+                <h1 
+                  className="text-5xl md:text-6xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-purple-400 to-pink-500"
+                  style={{
+                    textShadow: '0 0 40px rgba(0, 245, 255, 0.3), 0 0 80px rgba(168, 85, 247, 0.2)',
+                  }}
+                >
                   Typing Stress Test
                 </h1>
                 
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div>
-                      <Skull className={`w-12 h-12 text-destructive cursor-help ${prefersReducedMotion ? '' : 'animate-bounce'}`} />
+                    <div className="relative">
+                      <Skull className={`w-14 h-14 text-red-400 cursor-help ${prefersReducedMotion ? '' : 'animate-bounce'}`} />
+                      <div className="absolute inset-0 bg-red-400/20 blur-xl rounded-full" />
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="top">
@@ -1577,138 +1636,167 @@ export default function StressTest() {
                 </Tooltip>
               </div>
               
-              <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+              <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-8">
                 Can you type while the world collapses around you? Choose your nightmare.
               </p>
               
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="mt-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg max-w-xl mx-auto cursor-help" role="alert">
-                    <div className="flex items-center gap-2 justify-center text-destructive">
-                      <AlertTriangle className="w-5 h-5" aria-hidden="true" />
-                      <p className="font-semibold">Warning: May cause extreme frustration</p>
-                    </div>
+                  <div 
+                    className="inline-flex items-center gap-3 px-6 py-3 bg-red-500/10 backdrop-blur-sm border border-red-500/30 rounded-xl cursor-help shadow-[0_0_20px_rgba(239,68,68,0.15)]" 
+                    role="alert"
+                  >
+                    <AlertTriangle className="w-5 h-5 text-red-400" aria-hidden="true" />
+                    <p className="font-semibold text-red-400">May cause extreme frustration</p>
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-xs">
+                <TooltipContent side="bottom" className="max-w-xs bg-black/90 backdrop-blur-xl border border-white/20">
                   <p>This mode features intense visual effects including screen shake, color shifts, and text distortions. Not recommended for those sensitive to flashing lights.</p>
                 </TooltipContent>
               </Tooltip>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8" role="list" aria-label="Difficulty levels">
+            {/* Difficulty Selection Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-12" role="list" aria-label="Difficulty levels">
               {(Object.keys(DIFFICULTY_CONFIGS) as Difficulty[]).map((difficulty) => {
                 const diffConfig = DIFFICULTY_CONFIGS[difficulty];
-                const activeEffects = Object.entries(diffConfig.effects).filter(([_, enabled]) => enabled);
+                const activeEffectCount = Object.values(diffConfig.effects).filter(Boolean).length;
                 
                 return (
-                  <Tooltip key={difficulty}>
-                    <TooltipTrigger asChild>
-                      <Card
-                        className={`relative overflow-hidden cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-2xl border-2 ${
-                          difficulty === 'impossible' 
-                            ? `border-purple-500 hover:border-purple-400 ${prefersReducedMotion ? '' : 'animate-pulse'}` 
-                            : 'border-border hover:border-primary'
-                        }`}
-                        onClick={() => handleStart(difficulty)}
-                        data-testid={`card-difficulty-${difficulty}`}
-                        role="listitem"
-                        tabIndex={0}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            handleStart(difficulty);
-                          }
-                        }}
-                        aria-label={`${diffConfig.name} - ${diffConfig.difficulty}`}
-                      >
-                        <div className={`absolute inset-0 bg-gradient-to-br ${diffConfig.color} opacity-50`} aria-hidden="true" />
-                        <CardContent className="relative p-6">
-                          <div className="text-center mb-4">
-                            <div className="text-6xl mb-2" aria-hidden="true">{diffConfig.icon}</div>
-                            <h3 className="text-2xl font-bold mb-2">{diffConfig.name}</h3>
-                            <p className="text-sm text-muted-foreground mb-4">{diffConfig.description}</p>
-                            
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="inline-flex items-center gap-2 px-3 py-1 bg-background/80 rounded-full text-sm font-mono cursor-help">
-                                  <Clock className="w-3 h-3" aria-hidden="true" />
-                                  {diffConfig.duration}s duration
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent side="top">
-                                <p>You have {diffConfig.duration} seconds to complete the text</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </div>
-                          
-                          <div className="space-y-2 text-xs">
-                            <div className="flex items-center justify-center gap-1 font-semibold mb-2">
-                              <span>Active Torments:</span>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-xs">
-                                  <p>Effects that will make your typing experience chaotic. Hover over each effect for details.</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </div>
-                            {activeEffects.map(([effect]) => (
-                              <Tooltip key={effect}>
-                                <TooltipTrigger asChild>
-                                  <div className="flex items-center gap-2 bg-background/60 px-2 py-1 rounded cursor-help hover:bg-background/80 transition-colors">
-                                    <span className={`w-2 h-2 bg-destructive rounded-full ${prefersReducedMotion ? '' : 'animate-pulse'}`} aria-hidden="true" />
-                                    <span className="capitalize">{effect.replace(/([A-Z])/g, ' $1').trim()}</span>
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-xs">
-                                  <p>{EFFECT_DESCRIPTIONS[effect as keyof StressEffects]}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ))}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-xs">
-                      <div className="space-y-1">
-                        <p className="font-semibold">{diffConfig.difficulty}</p>
-                        {difficulty === 'intermediate' && (
-                          <>
-                            <p className="text-xs text-green-400">✓ Progressive chaos - effects ramp up gradually</p>
-                            <p className="text-xs text-green-400">✓ Milestone encouragement at 25%, 50%, 75%</p>
-                            <p className="text-xs text-green-400">✓ Effect warnings before disorienting moments</p>
-                          </>
-                        )}
-                        {difficulty === 'beginner' && (
-                          <p className="text-xs text-green-400">✓ Perfect for learning the chaos mechanics</p>
-                        )}
-                        {difficulty === 'nightmare' && (
-                          <>
-                            <p className="text-xs text-purple-400">✓ Pulsing blur waves - text clarity fluctuates</p>
-                            <p className="text-xs text-purple-400">✓ Chromatic aberration - RGB color splitting</p>
-                            <p className="text-xs text-purple-400">✓ Blur intensity: {diffConfig.constantBlur}px - {diffConfig.maxBlur}px</p>
-                          </>
-                        )}
-                        {difficulty === 'impossible' && (
-                          <>
-                            <p className="text-xs text-red-400">✓ Reality distortion - screen warps and skews</p>
-                            <p className="text-xs text-red-400">✓ Text scramble - characters shift randomly</p>
-                            <p className="text-xs text-red-400">✓ Extreme chaos waves - contrast/brightness bursts</p>
-                            <p className="text-xs text-red-400">✓ Multi-effect combos - simultaneous chaos!</p>
-                            <p className="text-xs text-red-400">✓ Enhanced chromatic aberration</p>
-                            <p className="text-xs text-red-400">✓ Heavy blur: {diffConfig.constantBlur}px - {diffConfig.maxBlur}px</p>
-                          </>
-                        )}
-                        <p className="text-xs text-muted-foreground">{activeEffects.length} active effects</p>
+                  <Card
+                    key={difficulty}
+                    className={`group relative overflow-hidden cursor-pointer transition-all duration-500 
+                      bg-black/30 backdrop-blur-xl border border-white/10
+                      hover:scale-[1.02] hover:-translate-y-1
+                      ${diffConfig.borderGlow}
+                      ${difficulty === 'impossible' && !prefersReducedMotion ? 'animate-pulse' : ''}`}
+                    style={{
+                      borderColor: `${diffConfig.neonColor}40`,
+                    }}
+                    onClick={() => handleStart(difficulty)}
+                    data-testid={`card-difficulty-${difficulty}`}
+                    role="listitem"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleStart(difficulty);
+                      }
+                    }}
+                    aria-label={`${diffConfig.name} - ${diffConfig.difficulty}`}
+                  >
+                    {/* Gradient Overlay */}
+                    <div 
+                      className={`absolute inset-0 bg-gradient-to-br ${diffConfig.color} opacity-40 group-hover:opacity-60 transition-opacity`} 
+                      aria-hidden="true" 
+                    />
+                    
+                    {/* Glow Effect on Hover */}
+                    <div 
+                      className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                      style={{
+                        background: `radial-gradient(circle at center, ${diffConfig.neonColor}15 0%, transparent 70%)`,
+                      }}
+                    />
+                    
+                    <CardContent className="relative p-5">
+                      {/* Icon with Glow */}
+                      <div className="text-center mb-4">
+                        <div className="relative inline-block">
+                          <span 
+                            className={`text-5xl block ${diffConfig.textGlow} transition-transform group-hover:scale-110`}
+                            aria-hidden="true"
+                          >
+                            {diffConfig.icon}
+                          </span>
+                          <div 
+                            className="absolute inset-0 blur-xl opacity-50 group-hover:opacity-75 transition-opacity"
+                            style={{ background: diffConfig.neonColor }}
+                          />
+                        </div>
+                        
+                        <h3 
+                          className="text-xl font-bold mt-3 mb-1"
+                          style={{ 
+                            color: diffConfig.neonColor,
+                            textShadow: `0 0 10px ${diffConfig.neonColor}80`,
+                          }}
+                        >
+                          {diffConfig.name}
+                        </h3>
+                        
+                        <p className="text-xs text-muted-foreground mb-3 line-clamp-2">
+                          {diffConfig.description}
+                        </p>
+                        
+                        {/* Duration & Effects Badge */}
+                        <div className="flex items-center justify-center gap-2 mb-4">
+                          <span 
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-black/40 backdrop-blur-sm rounded-full text-xs font-mono border border-white/10"
+                          >
+                            <Clock className="w-3 h-3 text-cyan-400" aria-hidden="true" />
+                            <span className="text-cyan-400">{diffConfig.duration}s</span>
+                          </span>
+                          <span 
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-black/40 backdrop-blur-sm rounded-full text-xs font-bold border"
+                            style={{ 
+                              borderColor: `${diffConfig.neonColor}50`,
+                              color: diffConfig.neonColor,
+                            }}
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            {activeEffectCount}
+                          </span>
+                        </div>
                       </div>
-                    </TooltipContent>
-                  </Tooltip>
+                      
+                      {/* Active Torments Grid */}
+                      <TormentGrid
+                        effects={diffConfig.effects as Record<TormentType, boolean>}
+                        size="sm"
+                        showInactive={false}
+                        animated={!prefersReducedMotion}
+                      />
+                      
+                      {/* Start Button */}
+                      <Button
+                        className="w-full mt-4 gap-2 bg-black/40 backdrop-blur-sm border transition-all duration-300 group-hover:scale-[1.02]"
+                        style={{
+                          borderColor: diffConfig.neonColor,
+                          color: diffConfig.neonColor,
+                          boxShadow: `0 0 15px ${diffConfig.neonColor}30`,
+                        }}
+                        variant="outline"
+                      >
+                        <Play className="w-4 h-4" />
+                        Enter Arena
+                      </Button>
+                    </CardContent>
+                  </Card>
                 );
               })}
             </div>
 
+            {/* Torments Comparison Matrix */}
+            <div className="mb-8">
+              <Button 
+                variant="ghost" 
+                onClick={() => setShowMatrix(!showMatrix)}
+                className="w-full gap-2 bg-black/20 backdrop-blur-sm border border-white/10 hover:border-cyan-500/30 hover:bg-black/30 py-6 group"
+              >
+                <span className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-400">
+                  {showMatrix ? 'Hide' : 'View'} Complete Chaos Effect Matrix
+                </span>
+                <ChevronDown className={`w-5 h-5 text-cyan-400 transition-transform ${showMatrix ? 'rotate-180' : ''}`} />
+              </Button>
+              {showMatrix && (
+                <div className="mt-4">
+                  <TormentsMatrix />
+                </div>
+              )}
+            </div>
+
+            {/* Sound Toggle */}
             <div className="text-center">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1716,7 +1804,11 @@ export default function StressTest() {
                     variant="ghost"
                     size="sm"
                     onClick={() => setSoundEnabled(!soundEnabled)}
-                    className="gap-2"
+                    className={`gap-2 bg-black/20 backdrop-blur-sm border transition-all ${
+                      soundEnabled 
+                        ? 'border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10' 
+                        : 'border-white/10 text-muted-foreground hover:border-white/20'
+                    }`}
                     data-testid="button-toggle-sound"
                     aria-pressed={soundEnabled}
                   >
@@ -1724,7 +1816,7 @@ export default function StressTest() {
                     {soundEnabled ? 'Sound On' : 'Sound Off'}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="top">
+                <TooltipContent side="top" className="bg-black/90 backdrop-blur-xl border border-white/20">
                   <p>{soundEnabled ? 'Click to mute chaotic sound effects' : 'Click to enable sound effects during the test'}</p>
                 </TooltipContent>
               </Tooltip>
@@ -1738,29 +1830,82 @@ export default function StressTest() {
   if (countdown > 0 && !isStarted) {
     return (
       <TooltipProvider>
-        <div className="fixed inset-0 bg-background/95 backdrop-blur-sm flex items-center justify-center z-50" role="alert" aria-live="assertive">
-          <div className="text-center">
+        <div 
+          className="fixed inset-0 flex items-center justify-center z-50" 
+          role="alert" 
+          aria-live="assertive"
+          style={{
+            background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.98) 100%)',
+          }}
+        >
+          {/* Animated Background Pulses */}
+          {!prefersReducedMotion && (
+            <>
+              <div 
+                className="absolute inset-0 opacity-20"
+                style={{
+                  background: `radial-gradient(circle at center, ${config?.neonColor || '#00f5ff'}30 0%, transparent 50%)`,
+                  animation: 'pulse 2s ease-in-out infinite',
+                }}
+              />
+            </>
+          )}
+          
+          <div className="text-center relative z-10">
             <Tooltip>
               <TooltipTrigger asChild>
-                <h2 className="text-2xl font-bold mb-4 text-muted-foreground cursor-help">Get Ready...</h2>
+                <h2 
+                  className="text-3xl font-bold mb-6 cursor-help"
+                  style={{
+                    color: config?.neonColor || '#00f5ff',
+                    textShadow: `0 0 20px ${config?.neonColor || '#00f5ff'}80`,
+                  }}
+                >
+                  Get Ready...
+                </h2>
               </TooltipTrigger>
-              <TooltipContent side="top">
+              <TooltipContent side="top" className="bg-black/90 backdrop-blur-xl border border-white/20">
                 <p>Focus on the screen - chaos begins soon!</p>
               </TooltipContent>
             </Tooltip>
-            <div className={`text-9xl font-bold text-destructive ${prefersReducedMotion ? '' : 'animate-bounce'}`} aria-label={`Starting in ${countdown}`}>
+            
+            <div 
+              className={`text-[12rem] font-bold leading-none ${prefersReducedMotion ? '' : 'animate-bounce'}`} 
+              style={{
+                color: config?.neonColor || '#ef4444',
+                textShadow: `0 0 60px ${config?.neonColor || '#ef4444'}, 0 0 120px ${config?.neonColor || '#ef4444'}80`,
+                filter: 'drop-shadow(0 0 40px currentColor)',
+              }}
+              aria-label={`Starting in ${countdown}`}
+            >
               {countdown}
             </div>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <p className="text-xl text-muted-foreground mt-4 cursor-help">
-                  {config?.name}
-                </p>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <p>{config?.description}</p>
-              </TooltipContent>
-            </Tooltip>
+            
+            <div className="mt-8 flex flex-col items-center gap-4">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-3 cursor-help">
+                    <span className="text-5xl">{config?.icon}</span>
+                    <p 
+                      className="text-2xl font-bold"
+                      style={{
+                        color: config?.neonColor || '#a855f7',
+                        textShadow: `0 0 15px ${config?.neonColor || '#a855f7'}80`,
+                      }}
+                    >
+                      {config?.name}
+                    </p>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="bg-black/90 backdrop-blur-xl border border-white/20">
+                  <p>{config?.description}</p>
+                </TooltipContent>
+              </Tooltip>
+              
+              <p className="text-muted-foreground text-lg">
+                {config?.difficulty}
+              </p>
+            </div>
           </div>
         </div>
       </TooltipProvider>
@@ -1769,77 +1914,200 @@ export default function StressTest() {
 
   if (isFinished && finalResults) {
     const { survivalTime, wpm, accuracy, completionRate, stressScore } = finalResults;
+    
+    // Calculate performance tier based on stress score
+    const getTier = (score: number) => {
+      if (score >= 5000) return { name: 'Diamond', color: '#00d4ff', glow: 'rgba(0, 212, 255, 0.5)' };
+      if (score >= 3000) return { name: 'Platinum', color: '#c0c0c0', glow: 'rgba(192, 192, 192, 0.5)' };
+      if (score >= 1500) return { name: 'Gold', color: '#ffd700', glow: 'rgba(255, 215, 0, 0.5)' };
+      if (score >= 500) return { name: 'Silver', color: '#a8a8a8', glow: 'rgba(168, 168, 168, 0.5)' };
+      return { name: 'Bronze', color: '#cd7f32', glow: 'rgba(205, 127, 50, 0.5)' };
+    };
+    
+    const tier = getTier(stressScore);
 
     return (
       <TooltipProvider delayDuration={200}>
-        <div className="container mx-auto px-4 py-8">
-          <div className="max-w-2xl mx-auto">
-            <Card>
+        {/* Background */}
+        <div className="fixed inset-0 -z-10">
+          <div className="absolute inset-0 bg-gradient-to-br from-black via-gray-950 to-black" />
+          <div 
+            className="absolute inset-0 opacity-20"
+            style={{
+              backgroundImage: `radial-gradient(circle at center, ${config?.neonColor || '#00f5ff'}20 0%, transparent 50%)`,
+            }}
+          />
+        </div>
+        
+        <div className="container mx-auto px-4 py-8 relative">
+          <div className="max-w-3xl mx-auto">
+            <Card className="bg-black/40 backdrop-blur-xl border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)]">
               <CardContent className="p-8">
-                <div className="text-center mb-8" role="status" aria-live="polite">
-                  <Trophy className="w-16 h-16 mx-auto mb-4 text-primary" aria-hidden="true" />
+                {/* Header with Tier Badge */}
+                <div className="text-center mb-10" role="status" aria-live="polite">
+                  <div className="relative inline-block mb-6">
+                    <Trophy 
+                      className="w-20 h-20 mx-auto" 
+                      style={{ 
+                        color: tier.color,
+                        filter: `drop-shadow(0 0 20px ${tier.glow})`,
+                      }}
+                      aria-hidden="true" 
+                    />
+                    {!prefersReducedMotion && (
+                      <div 
+                        className="absolute inset-0 animate-ping opacity-30"
+                        style={{ color: tier.color }}
+                      >
+                        <Trophy className="w-20 h-20" />
+                      </div>
+                    )}
+                  </div>
                   
-                  <h2 className="text-4xl font-bold mb-2">
+                  <h2 
+                    className="text-5xl font-bold mb-3"
+                    style={{
+                      color: completionRate >= 100 ? '#22c55e' : tier.color,
+                      textShadow: `0 0 30px ${completionRate >= 100 ? 'rgba(34, 197, 94, 0.5)' : tier.glow}`,
+                    }}
+                  >
                     {completionRate >= 100 ? '🎉 Completed!' : '💀 Survived!'}
                   </h2>
                   
-                  <p className="text-lg text-muted-foreground mb-2">
-                    {config?.name} · {config?.difficulty}
-                  </p>
+                  <div className="flex items-center justify-center gap-3 mb-4">
+                    <span className="text-4xl">{config?.icon}</span>
+                    <p 
+                      className="text-xl font-bold"
+                      style={{ color: config?.neonColor }}
+                    >
+                      {config?.name}
+                    </p>
+                  </div>
+                  <p className="text-muted-foreground">{config?.difficulty}</p>
                   
-                  <div className="inline-flex items-center gap-2 bg-primary/10 px-6 py-3 rounded-full">
-                    <span className="text-sm text-muted-foreground">Stress Score</span>
-                    <span className="text-3xl font-bold text-primary">{stressScore}</span>
+                  {/* Tier Badge */}
+                  <div 
+                    className="inline-flex items-center gap-3 mt-6 px-8 py-4 rounded-2xl border-2"
+                    style={{
+                      borderColor: tier.color,
+                      background: `linear-gradient(135deg, ${tier.color}15 0%, transparent 100%)`,
+                      boxShadow: `0 0 30px ${tier.glow}`,
+                    }}
+                  >
+                    <div className="text-center">
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider block mb-1">
+                        {tier.name} Tier
+                      </span>
+                      <span 
+                        className="text-5xl font-bold"
+                        style={{ 
+                          color: tier.color,
+                          textShadow: `0 0 20px ${tier.glow}`,
+                        }}
+                      >
+                        {stressScore}
+                      </span>
+                      <span className="text-sm text-muted-foreground block mt-1">Stress Score</span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mb-8" role="list" aria-label="Test results">
-                  <div className="text-center p-4 bg-muted rounded-lg hover:bg-muted/80 transition-colors" data-testid="stat-wpm" role="listitem">
-                    <div className="text-3xl font-bold text-primary" aria-label={`${wpm} words per minute`}>{wpm}</div>
-                    <div className="text-sm text-muted-foreground flex items-center justify-center gap-1">
-                      <BarChart3 className="w-3 h-3" aria-hidden="true" />
-                      WPM
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8" role="list" aria-label="Test results">
+                  <div 
+                    className="text-center p-5 rounded-xl bg-black/30 backdrop-blur-sm border border-cyan-500/20 hover:border-cyan-500/40 transition-all group" 
+                    data-testid="stat-wpm" 
+                    role="listitem"
+                  >
+                    <BarChart3 className="w-5 h-5 mx-auto mb-2 text-cyan-400 group-hover:scale-110 transition-transform" aria-hidden="true" />
+                    <div 
+                      className="text-3xl font-bold text-cyan-400" 
+                      style={{ textShadow: '0 0 10px rgba(0, 245, 255, 0.5)' }}
+                      aria-label={`${wpm} words per minute`}
+                    >
+                      {wpm}
                     </div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">WPM</div>
                   </div>
                   
-                  <div className="text-center p-4 bg-muted rounded-lg hover:bg-muted/80 transition-colors" data-testid="stat-accuracy" role="listitem">
-                    <div className="text-3xl font-bold text-green-500" aria-label={`${accuracy.toFixed(1)} percent accuracy`}>{accuracy.toFixed(1)}%</div>
-                    <div className="text-sm text-muted-foreground flex items-center justify-center gap-1">
-                      <Target className="w-3 h-3" aria-hidden="true" />
-                      Accuracy
+                  <div 
+                    className="text-center p-5 rounded-xl bg-black/30 backdrop-blur-sm border border-green-500/20 hover:border-green-500/40 transition-all group" 
+                    data-testid="stat-accuracy" 
+                    role="listitem"
+                  >
+                    <Target className="w-5 h-5 mx-auto mb-2 text-green-400 group-hover:scale-110 transition-transform" aria-hidden="true" />
+                    <div 
+                      className="text-3xl font-bold text-green-400" 
+                      style={{ textShadow: '0 0 10px rgba(34, 197, 94, 0.5)' }}
+                      aria-label={`${accuracy.toFixed(1)} percent accuracy`}
+                    >
+                      {accuracy.toFixed(1)}%
                     </div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Accuracy</div>
                   </div>
                   
-                  <div className="text-center p-4 bg-muted rounded-lg hover:bg-muted/80 transition-colors" data-testid="stat-completion" role="listitem">
-                    <div className="text-3xl font-bold text-orange-500" aria-label={`${completionRate.toFixed(1)} percent completed`}>{completionRate.toFixed(1)}%</div>
-                    <div className="text-sm text-muted-foreground flex items-center justify-center gap-1">
-                      <Eye className="w-3 h-3" aria-hidden="true" />
-                      Completed
+                  <div 
+                    className="text-center p-5 rounded-xl bg-black/30 backdrop-blur-sm border border-orange-500/20 hover:border-orange-500/40 transition-all group" 
+                    data-testid="stat-completion" 
+                    role="listitem"
+                  >
+                    <Eye className="w-5 h-5 mx-auto mb-2 text-orange-400 group-hover:scale-110 transition-transform" aria-hidden="true" />
+                    <div 
+                      className="text-3xl font-bold text-orange-400" 
+                      style={{ textShadow: '0 0 10px rgba(251, 146, 60, 0.5)' }}
+                      aria-label={`${completionRate.toFixed(1)} percent completed`}
+                    >
+                      {completionRate.toFixed(1)}%
                     </div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Completed</div>
                   </div>
                   
-                  <div className="text-center p-4 bg-muted rounded-lg hover:bg-muted/80 transition-colors" data-testid="stat-combo" role="listitem">
-                    <div className="text-3xl font-bold text-purple-500" aria-label={`Maximum combo of ${maxCombo}`}>{maxCombo}</div>
-                    <div className="text-sm text-muted-foreground flex items-center justify-center gap-1">
-                      <Flame className="w-3 h-3" aria-hidden="true" />
-                      Max Combo
+                  <div 
+                    className="text-center p-5 rounded-xl bg-black/30 backdrop-blur-sm border border-purple-500/20 hover:border-purple-500/40 transition-all group" 
+                    data-testid="stat-combo" 
+                    role="listitem"
+                  >
+                    <Flame className="w-5 h-5 mx-auto mb-2 text-purple-400 group-hover:scale-110 transition-transform" aria-hidden="true" />
+                    <div 
+                      className="text-3xl font-bold text-purple-400" 
+                      style={{ textShadow: '0 0 10px rgba(168, 85, 247, 0.5)' }}
+                      aria-label={`Maximum combo of ${maxCombo}`}
+                    >
+                      {maxCombo}
                     </div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Max Combo</div>
                   </div>
                   
-                  <div className="text-center p-4 bg-muted rounded-lg hover:bg-muted/80 transition-colors" data-testid="stat-errors" role="listitem">
-                    <div className="text-3xl font-bold text-red-500" aria-label={`${errors} errors`}>{errors}</div>
-                    <div className="text-sm text-muted-foreground flex items-center justify-center gap-1">
-                      <XCircle className="w-3 h-3" aria-hidden="true" />
-                      Errors
+                  <div 
+                    className="text-center p-5 rounded-xl bg-black/30 backdrop-blur-sm border border-red-500/20 hover:border-red-500/40 transition-all group" 
+                    data-testid="stat-errors" 
+                    role="listitem"
+                  >
+                    <XCircle className="w-5 h-5 mx-auto mb-2 text-red-400 group-hover:scale-110 transition-transform" aria-hidden="true" />
+                    <div 
+                      className="text-3xl font-bold text-red-400" 
+                      style={{ textShadow: '0 0 10px rgba(239, 68, 68, 0.5)' }}
+                      aria-label={`${errors} errors`}
+                    >
+                      {errors}
                     </div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Errors</div>
                   </div>
                   
-                  <div className="text-center p-4 bg-muted rounded-lg hover:bg-muted/80 transition-colors" data-testid="stat-survival" role="listitem">
-                    <div className="text-3xl font-bold text-blue-500" aria-label={`Survived ${Math.round(survivalTime)} seconds`}>{Math.round(survivalTime)}s</div>
-                    <div className="text-sm text-muted-foreground flex items-center justify-center gap-1">
-                      <Timer className="w-3 h-3" aria-hidden="true" />
-                      Survival Time
+                  <div 
+                    className="text-center p-5 rounded-xl bg-black/30 backdrop-blur-sm border border-blue-500/20 hover:border-blue-500/40 transition-all group" 
+                    data-testid="stat-survival" 
+                    role="listitem"
+                  >
+                    <Timer className="w-5 h-5 mx-auto mb-2 text-blue-400 group-hover:scale-110 transition-transform" aria-hidden="true" />
+                    <div 
+                      className="text-3xl font-bold text-blue-400" 
+                      style={{ textShadow: '0 0 10px rgba(59, 130, 246, 0.5)' }}
+                      aria-label={`Survived ${Math.round(survivalTime)} seconds`}
+                    >
+                      {Math.round(survivalTime)}s
                     </div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Survival</div>
                   </div>
                 </div>
 
@@ -1948,24 +2216,52 @@ export default function StressTest() {
                   </div>
                 )}
 
+                {/* Action Buttons */}
                 <div className="flex flex-col gap-3">
                   <Button 
                     onClick={() => selectedDifficulty && handleStart(selectedDifficulty)} 
-                    className="w-full gap-2"
+                    className="w-full gap-2 h-12 text-lg font-semibold border-2 transition-all hover:scale-[1.02]"
+                    style={{
+                      borderColor: config?.neonColor,
+                      color: config?.neonColor,
+                      background: `linear-gradient(135deg, ${config?.neonColor}20 0%, transparent 100%)`,
+                      boxShadow: `0 0 20px ${config?.neonColor}30`,
+                    }}
+                    variant="outline"
                     data-testid="button-retry-same"
                   >
-                    <Zap className="w-4 h-4" aria-hidden="true" />
+                    <Zap className="w-5 h-5" aria-hidden="true" />
                     Retry {config?.name}
                   </Button>
                   
                   <div className="flex gap-4">
-                    <Button onClick={handleReset} variant="outline" className="flex-1 gap-2" data-testid="button-try-again">
+                    <Button 
+                      onClick={handleReset} 
+                      variant="outline" 
+                      className="flex-1 gap-2 bg-black/20 backdrop-blur-sm border-white/20 hover:border-white/40 hover:bg-white/5" 
+                      data-testid="button-try-again"
+                    >
                       <RefreshCw className="w-4 h-4" aria-hidden="true" />
                       Change Difficulty
                     </Button>
                     
+                    <Link href="/stress-leaderboard" className="flex-1">
+                      <Button 
+                        variant="outline" 
+                        className="w-full gap-2 bg-black/20 backdrop-blur-sm border-cyan-500/30 text-cyan-400 hover:border-cyan-400/50 hover:bg-cyan-500/10" 
+                        data-testid="button-leaderboard"
+                      >
+                        <Trophy className="w-4 h-4" aria-hidden="true" />
+                        Leaderboard
+                      </Button>
+                    </Link>
+                    
                     <Link href="/" className="flex-1">
-                      <Button variant="outline" className="w-full gap-2" data-testid="button-home">
+                      <Button 
+                        variant="outline" 
+                        className="w-full gap-2 bg-black/20 backdrop-blur-sm border-white/20 hover:border-white/40 hover:bg-white/5" 
+                        data-testid="button-home"
+                      >
                         <Home className="w-4 h-4" aria-hidden="true" />
                         Home
                       </Button>
@@ -1981,6 +2277,7 @@ export default function StressTest() {
   }
 
   const progress = currentText.length > 0 ? Math.min(100, (typedText.length / currentText.length) * 100) : 0;
+  const isUrgent = timeLeft <= 10;
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -1988,9 +2285,12 @@ export default function StressTest() {
         ref={containerRef}
         onClick={() => inputRef.current?.focus()}
         className={`min-h-screen flex items-center justify-center p-4 transition-all duration-100 cursor-text ${
-          backgroundFlash ? 'bg-red-500/30' : 'bg-background'
+          backgroundFlash ? 'bg-red-500/30' : ''
         }`}
         style={{
+          background: backgroundFlash 
+            ? 'rgba(239, 68, 68, 0.3)' 
+            : `radial-gradient(ellipse at center, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.95) 100%)`,
           transform: prefersReducedMotion ? 'none' : `translate(${shakeOffset.x}px, ${shakeOffset.y}px) rotate(${rotation}deg) scale(${zoomScale + chaosWaveIntensity * 0.1}) ${screenFlipped ? 'rotateX(180deg)' : ''} skewX(${realityWarp}deg)`,
           filter: prefersReducedMotion ? 'none' : `${glitchActive ? 'hue-rotate(180deg) saturate(3)' : ''} ${screenInverted ? 'invert(1) hue-rotate(180deg)' : ''} ${chaosWaveIntensity > 0 ? `contrast(${1 + chaosWaveIntensity * 0.3}) brightness(${1 + chaosWaveIntensity * 0.2})` : ''}`,
         }}
@@ -2001,86 +2301,167 @@ export default function StressTest() {
           <Particle key={particle.id} particle={particle} />
         ))}
 
-        <div className="w-full max-w-4xl">
-          <div className="mb-8 flex items-center justify-between" role="status" aria-live="polite">
-            <div className="flex items-center gap-4">
+        <div className="w-full max-w-5xl">
+          {/* Glassmorphic HUD Bar */}
+          <div 
+            className="mb-6 p-4 bg-black/40 backdrop-blur-xl rounded-2xl border border-white/10 shadow-[0_0_30px_rgba(0,0,0,0.5)]"
+            role="status" 
+            aria-live="polite"
+          >
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              {/* Timer Panel */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="text-2xl font-mono font-bold cursor-help" style={{ color: prefersReducedMotion ? undefined : currentColor }} aria-label={`${timeLeft} seconds remaining`}>
-                    {timeLeft}s
+                  <div 
+                    className={`flex items-center gap-3 px-4 py-2 rounded-xl border transition-all cursor-help ${
+                      isUrgent 
+                        ? 'bg-red-500/20 border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.3)]' 
+                        : 'bg-cyan-500/10 border-cyan-500/30'
+                    } ${isUrgent && !prefersReducedMotion ? 'animate-pulse' : ''}`}
+                  >
+                    <Timer className={`w-5 h-5 ${isUrgent ? 'text-red-400' : 'text-cyan-400'}`} />
+                    <span 
+                      className={`text-3xl font-mono font-bold ${isUrgent ? 'text-red-400' : 'text-cyan-400'}`}
+                      style={{ 
+                        textShadow: isUrgent 
+                          ? '0 0 20px rgba(239, 68, 68, 0.8)' 
+                          : '0 0 15px rgba(0, 245, 255, 0.6)',
+                        color: prefersReducedMotion ? undefined : currentColor,
+                      }} 
+                      aria-label={`${timeLeft} seconds remaining`}
+                    >
+                      {timeLeft}s
+                    </span>
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">
+                <TooltipContent side="bottom" className="bg-black/90 backdrop-blur-xl border border-white/20">
                   <p>Time remaining - type fast!</p>
                 </TooltipContent>
               </Tooltip>
               
+              {/* Combo Panel */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className={`text-sm text-muted-foreground transition-all cursor-help ${
-                    comboExplosion && !prefersReducedMotion ? 'scale-150 text-yellow-500' : ''
-                  }`} aria-label={`Current combo: ${combo}`}>
-                    Combo: <span className="text-primary font-bold">{combo}</span>
-                    {comboExplosion && !prefersReducedMotion && <span className="ml-1 animate-ping" aria-hidden="true">🔥</span>}
+                  <div 
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition-all cursor-help ${
+                      combo >= 10 
+                        ? 'bg-yellow-500/20 border-yellow-500/40 shadow-[0_0_12px_rgba(234,179,8,0.3)]' 
+                        : 'bg-white/5 border-white/10'
+                    } ${comboExplosion && !prefersReducedMotion ? 'scale-110' : ''}`}
+                    aria-label={`Current combo: ${combo}`}
+                  >
+                    <Flame className={`w-5 h-5 ${combo >= 10 ? 'text-yellow-400' : 'text-muted-foreground'}`} />
+                    <div className="flex flex-col">
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider">Combo</span>
+                      <span 
+                        className={`text-2xl font-bold ${combo >= 10 ? 'text-yellow-400' : 'text-foreground'}`}
+                        style={combo >= 10 ? { textShadow: '0 0 10px rgba(234, 179, 8, 0.8)' } : {}}
+                      >
+                        {combo}
+                        {comboExplosion && !prefersReducedMotion && <span className="ml-1 animate-ping">🔥</span>}
+                      </span>
+                    </div>
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">
+                <TooltipContent side="bottom" className="bg-black/90 backdrop-blur-xl border border-white/20">
                   <p>Current streak of correct keys. Every 10 combo = bonus!</p>
                 </TooltipContent>
               </Tooltip>
               
+              {/* Errors Panel */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="text-sm text-muted-foreground cursor-help" aria-label={`${errors} errors`}>
-                    Errors: <span className="text-destructive font-bold">{errors}</span>
+                  <div 
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl border cursor-help ${
+                      errors > 0 
+                        ? 'bg-red-500/20 border-red-500/40' 
+                        : 'bg-white/5 border-white/10'
+                    }`}
+                    aria-label={`${errors} errors`}
+                  >
+                    <XCircle className={`w-5 h-5 ${errors > 0 ? 'text-red-400' : 'text-muted-foreground'}`} />
+                    <div className="flex flex-col">
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider">Errors</span>
+                      <span className={`text-2xl font-bold ${errors > 0 ? 'text-red-400' : 'text-foreground'}`}>
+                        {errors}
+                      </span>
+                    </div>
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">
+                <TooltipContent side="bottom" className="bg-black/90 backdrop-blur-xl border border-white/20">
                   <p>Mistakes reset your combo and shake the screen!</p>
                 </TooltipContent>
               </Tooltip>
-            </div>
-            
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-2 cursor-help" aria-label={`Stress level: ${Math.round(stressLevel)} percent`}>
-                  <span className="text-sm text-muted-foreground">Stress</span>
-                  <div className="w-32 h-2 bg-muted rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round(stressLevel)} aria-valuemin={0} aria-valuemax={100}>
-                    <div 
-                      className="h-full bg-gradient-to-r from-green-500 via-yellow-500 to-red-500 transition-all duration-300"
-                      style={{ width: `${stressLevel}%` }}
-                    />
+              
+              {/* Stress Level Panel */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div 
+                    className="flex items-center gap-3 px-4 py-2 rounded-xl bg-white/5 border border-white/10 cursor-help" 
+                    aria-label={`Stress level: ${Math.round(stressLevel)} percent`}
+                  >
+                    <Zap className="w-5 h-5 text-purple-400" />
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider">Stress</span>
+                      <div className="w-24 h-2 bg-black/40 rounded-full overflow-hidden border border-white/10" role="progressbar" aria-valuenow={Math.round(stressLevel)} aria-valuemin={0} aria-valuemax={100}>
+                        <div 
+                          className="h-full bg-gradient-to-r from-cyan-500 via-purple-500 to-red-500 transition-all duration-300"
+                          style={{ 
+                            width: `${stressLevel}%`,
+                            boxShadow: `0 0 10px ${stressLevel > 66 ? 'rgba(239,68,68,0.5)' : stressLevel > 33 ? 'rgba(168,85,247,0.5)' : 'rgba(0,245,255,0.5)'}`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <span className="text-lg font-bold text-purple-400">{Math.round(stressLevel)}%</span>
                   </div>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <div className="space-y-1">
-                  <p className="font-semibold">Stress Level: {Math.round(stressLevel)}%</p>
-                  <p className="text-xs">As stress increases, visual effects intensify!</p>
-                </div>
-              </TooltipContent>
-            </Tooltip>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="bg-black/90 backdrop-blur-xl border border-white/20">
+                  <div className="space-y-1">
+                    <p className="font-semibold">Stress Level: {Math.round(stressLevel)}%</p>
+                    <p className="text-xs">As stress increases, visual effects intensify!</p>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </div>
           </div>
 
+          {/* Progress Bar with Glow */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="cursor-help">
-                <Progress value={progress} className="mb-8 h-3" aria-label={`Progress: ${progress.toFixed(1)} percent complete`} />
+              <div className="cursor-help mb-6">
+                <div className="relative h-3 bg-black/40 rounded-full overflow-hidden border border-white/10">
+                  <div 
+                    className="h-full transition-all duration-300 rounded-full"
+                    style={{ 
+                      width: `${progress}%`,
+                      background: 'linear-gradient(90deg, #00f5ff 0%, #a855f7 50%, #f43f5e 100%)',
+                      boxShadow: '0 0 15px rgba(0, 245, 255, 0.5)',
+                    }}
+                  />
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-xs text-muted-foreground">{typedText.length} chars</span>
+                  <span className="text-xs text-cyan-400 font-mono">{progress.toFixed(1)}%</span>
+                  <span className="text-xs text-muted-foreground">{currentText.length} total</span>
+                </div>
               </div>
             </TooltipTrigger>
-            <TooltipContent side="top">
+            <TooltipContent side="top" className="bg-black/90 backdrop-blur-xl border border-white/20">
               <p>Progress: {progress.toFixed(1)}% - {typedText.length}/{currentText.length} characters</p>
             </TooltipContent>
           </Tooltip>
 
           <Card
-            className={`mb-8 transition-all duration-200 ${multiEffectActive ? 'ring-4 ring-purple-500/50' : ''}`}
+            className={`mb-6 transition-all duration-200 bg-black/40 backdrop-blur-xl border-2 ${
+              multiEffectActive ? 'ring-4 ring-purple-500/50' : ''
+            }`}
             style={prefersReducedMotion ? {} : {
               transform: `translateY(${gravityOffset}px) translate(${textPosition.x}px, ${textPosition.y}px)`,
               opacity: textOpacity,
               filter: `blur(${blur}px)`,
-              borderColor: currentColor,
-              borderWidth: '2px',
+              borderColor: currentColor || 'rgba(255,255,255,0.1)',
+              boxShadow: `0 0 30px ${currentColor}30, inset 0 1px 0 rgba(255,255,255,0.1)`,
             }}
           >
             <CardContent className="p-8 relative overflow-hidden">

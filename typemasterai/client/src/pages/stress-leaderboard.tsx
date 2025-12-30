@@ -1,19 +1,20 @@
 import { useState } from 'react';
 import { Link } from 'wouter';
 import { motion } from "framer-motion";
-import { ArrowLeft, Trophy, Zap, Flame, Award, Info, Target, BarChart3, Timer, CheckCircle2, Medal, Crown, Star, HelpCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Trophy, Zap, Award, Target, BarChart3, CheckCircle2, Medal, Crown, AlertCircle, RefreshCw, Play, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@/lib/auth-context';
+import { Badge } from '@/components/ui/badge';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/lib/auth-context';
 import { ErrorBoundary } from '@/components/error-boundary';
 
 type Difficulty = 'all' | 'beginner' | 'intermediate' | 'expert' | 'nightmare' | 'impossible';
@@ -27,19 +28,19 @@ const DIFFICULTY_ICONS: Record<Exclude<Difficulty, 'all'>, string> = {
 };
 
 const DIFFICULTY_COLORS: Record<Exclude<Difficulty, 'all'>, string> = {
-  beginner: 'text-orange-500',
-  intermediate: 'text-purple-500',
-  expert: 'text-red-500',
-  nightmare: 'text-red-900',
-  impossible: 'text-purple-900',
+  beginner: '#f59e0b',
+  intermediate: '#a855f7',
+  expert: '#ef4444',
+  nightmare: '#f43f5e',
+  impossible: '#d946ef',
 };
 
-const DIFFICULTY_DESCRIPTIONS: Record<Exclude<Difficulty, 'all'>, string> = {
-  beginner: 'Gentle introduction with light effects - 30 seconds',
-  intermediate: 'Screen inverts, zoom chaos, and sensory assault - 45 seconds',
-  expert: 'Screen flips upside down, glitches, complete chaos - 60 seconds',
-  nightmare: 'Text reverses, screen inverts/flips, reality collapses - 90 seconds',
-  impossible: 'Text teleports, ALL effects active, reality ceases to exist - 120 seconds',
+const DIFFICULTY_LABELS: Record<Exclude<Difficulty, 'all'>, string> = {
+  beginner: 'Warm-Up',
+  intermediate: 'Mind Scrambler',
+  expert: 'Absolute Mayhem',
+  nightmare: 'Nightmare Realm',
+  impossible: 'IMPOSSIBLE',
 };
 
 function StressLeaderboardContent() {
@@ -66,7 +67,7 @@ function StressLeaderboardContent() {
     retry: 2,
   });
 
-  const { data: statsData, isLoading: statsLoading } = useQuery({
+  const { data: statsData } = useQuery({
     queryKey: ['stress-stats'],
     queryFn: async () => {
       const res = await fetch('/api/stress-test/stats', {
@@ -79,7 +80,6 @@ function StressLeaderboardContent() {
   });
 
   const leaderboard = leaderboardData?.entries || [];
-  const pagination = leaderboardData?.pagination || { total: 0, hasMore: false };
   const stats = statsData?.stats;
 
   const handleDifficultyChange = (v: string) => {
@@ -89,171 +89,187 @@ function StressLeaderboardContent() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link href="/stress-test">
-                <Button variant="ghost" size="sm" className="gap-2" data-testid="button-back">
-                  <ArrowLeft className="w-4 h-4" />
-                  Back to Stress Test
-                </Button>
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              <p>Return to difficulty selection and take the test</p>
-            </TooltipContent>
-          </Tooltip>
-        </div>
+      <div className="min-h-screen bg-background">
+        {/* Header */}
+        <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-sm">
+          <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link href="/stress-test">
+                  <Button variant="ghost" size="sm" className="gap-2">
+                    <ArrowLeft className="w-4 h-4" />
+                    Back to Test
+                  </Button>
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Return to stress test difficulty selection</p>
+              </TooltipContent>
+            </Tooltip>
+            
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link href="/stress-test">
+                  <Button size="sm" className="gap-2">
+                    <Play className="w-4 h-4" />
+                    Take the Test
+                  </Button>
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Start a new stress test challenge - may cause extreme frustration!</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </header>
 
-        <div className="max-w-6xl mx-auto">
-          {/* Header */}
-          <div className="text-center mb-12">
-            <div className="flex items-center justify-center gap-3 mb-4">
+        <main className="container mx-auto px-4 py-12">
+          <div className="max-w-5xl mx-auto">
+            {/* Title */}
+            <div className="text-center mb-12">
+              <div className="inline-flex items-center gap-3 mb-4">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Trophy className="w-10 h-10 text-primary cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Global stress test rankings - compete for the top spot!</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <h1 className="text-4xl md:text-5xl font-bold tracking-tight cursor-help">
+                      Leaderboard
+                    </h1>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>See who has mastered typing under extreme chaos conditions</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div>
-                    <Trophy className="w-12 h-12 text-primary animate-pulse cursor-help" />
-                  </div>
+                  <p className="text-lg text-muted-foreground cursor-help">
+                    Champions who conquered the chaos
+                  </p>
                 </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>Global rankings of stress test champions</p>
+                <TooltipContent className="max-w-xs">
+                  <p>These brave souls typed through screen shake, text distortions, and visual mayhem. Can you join them?</p>
                 </TooltipContent>
               </Tooltip>
-              <h1 className="text-5xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-orange-500 via-red-500 to-purple-500">
-                Stress Test Leaderboard
-              </h1>
             </div>
-            <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              The bravest warriors who survived the chaos
-            </p>
-            <a 
-              href="/leaderboards?mode=stress" 
-              className="text-xs text-primary hover:underline mt-2 inline-block"
-            >
-              View all leaderboards →
-            </a>
-          </div>
 
           {/* User Stats */}
           {user && stats && (
-            <Card className="mb-8 border-2 border-primary/20">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="flex items-center gap-2 cursor-help">
-                        <Award className="w-5 h-5 text-primary" />
-                        Your Statistics
-                        <HelpCircle className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                      <p>Your personal stress test performance summary</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </CardTitle>
+            <Card className="mb-8">
+              <CardHeader className="pb-4">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <CardTitle className="flex items-center gap-2 text-lg cursor-help">
+                      <Award className="w-5 h-5 text-primary" />
+                      Your Statistics
+                    </CardTitle>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Your personal stress test performance metrics</p>
+                  </TooltipContent>
+                </Tooltip>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="text-center p-4 bg-muted rounded-lg cursor-help hover:bg-muted/80 transition-colors">
-                        <div className="text-3xl font-bold text-primary">{stats.totalTests}</div>
-                        <div className="text-sm text-muted-foreground flex items-center justify-center gap-1">
-                          <BarChart3 className="w-3 h-3" />
-                          Total Tests
-                        </div>
+                      <div className="text-center p-4 rounded-lg bg-muted/50 cursor-help">
+                        <BarChart3 className="w-4 h-4 mx-auto mb-1 text-blue-500" />
+                        <div className="text-2xl font-bold">{stats.totalTests}</div>
+                        <div className="text-xs text-muted-foreground">Total Tests</div>
                       </div>
                     </TooltipTrigger>
-                    <TooltipContent side="top">
+                    <TooltipContent>
                       <p>Total number of stress tests you've attempted</p>
                     </TooltipContent>
                   </Tooltip>
                   
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="text-center p-4 bg-muted rounded-lg cursor-help hover:bg-muted/80 transition-colors">
-                        <div className="text-3xl font-bold text-green-500">{stats.completedTests}</div>
-                        <div className="text-sm text-muted-foreground flex items-center justify-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" />
-                          Completed
-                        </div>
+                      <div className="text-center p-4 rounded-lg bg-muted/50 cursor-help">
+                        <CheckCircle2 className="w-4 h-4 mx-auto mb-1 text-green-500" />
+                        <div className="text-2xl font-bold">{stats.completedTests}</div>
+                        <div className="text-xs text-muted-foreground">Completed</div>
                       </div>
                     </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <div className="space-y-1">
-                        <p>Tests where you typed 100% of the text</p>
-                        <p className="text-xs text-muted-foreground">
-                          Completion rate: {stats.totalTests > 0 ? ((stats.completedTests / stats.totalTests) * 100).toFixed(0) : 0}%
-                        </p>
-                      </div>
+                    <TooltipContent>
+                      <p>Tests you've survived to the end - a true achievement!</p>
                     </TooltipContent>
                   </Tooltip>
                   
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="text-center p-4 bg-muted rounded-lg cursor-help hover:bg-muted/80 transition-colors">
-                        <div className="text-3xl font-bold text-orange-500">{stats.bestScore}</div>
-                        <div className="text-sm text-muted-foreground flex items-center justify-center gap-1">
-                          <Crown className="w-3 h-3" />
-                          Best Score
-                        </div>
+                      <div className="text-center p-4 rounded-lg bg-muted/50 cursor-help">
+                        <Crown className="w-4 h-4 mx-auto mb-1 text-orange-500" />
+                        <div className="text-2xl font-bold">{stats.bestScore}</div>
+                        <div className="text-xs text-muted-foreground">Best Score</div>
                       </div>
                     </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <p>Your highest stress score ever achieved</p>
+                    <TooltipContent>
+                      <p>Your highest stress score achieved under chaos</p>
                     </TooltipContent>
                   </Tooltip>
                   
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="text-center p-4 bg-muted rounded-lg cursor-help hover:bg-muted/80 transition-colors">
-                        <div className="text-3xl font-bold text-blue-500">{stats.avgScore}</div>
-                        <div className="text-sm text-muted-foreground flex items-center justify-center gap-1">
-                          <Target className="w-3 h-3" />
-                          Avg Score
-                        </div>
+                      <div className="text-center p-4 rounded-lg bg-muted/50 cursor-help">
+                        <Target className="w-4 h-4 mx-auto mb-1 text-cyan-500" />
+                        <div className="text-2xl font-bold">{stats.avgScore}</div>
+                        <div className="text-xs text-muted-foreground">Avg Score</div>
                       </div>
                     </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <p>Your average stress score across all tests</p>
+                    <TooltipContent>
+                      <p>Your average stress score across all attempts</p>
                     </TooltipContent>
                   </Tooltip>
                   
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="text-center p-4 bg-muted rounded-lg cursor-help hover:bg-muted/80 transition-colors">
-                        <div className="text-3xl font-bold text-purple-500">{stats.difficultiesCompleted.length}</div>
-                        <div className="text-sm text-muted-foreground flex items-center justify-center gap-1">
-                          <Medal className="w-3 h-3" />
-                          Difficulties Beat
-                        </div>
+                      <div className="text-center p-4 rounded-lg bg-muted/50 cursor-help">
+                        <Medal className="w-4 h-4 mx-auto mb-1 text-purple-500" />
+                        <div className="text-2xl font-bold">{stats.difficultiesCompleted.length}/5</div>
+                        <div className="text-xs text-muted-foreground">Difficulties</div>
                       </div>
                     </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <div className="space-y-1">
-                        <p>Number of unique difficulties you've completed</p>
-                        <p className="text-xs text-muted-foreground">Complete all 5 difficulties to become a true champion!</p>
-                      </div>
+                    <TooltipContent>
+                      <p>Number of difficulty levels you've conquered - can you beat them all?</p>
                     </TooltipContent>
                   </Tooltip>
                 </div>
                 
                 {stats.difficultiesCompleted.length > 0 && (
-                  <div className="mt-4 text-center">
-                    <p className="text-sm text-muted-foreground mb-2">Conquered Difficulties:</p>
+                  <div className="mt-6 text-center">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p className="text-xs text-muted-foreground mb-3 cursor-help">Conquered</p>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Difficulty levels you've successfully completed</p>
+                      </TooltipContent>
+                    </Tooltip>
                     <div className="flex items-center justify-center gap-2 flex-wrap">
                       {stats.difficultiesCompleted.map((diff: string) => (
                         <Tooltip key={diff}>
                           <TooltipTrigger asChild>
-                            <span className="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 rounded-full text-sm font-medium cursor-help hover:bg-primary/20 transition-colors">
-                              <span>{DIFFICULTY_ICONS[diff as keyof typeof DIFFICULTY_ICONS]}</span>
-                              <span className="capitalize">{diff}</span>
-                            </span>
+                            <Badge 
+                              variant="outline"
+                              className="cursor-help"
+                              style={{ borderColor: DIFFICULTY_COLORS[diff as keyof typeof DIFFICULTY_COLORS] }}
+                            >
+                              <span className="mr-1">{DIFFICULTY_ICONS[diff as keyof typeof DIFFICULTY_ICONS]}</span>
+                              <span style={{ color: DIFFICULTY_COLORS[diff as keyof typeof DIFFICULTY_COLORS] }}>
+                                {diff}
+                              </span>
+                            </Badge>
                           </TooltipTrigger>
-                          <TooltipContent side="top">
-                            <p>{DIFFICULTY_DESCRIPTIONS[diff as keyof typeof DIFFICULTY_DESCRIPTIONS]}</p>
+                          <TooltipContent>
+                            <p>You've mastered {DIFFICULTY_LABELS[diff as keyof typeof DIFFICULTY_LABELS]} mode!</p>
                           </TooltipContent>
                         </Tooltip>
                       ))}
@@ -266,232 +282,324 @@ function StressLeaderboardContent() {
 
           {/* Difficulty Filter */}
           <Tabs value={selectedDifficulty} onValueChange={handleDifficultyChange} className="mb-8">
-            <TabsList className="grid w-full grid-cols-6 p-1 bg-muted/60">
+            <TabsList className="grid w-full grid-cols-6">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger 
-                    value="all" 
-                    data-testid="tab-all"
-                    className="relative z-0 data-[state=active]:bg-transparent data-[state=active]:shadow-none transition-none"
-                  >
+                  <TabsTrigger value="all" className="relative">
                     {selectedDifficulty === 'all' && (
                       <motion.div
-                        layoutId="active-difficulty-tab"
-                        className="absolute inset-0 bg-background shadow-sm rounded-sm z-[-1]"
+                        layoutId="active-tab"
+                        className="absolute inset-0 bg-primary/10 rounded-md z-[-1]"
                         transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
                       />
                     )}
-                    <span className="relative z-10">All</span>
+                    All
                   </TabsTrigger>
                 </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>View all difficulties combined</p>
+                <TooltipContent>
+                  <p>View all leaderboard entries across all difficulties</p>
                 </TooltipContent>
               </Tooltip>
               
               {(['beginner', 'intermediate', 'expert', 'nightmare', 'impossible'] as const).map((diff) => (
-                <TabsTrigger 
-                  key={diff}
-                  value={diff} 
-                  data-testid={`tab-${diff}`}
-                  className="relative z-0 data-[state=active]:bg-transparent data-[state=active]:shadow-none transition-none"
-                >
-                  {selectedDifficulty === diff && (
-                    <motion.div
-                      layoutId="active-difficulty-tab"
-                      className="absolute inset-0 bg-background shadow-sm rounded-sm z-[-1]"
-                      transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                    />
-                  )}
-                  <span className="relative z-10 flex items-center gap-1">
-                    <span>{DIFFICULTY_ICONS[diff]}</span>
-                    <span className="capitalize">{diff}</span>
-                  </span>
-                </TabsTrigger>
+                <Tooltip key={diff}>
+                  <TooltipTrigger asChild>
+                    <TabsTrigger 
+                      value={diff} 
+                      className="relative gap-1 data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-white transition-all"
+                    >
+                      {selectedDifficulty === diff && (
+                        <motion.div
+                          layoutId="active-tab"
+                          className="absolute inset-0 rounded-md z-[-1] border"
+                          style={{ 
+                            backgroundColor: `${DIFFICULTY_COLORS[diff]}40`,
+                            borderColor: `${DIFFICULTY_COLORS[diff]}80`,
+                            boxShadow: `0 0 10px ${DIFFICULTY_COLORS[diff]}40`
+                          }}
+                          transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                        />
+                      )}
+                      <span>{DIFFICULTY_ICONS[diff]}</span>
+                      <span className="hidden sm:inline capitalize font-bold">{diff}</span>
+                    </TabsTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Filter by {DIFFICULTY_LABELS[diff]} - may cause extreme frustration!</p>
+                  </TooltipContent>
+                </Tooltip>
               ))}
             </TabsList>
 
-            <TabsContent value={selectedDifficulty}>
+            <TabsContent value={selectedDifficulty} className="mt-4">
               <Card>
                 <CardContent className="p-0">
                   {isError ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-center">
-                      <AlertCircle className="w-12 h-12 text-destructive mb-4" />
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <AlertCircle className="w-12 h-12 text-destructive mb-4 cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Connection issue - the chaos is overwhelming the servers!</p>
+                        </TooltipContent>
+                      </Tooltip>
                       <p className="text-lg font-medium text-destructive mb-2">Failed to load leaderboard</p>
                       <p className="text-sm text-muted-foreground mb-4">
                         {error instanceof Error ? error.message : "An unexpected error occurred"}
                       </p>
-                      <Button 
-                        variant="outline" 
-                        onClick={() => refetch()}
-                        disabled={isFetching}
-                        data-testid="retry-button"
-                      >
-                        <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
-                        Try Again
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+                            <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+                            Try Again
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Attempt to reload the leaderboard data</p>
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                   ) : leaderboardLoading ? (
-                    <div className="text-center py-12">
+                    <div className="text-center py-16">
                       <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                      <p className="text-muted-foreground">Loading leaderboard...</p>
+                      <p className="text-muted-foreground">Loading...</p>
                     </div>
                   ) : leaderboard.length === 0 ? (
-                    <div className="text-center py-12">
-                      <Zap className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                      <p className="text-lg text-muted-foreground">
-                        No one has conquered this challenge yet. Be the first!
+                    <div className="text-center py-16">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Zap className="w-12 h-12 mx-auto mb-4 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>No one has conquered this difficulty yet!</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <p className="text-lg text-muted-foreground mb-4">
+                        No entries yet. Be the first!
                       </p>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Link href="/stress-test">
+                            <Button>Take the Test</Button>
+                          </Link>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Enter the arena and claim your spot - may cause extreme frustration!</p>
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                   ) : (
-                    <div className="divide-y divide-border">
+                    <div className="divide-y">
                       {/* Table Header */}
-                      <div className="hidden md:flex items-center gap-4 p-4 bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                        <div className="w-12 text-center">Rank</div>
-                        <div className="flex-1">Player</div>
-                        {selectedDifficulty === 'all' && <div className="w-24">Difficulty</div>}
-                        <div className="w-20 text-center">Score</div>
-                        <div className="w-16 text-center">WPM</div>
-                        <div className="w-16 text-center">Acc</div>
-                        <div className="w-16 text-center">Done</div>
+                      <div className="hidden md:flex items-center gap-4 p-4 bg-muted/50 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="w-14 text-center cursor-help">Rank</div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Leaderboard position - compete for the top spots!</p>
+                          </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex-1 cursor-help">Player</div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Brave typists who faced the chaos</p>
+                          </TooltipContent>
+                        </Tooltip>
+                        {selectedDifficulty === 'all' && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="w-28 cursor-help">Difficulty</div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Chaos level - higher difficulties = more frustration!</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="w-20 text-center cursor-help">Score</div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Stress score - combines WPM, accuracy, and chaos survival</p>
+                          </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="w-16 text-center cursor-help">WPM</div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Words per minute achieved under extreme pressure</p>
+                          </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="w-16 text-center cursor-help">Acc</div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Typing accuracy percentage despite the visual chaos</p>
+                          </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="w-16 text-center cursor-help">Done</div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Text completion rate - how much they typed before time ran out</p>
+                          </TooltipContent>
+                        </Tooltip>
                       </div>
                       
                       {leaderboard.map((entry: any, index: number) => {
                         const rank = entry.rank || (index + 1);
+                        const diffColor = DIFFICULTY_COLORS[entry.difficulty as keyof typeof DIFFICULTY_COLORS];
+                        const isCurrentUser = entry.userId === user?.id;
+                        const rankLabels = { 1: 'Champion! 🏆', 2: 'Runner-up! 🎖️', 3: 'Third place! 🏅' };
+                        
                         return (
-                        <div
-                          key={`${entry.userId}-${entry.difficulty}-${entry.createdAt}`}
-                          className={`flex items-center gap-4 p-4 transition-colors ${
-                            entry.userId === user?.id ? 'bg-primary/10' : 'hover:bg-muted/50'
-                          }`}
-                          data-testid={`leaderboard-entry-${index}`}
-                        >
-                          {/* Rank - uses DENSE_RANK from API for proper tie handling */}
-                          <div className="flex-shrink-0 w-12 text-center">
-                            {rank === 1 && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="text-3xl animate-bounce cursor-help">🥇</div>
-                                </TooltipTrigger>
-                                <TooltipContent side="right">
-                                  <p>1st Place - The Champion!</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-                            {rank === 2 && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="text-3xl animate-bounce cursor-help" style={{ animationDelay: '0.1s' }}>🥈</div>
-                                </TooltipTrigger>
-                                <TooltipContent side="right">
-                                  <p>2nd Place - Silver medalist!</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-                            {rank === 3 && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="text-3xl animate-bounce cursor-help" style={{ animationDelay: '0.2s' }}>🥉</div>
-                                </TooltipTrigger>
-                                <TooltipContent side="right">
-                                  <p>3rd Place - Bronze medalist!</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-                            {rank > 3 && (
-                              <span className="text-2xl font-bold text-muted-foreground">#{rank}</span>
-                            )}
-                          </div>
+                          <div
+                            key={`${entry.userId}-${entry.difficulty}-${entry.createdAt}`}
+                            className={`flex items-center gap-4 p-4 transition-colors ${
+                              isCurrentUser ? 'bg-primary/5 border-l-2 border-l-primary' : 'hover:bg-muted/50'
+                            }`}
+                          >
+                            {/* Rank */}
+                            <div className="flex-shrink-0 w-14 text-center flex justify-center items-center">
+                              {rank <= 3 ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className={`text-3xl font-black italic tracking-tighter cursor-help transform hover:scale-110 transition-transform ${
+                                      rank === 1 ? "text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.6)]" :
+                                      rank === 2 ? "text-slate-300 drop-shadow-[0_0_10px_rgba(203,213,225,0.6)]" :
+                                      "text-amber-600 drop-shadow-[0_0_10px_rgba(217,119,6,0.6)]"
+                                    }`}>
+                                      #{rank}
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>{rankLabels[rank as keyof typeof rankLabels]}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="text-lg font-bold text-muted-foreground cursor-help">#{rank}</span>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Ranked #{rank} - keep pushing for the top!</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
 
-                          {/* User */}
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Avatar className="w-10 h-10 border-2 cursor-help" style={{ borderColor: entry.avatarColor || '#888' }}>
-                                  <AvatarFallback style={{ backgroundColor: entry.avatarColor || '#888' }}>
-                                    {entry.username.substring(0, 2).toUpperCase()}
-                                  </AvatarFallback>
-                                </Avatar>
-                              </TooltipTrigger>
-                              <TooltipContent side="top">
-                                <p>{entry.username}'s profile</p>
-                              </TooltipContent>
-                            </Tooltip>
-                            <div className="min-w-0 flex-1">
-                              <div className="font-semibold truncate flex items-center gap-2">
-                                {entry.username}
-                                {entry.userId === user?.id && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded cursor-help">You</span>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top">
-                                      <p>This is your entry!</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
-                              </div>
+                            {/* User */}
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <div className="text-sm text-muted-foreground cursor-help">
-                                    {new Date(entry.createdAt).toLocaleDateString()}
+                                  <Avatar className="w-10 h-10 border-2 cursor-help" style={{ borderColor: entry.avatarColor || '#888' }}>
+                                    <AvatarFallback style={{ backgroundColor: entry.avatarColor || '#888' }}>
+                                      {entry.username.substring(0, 2).toUpperCase()}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{entry.username}'s profile - conquered chaos on {new Date(entry.createdAt).toLocaleDateString()}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-medium truncate flex items-center gap-2">
+                                  {entry.username}
+                                  {isCurrentUser && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Badge variant="secondary" className="text-xs cursor-help">You</Badge>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>This is your entry!</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {new Date(entry.createdAt).toLocaleDateString()}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Difficulty Badge */}
+                            {selectedDifficulty === 'all' && (
+                              <div className="flex-shrink-0">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge variant="outline" className="cursor-help" style={{ borderColor: diffColor }}>
+                                      <span className="mr-1">{DIFFICULTY_ICONS[entry.difficulty as keyof typeof DIFFICULTY_ICONS]}</span>
+                                      <span className="capitalize hidden lg:inline" style={{ color: diffColor }}>
+                                        {entry.difficulty}
+                                      </span>
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>{DIFFICULTY_LABELS[entry.difficulty as keyof typeof DIFFICULTY_LABELS]} difficulty - extreme frustration guaranteed!</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                            )}
+
+                            {/* Stats */}
+                            <div className="flex gap-4 md:gap-6 flex-shrink-0 text-center">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="min-w-[60px] cursor-help">
+                                    <div className="text-xl font-bold text-primary">{entry.stressScore}</div>
+                                    <div className="text-[10px] text-muted-foreground uppercase">Score</div>
                                   </div>
                                 </TooltipTrigger>
-                                <TooltipContent side="bottom">
-                                  <p>Achieved on {new Date(entry.createdAt).toLocaleString()}</p>
+                                <TooltipContent>
+                                  <p>Stress score: {entry.stressScore} - impressive under chaos!</p>
+                                </TooltipContent>
+                              </Tooltip>
+                              
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="hidden md:block min-w-[50px] cursor-help">
+                                    <div className="text-lg font-semibold">{entry.wpm}</div>
+                                    <div className="text-[10px] text-muted-foreground uppercase">WPM</div>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{entry.wpm} words per minute while the screen was going crazy!</p>
+                                </TooltipContent>
+                              </Tooltip>
+                              
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="hidden md:block min-w-[50px] cursor-help">
+                                    <div className="text-lg font-semibold">{entry.accuracy.toFixed(1)}%</div>
+                                    <div className="text-[10px] text-muted-foreground uppercase">Acc</div>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{entry.accuracy.toFixed(1)}% accuracy despite visual distortions!</p>
+                                </TooltipContent>
+                              </Tooltip>
+                              
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="hidden md:block min-w-[50px] cursor-help">
+                                    <div className="text-lg font-semibold">{entry.completionRate.toFixed(0)}%</div>
+                                    <div className="text-[10px] text-muted-foreground uppercase">Done</div>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Completed {entry.completionRate.toFixed(0)}% of the text under extreme pressure</p>
                                 </TooltipContent>
                               </Tooltip>
                             </div>
                           </div>
-
-                          {/* Difficulty Badge */}
-                          {selectedDifficulty === 'all' && (
-                            <div className="flex-shrink-0">
-                              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
-                                DIFFICULTY_COLORS[entry.difficulty as keyof typeof DIFFICULTY_COLORS]
-                              } bg-muted`}>
-                                <span>{DIFFICULTY_ICONS[entry.difficulty as keyof typeof DIFFICULTY_ICONS]}</span>
-                                <span className="capitalize">{entry.difficulty}</span>
-                              </span>
-                            </div>
-                          )}
-
-                          {/* Stats */}
-                          <div className="flex gap-6 flex-shrink-0">
-                            <div className="text-center">
-                              <div className="text-2xl font-bold text-primary">{entry.stressScore}</div>
-                              <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                                <Star className="w-3 h-3" />
-                                Score
-                              </div>
-                            </div>
-                            
-                            <div className="text-center">
-                              <div className="text-lg font-semibold text-blue-500">{entry.wpm}</div>
-                              <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                                <BarChart3 className="w-3 h-3" />
-                                WPM
-                              </div>
-                            </div>
-                            
-                            <div className="text-center">
-                              <div className="text-lg font-semibold text-green-500">{entry.accuracy.toFixed(1)}%</div>
-                              <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                                <Target className="w-3 h-3" />
-                                Acc
-                              </div>
-                            </div>
-                            
-                            <div className="text-center">
-                              <div className="text-lg font-semibold text-orange-500">{entry.completionRate.toFixed(0)}%</div>
-                              <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                                <CheckCircle2 className="w-3 h-3" />
-                                Done
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
+                        );
                       })}
                     </div>
                   )}
@@ -499,25 +607,9 @@ function StressLeaderboardContent() {
               </Card>
             </TabsContent>
           </Tabs>
-
-          {/* CTA */}
-          <div className="text-center mt-8">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link href="/stress-test">
-                  <Button size="lg" className="gap-2" data-testid="button-take-test">
-                    <Flame className="w-5 h-5" />
-                    Take the Test
-                  </Button>
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                <p>Challenge yourself and climb the leaderboard!</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
         </div>
-      </div>
+      </main>
+    </div>
     </TooltipProvider>
   );
 }
