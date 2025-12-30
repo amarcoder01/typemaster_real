@@ -1,9 +1,16 @@
 import { useRef, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Download, Share2, Check, Zap } from "lucide-react";
+import { Download, Share2, Check, ChevronDown, FileImage, FileText } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { getTypingPerformanceRating, triggerCelebration } from "@/lib/share-utils";
 import { generateVerificationQRCode } from "@/lib/qr-code-utils";
+import { jsPDF } from "jspdf";
 
 interface StressCertificateProps {
   wpm: number;
@@ -247,23 +254,56 @@ export function StressCertificate({
       ctx.fillText(`Issued: ${date.toLocaleDateString()}`, 150, height - 50);
       ctx.textAlign = "right";
       ctx.fillText(`Certificate ID: ${certificateId}`, width - 150, height - 50);
+
+      // Draw QR code in bottom-right corner
+      if (qrCodeImage) {
+        const qrSize = 80;
+        const qrX = width - 100;
+        const qrY = height - 120;
+        
+        // White background for QR code
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(qrX - qrSize / 2 - 5, qrY - qrSize / 2 - 5, qrSize + 10, qrSize + 10);
+        
+        // Draw QR code
+        ctx.drawImage(qrCodeImage, qrX - qrSize / 2, qrY - qrSize / 2, qrSize, qrSize);
+        
+        // Label under QR
+        ctx.font = "10px system-ui, -apple-system, sans-serif";
+        ctx.fillStyle = "#64748b";
+        ctx.textAlign = "center";
+        ctx.fillText("Scan to verify", qrX, qrY + qrSize / 2 + 12);
+      }
     };
 
     drawCertificate();
-  }, [wpm, accuracy, difficulty, stressScore, maxCombo, completionRate, survivalTime, activeChallenges, duration, username, date, rating.badge, tierVisuals, certificateId]);
+  }, [wpm, accuracy, difficulty, stressScore, maxCombo, completionRate, survivalTime, activeChallenges, duration, username, date, rating.badge, tierVisuals, certificateId, qrCodeImage]);
 
-  const downloadImage = () => {
+  const downloadCertificate = (format: "png" | "jpg" | "pdf") => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const link = document.createElement("a");
-    link.download = `typemaster-stress-certificate-${certificateId}.png`;
-    link.href = canvas.toDataURL("image/png");
-    link.click();
+    const filename = `typemaster-stress-certificate-${certificateId}`;
+
+    if (format === "pdf") {
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({
+        orientation: "landscape",
+        unit: "px",
+        format: [canvas.width, canvas.height],
+      });
+      pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+      pdf.save(`${filename}.pdf`);
+    } else {
+      const link = document.createElement("a");
+      link.download = `${filename}.${format}`;
+      link.href = canvas.toDataURL(format === "jpg" ? "image/jpeg" : "image/png", 0.95);
+      link.click();
+    }
 
     toast({
       title: "Certificate Downloaded!",
-      description: "Your stress test certificate has been saved.",
+      description: `Your stress test certificate has been saved as ${format.toUpperCase()}.`,
     });
 
     triggerCelebration();
@@ -319,13 +359,33 @@ export function StressCertificate({
         height={900}
         className="w-full border-2 border-border rounded-lg shadow-2xl"
         style={{ maxWidth: "100%" }}
+        data-testid="stress-certificate-canvas"
       />
 
-      <div className="flex gap-2 justify-center">
-        <Button onClick={downloadImage} className="gap-2" data-testid="button-download-certificate">
-          <Download className="w-4 h-4" />
-          Download Certificate
-        </Button>
+      <div className="flex gap-2 justify-center flex-wrap">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button className="gap-2" data-testid="button-download-certificate">
+              <Download className="w-4 h-4" />
+              Download Certificate
+              <ChevronDown className="w-4 h-4 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="center" className="w-48">
+            <DropdownMenuItem onClick={() => downloadCertificate("png")} className="cursor-pointer">
+              <FileImage className="w-4 h-4 mr-2" />
+              Download as PNG
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => downloadCertificate("jpg")} className="cursor-pointer">
+              <FileImage className="w-4 h-4 mr-2" />
+              Download as JPG
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => downloadCertificate("pdf")} className="cursor-pointer">
+              <FileText className="w-4 h-4 mr-2" />
+              Download as PDF
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <Button onClick={shareToSocial} variant="outline" className="gap-2" disabled={isSharing} data-testid="button-share-certificate">
           {imageCopied ? (

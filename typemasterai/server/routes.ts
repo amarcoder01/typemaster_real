@@ -3499,7 +3499,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const user = await storage.getUser(req.user!.id);
         
         const testDuration = test.duration || 0;
-        const testConsistency = test.consistency || 100;
+        const testConsistency = (test as any).consistency ?? 100;
 
         const verificationData = generateVerificationData({
           userId: req.user!.id,
@@ -3513,10 +3513,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             username: user?.username || "Typing Expert",
             language: test.programmingLanguage,
             languageName: test.programmingLanguage?.charAt(0).toUpperCase() + test.programmingLanguage?.slice(1),
-            difficulty: test.difficulty || 'medium',
+            difficulty: (test as any).difficulty ?? 'medium',
             characters: test.characters || 0,
             errors: test.errors || 0,
-            rawWpm: test.rawWpm || test.wpm,
+            rawWpm: (test as any).rawWpm ?? test.wpm,
             time: `${Math.floor(testDuration / 60)}:${String(testDuration % 60).padStart(2, '0')}`,
           },
         });
@@ -3533,10 +3533,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             username: user?.username || "Typing Expert",
             language: test.programmingLanguage,
             languageName: test.programmingLanguage?.charAt(0).toUpperCase() + test.programmingLanguage?.slice(1),
-            difficulty: test.difficulty || 'medium',
+            difficulty: (test as any).difficulty ?? 'medium',
             characters: test.characters || 0,
             errors: test.errors || 0,
-            rawWpm: test.rawWpm || test.wpm,
+            rawWpm: (test as any).rawWpm ?? test.wpm,
             time: `${Math.floor(testDuration / 60)}:${String(testDuration % 60).padStart(2, '0')}`,
           },
           ...verificationData,
@@ -4569,7 +4569,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const user = await storage.getUser(req.user!.id);
         
         const testDuration = result.duration || 0;
-        const testConsistency = result.consistency || 100;
+        const testConsistency = (result as any).consistency ?? 100;
 
         const verificationData = generateVerificationData({
           userId: req.user!.id,
@@ -4586,7 +4586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             survivalTime: result.survivalTime,
             completionRate: result.completionRate,
             maxCombo: result.maxCombo,
-            activeChallenges: result.activeChallenges || [],
+            activeChallenges: (result as any).activeChallenges ?? [],
           },
         });
 
@@ -4605,7 +4605,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             survivalTime: result.survivalTime,
             completionRate: result.completionRate,
             maxCombo: result.maxCombo,
-            activeChallenges: result.activeChallenges || [],
+            activeChallenges: (result as any).activeChallenges ?? [],
           },
           ...verificationData,
         });

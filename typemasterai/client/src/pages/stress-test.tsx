@@ -662,9 +662,17 @@ export default function StressTest() {
     const totalErrors = errorsRef.current;
     const bestCombo = maxComboRef.current;
     
-    const wpm = calculateWPM(typed.length, totalTime);
-    const accuracy = calculateAccuracy(typed.length, totalErrors);
-    const completionRate = text.length > 0 ? (typed.length / text.length) * 100 : 0;
+    // Industry standard calculations:
+    // - correctChars = total typed - errors (for net WPM)
+    // - accuracy = (correctChars / totalTyped) * 100
+    const totalTyped = typed.length;
+    const correctChars = Math.max(0, totalTyped - totalErrors);
+    
+    // Net WPM: (correct characters / 5) / time in minutes
+    const wpm = calculateWPM(correctChars, totalTime);
+    // Accuracy: percentage of correctly typed characters
+    const accuracy = calculateAccuracy(correctChars, totalTyped);
+    const completionRate = text.length > 0 ? (totalTyped / text.length) * 100 : 0;
     
     const baseScore = wpm * (accuracy / 100) * (completionRate / 100);
     const multiplier = difficultyConfig?.multiplier || 1;
@@ -722,19 +730,22 @@ export default function StressTest() {
         showDebouncedToast('offline-save', 'Saved Offline', 'Your result will sync when you reconnect.', 'default', 5000);
       }
       
-      if (completed && completionRate >= 100 && accuracy >= 80) {
-        const certDisplayData = {
-          testType: 'stress' as const,
-          difficulty,
-          wpm,
-          accuracy,
-          stressScore,
-          completedAt: new Date().toISOString(),
-        };
-        setCertificateData(certDisplayData);
-        
-        // Note: Certificate creation will happen after save succeeds and we have the test result ID
-      }
+      // Always create certificate data for logged-in users who complete the test
+      const certDisplayData = {
+        wpm: Math.round(wpm),
+        accuracy,
+        consistency: 85, // Estimated consistency
+        difficulty: difficultyConfig.name,
+        stressScore,
+        maxCombo: bestCombo,
+        completionRate,
+        survivalTime: totalTime,
+        activeChallenges: Object.values(difficultyConfig.effects).filter(Boolean).length,
+        duration: difficultyConfig.duration,
+        username: user.username,
+        date: new Date(),
+      };
+      setCertificateData(certDisplayData);
     }
   }, [user, isOnline, addPendingAction, clearAllTimers, resetVisualStates, saveResultMutation, showDebouncedToast]);
 
@@ -1512,7 +1523,7 @@ export default function StressTest() {
               difficultyName={config?.name || 'Unknown'}
               difficultyIcon={config?.icon || '🎯'}
               difficultyColor={config?.color || '#fff'}
-              certificateData={certificateData}
+              activeChallenges={config ? Object.values(config.effects).filter(Boolean).length : 5}
               isOnline={isOnline}
               pendingResultData={pendingResultData}
               saveResultMutation={{ isError: !!saveResultMutation.isError, isSuccess: !!saveResultMutation.isSuccess, isPending: !!saveResultMutation.isPending }}
@@ -1721,6 +1732,8 @@ export default function StressTest() {
             type="text"
             value={typedText}
             onChange={handleInputChange}
+            onPaste={(e) => e.preventDefault()}
+            onCut={(e) => e.preventDefault()}
             onBlur={() => {
               if (isStarted && !isFinished && isTestActiveRef.current) {
                 setTimeout(() => inputRef.current?.focus(), 10);

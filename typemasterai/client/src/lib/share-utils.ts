@@ -226,7 +226,7 @@ export interface CardDimensions {
 export const CARD_DIMENSIONS: Record<string, CardDimensions> = {
   standard: { width: 600, height: 400 },
   code: { width: 600, height: 450 }, // Slightly taller for code mode metadata
-  stress: { width: 600, height: 480 }, // Taller for stress test stats
+  stress: { width: 600, height: 520 }, // Taller for stress test stats
 };
 
 export function drawCardBackground(

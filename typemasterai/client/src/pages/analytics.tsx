@@ -2648,7 +2648,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                     </Card>
                   )}
 
-                  {(analytics?.bottomDigraphs || keystrokeData?.analytics?.bottomDigraphs) && (analytics?.bottomDigraphs || keystrokeData?.analytics?.bottomDigraphs)?.length > 0 && (
+                  {(analytics?.bottomDigraphs || keystrokeData?.analytics?.bottomDigraphs) && (analytics?.bottomDigraphs || keystrokeData?.analytics?.bottomDigraphs)!.length > 0 && (
                     <Card>
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2 text-red-400">
@@ -2668,7 +2668,7 @@ Make goals progressive and appropriate for ${skillLevel.level.toLowerCase()} lev
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-2">
-                          {(analytics?.bottomDigraphs || keystrokeData?.analytics.bottomDigraphs).map((d, idx) => (
+                          {(analytics?.bottomDigraphs || keystrokeData?.analytics?.bottomDigraphs)!.map((d, idx) => (
                             <TooltipProvider key={idx}>
                               <Tooltip>
                                 <TooltipTrigger asChild>
