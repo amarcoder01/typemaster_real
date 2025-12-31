@@ -418,6 +418,7 @@ export default function StressTest() {
     accuracy: number;
     completionRate: number;
     stressScore: number;
+    consistency: number;
     completed: boolean;
   } | null>(null);
   
@@ -455,6 +456,8 @@ export default function StressTest() {
   const completedRef = useRef<boolean>(false);
   const stressLevelRef = useRef<number>(0);
   const configRef = useRef<typeof DIFFICULTY_CONFIGS[Difficulty] | null>(null);
+  const wpmSamplesRef = useRef<number[]>([]);
+  const consistencyIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const config = selectedDifficulty ? DIFFICULTY_CONFIGS[selectedDifficulty] : null;
   
@@ -508,6 +511,10 @@ export default function StressTest() {
     if (blurIntervalRef.current) {
       clearInterval(blurIntervalRef.current);
       blurIntervalRef.current = null;
+    }
+    if (consistencyIntervalRef.current) {
+      clearInterval(consistencyIntervalRef.current);
+      consistencyIntervalRef.current = null;
     }
   }, []);
 
@@ -674,6 +681,23 @@ export default function StressTest() {
     const accuracy = calculateAccuracy(correctChars, totalTyped);
     const completionRate = text.length > 0 ? (totalTyped / text.length) * 100 : 0;
     
+    // Calculate consistency from WPM samples using coefficient of variation
+    // Consistency = 100 - (CV * 100), where CV = stdDev / mean
+    // Higher consistency = more stable typing speed throughout the test
+    let consistency = 85; // Fallback if not enough samples
+    const samples = wpmSamplesRef.current;
+    if (samples.length >= 3) {
+      const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+      if (mean > 0) {
+        const variance = samples.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / samples.length;
+        const stdDev = Math.sqrt(variance);
+        const cv = stdDev / mean; // Coefficient of variation (0 = perfect consistency)
+        // Convert CV to percentage: 0 CV = 100% consistency, higher CV = lower consistency
+        // Clamp between 0-100, typical CV ranges from 0.05 (very consistent) to 0.5 (erratic)
+        consistency = Math.max(0, Math.min(100, Math.round(100 - (cv * 100))));
+      }
+    }
+    
     const baseScore = wpm * (accuracy / 100) * (completionRate / 100);
     const multiplier = difficultyConfig?.multiplier || 1;
     const comboBonus = bestCombo * 2;
@@ -685,6 +709,7 @@ export default function StressTest() {
       accuracy,
       completionRate,
       stressScore,
+      consistency,
       completed,
     };
     
@@ -734,7 +759,7 @@ export default function StressTest() {
       const certDisplayData = {
         wpm: Math.round(wpm),
         accuracy,
-        consistency: 85, // Estimated consistency
+        consistency, // Calculated from WPM samples variance
         difficulty: difficultyConfig.name,
         stressScore,
         maxCombo: bestCombo,
@@ -772,6 +797,7 @@ export default function StressTest() {
     setCombo(0);
     setMaxCombo(0);
     maxComboRef.current = 0;
+    wpmSamplesRef.current = [];
     setTimeLeft(diffConfig.duration);
     setCountdown(3);
     setIsFinished(false);
@@ -837,10 +863,26 @@ export default function StressTest() {
       });
     }, 1000);
     
+    // Sample WPM every 2 seconds for consistency calculation
+    consistencyIntervalRef.current = setInterval(() => {
+      if (testSessionRef.current !== currentSession || !isTestActiveRef.current) return;
+      
+      const now = Date.now();
+      const elapsed = startTimeRef.current ? (now - startTimeRef.current) / 1000 : 0;
+      if (elapsed > 0 && typedTextRef.current.length > 0) {
+        const currentWpm = (typedTextRef.current.length / 5) / (elapsed / 60);
+        wpmSamplesRef.current.push(currentWpm);
+      }
+    }, 2000);
+    
     return () => {
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
         timerIntervalRef.current = null;
+      }
+      if (consistencyIntervalRef.current) {
+        clearInterval(consistencyIntervalRef.current);
+        consistencyIntervalRef.current = null;
       }
     };
   }, [isStarted, isFinished, config]);
@@ -1493,7 +1535,7 @@ export default function StressTest() {
   // RESULTS SCREEN
   // ============================================
   if (isFinished && finalResults) {
-    const { survivalTime, wpm, accuracy, completionRate, stressScore } = finalResults;
+    const { survivalTime, wpm, accuracy, completionRate, stressScore, consistency } = finalResults;
     
     const getTier = (score: number) => {
       if (score >= 5000) return { name: 'Diamond', color: '#00d4ff', bg: 'bg-cyan-500/10', desc: 'Legendary performance! Top 1% of all players.' };
@@ -1519,6 +1561,7 @@ export default function StressTest() {
               duration={config?.duration || 60}
               maxCombo={maxCombo}
               errors={errors}
+              consistency={consistency}
               difficulty={selectedDifficulty || 'beginner'}
               difficultyName={config?.name || 'Unknown'}
               difficultyIcon={config?.icon || '🎯'}

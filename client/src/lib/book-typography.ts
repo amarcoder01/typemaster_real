@@ -13,11 +13,176 @@
  * - Focus mode for distraction-free typing
  * - CSS variable-based theming
  * - Animation definitions
+ * - Premium font definitions
+ * - Content type color system
  * 
  * Sources: Material Design 3, Refactoring UI, Typography best practices
  */
 
 import type { ContentType } from './book-content-parser';
+
+/**
+ * Premium Font Families
+ * Carefully selected for optimal reading experience
+ */
+export const PREMIUM_FONTS = {
+  // Display fonts for titles and headers
+  display: '"Playfair Display", "Crimson Pro", Georgia, serif',
+  
+  // Body fonts for main reading content
+  body: '"Source Serif Pro", "Literata", Charter, Georgia, serif',
+  
+  // Sans-serif for UI elements
+  sans: '"Inter", "SF Pro Display", system-ui, sans-serif',
+  
+  // Monospace for stats and code
+  mono: '"JetBrains Mono", "SF Mono", Consolas, monospace',
+};
+
+/**
+ * Premium Spacing System
+ * Consistent spacing for visual rhythm
+ */
+export const PREMIUM_SPACING = {
+  // Paragraph gaps
+  paragraphGap: 'gap-6 md:gap-8 lg:gap-10',
+  
+  // Card padding
+  cardPadding: 'p-6 md:p-8 lg:p-10',
+  cardPaddingCompact: 'p-4 md:p-6',
+  
+  // Content max width (65ch is optimal for reading)
+  maxWidth: 'max-w-[65ch]',
+  maxWidthWide: 'max-w-[75ch]',
+  maxWidthNarrow: 'max-w-[55ch]',
+  
+  // Section spacing
+  sectionGap: 'space-y-8 md:space-y-12',
+  
+  // Line heights
+  lineHeightTight: 'leading-tight',
+  lineHeightNormal: 'leading-relaxed',
+  lineHeightLoose: 'leading-[1.85]',
+};
+
+/**
+ * Content Type Color System
+ * Distinct visual treatment for each content type
+ */
+export const CONTENT_TYPE_COLORS = {
+  DIALOGUE: {
+    border: 'border-l-4 border-cyan-500/50',
+    bg: 'bg-cyan-500/5',
+    text: 'text-foreground',
+    accent: 'text-cyan-600 dark:text-cyan-400',
+  },
+  STAGE_DIRECTION: {
+    border: 'border-l-2 border-amber-500/40',
+    bg: 'bg-amber-500/5',
+    text: 'italic text-muted-foreground/90',
+    accent: 'text-amber-600 dark:text-amber-400',
+  },
+  CHARACTER_NAME: {
+    border: '',
+    bg: '',
+    text: 'font-semibold uppercase tracking-wide text-primary/80',
+    accent: 'text-primary',
+  },
+  NARRATION: {
+    border: '',
+    bg: '',
+    text: 'text-foreground/95 leading-[1.9] tracking-wide font-serif',
+    accent: 'text-foreground',
+    special: 'first-letter:text-4xl first-letter:font-bold first-letter:float-left first-letter:mr-3 first-letter:mt-1 first-letter:leading-none first-letter:text-primary/80',
+  },
+  ACT_HEADER: {
+    border: 'border-y-2 border-primary/30',
+    bg: 'bg-primary/5',
+    text: 'font-bold uppercase tracking-widest text-primary text-center',
+    accent: 'text-primary',
+  },
+  SCENE_HEADER: {
+    border: 'border-l-4 border-primary/50',
+    bg: '',
+    text: 'font-semibold text-primary/90',
+    accent: 'text-primary',
+  },
+  SETTING_DESCRIPTION: {
+    border: 'border border-muted/50',
+    bg: 'bg-muted/30',
+    text: 'italic text-muted-foreground',
+    accent: 'text-muted-foreground',
+  },
+  TIME_MARKER: {
+    border: '',
+    bg: '',
+    text: 'uppercase tracking-widest text-muted-foreground/70 text-center text-sm',
+    accent: 'text-muted-foreground',
+    special: 'before:content-["—"] before:mr-2 after:content-["—"] after:ml-2',
+  },
+  BOOK_TITLE: {
+    border: 'border-b border-primary/20',
+    bg: '',
+    text: 'font-bold text-foreground text-center tracking-tight',
+    accent: 'text-primary',
+  },
+  AUTHOR: {
+    border: '',
+    bg: '',
+    text: 'italic text-muted-foreground text-center',
+    accent: 'text-muted-foreground',
+  },
+} as const;
+
+/**
+ * Get combined color classes for a content type
+ */
+export function getContentTypeClasses(type: ContentType): string {
+  const colors = CONTENT_TYPE_COLORS[type as keyof typeof CONTENT_TYPE_COLORS];
+  if (!colors) return '';
+  
+  const classes = [
+    colors.border,
+    colors.bg,
+    colors.text,
+    (colors as { special?: string }).special,
+  ].filter(Boolean).join(' ');
+  
+  return classes;
+}
+
+/**
+ * Paragraph Card Styles
+ * State-based styling for paragraph cards
+ */
+export const PARAGRAPH_CARD_STYLES = {
+  base: 'relative rounded-xl border transition-all duration-300 ease-out',
+  
+  current: [
+    'opacity-100 scale-100',
+    'bg-card/80 backdrop-blur-sm',
+    'shadow-lg shadow-primary/10',
+    'ring-2 ring-primary/30',
+    'border-primary/20',
+  ].join(' '),
+  
+  completed: [
+    'opacity-50 scale-[0.98]',
+    'bg-muted/30',
+    'shadow-none',
+    'border-border/20',
+    'saturate-75',
+  ].join(' '),
+  
+  upcoming: [
+    'opacity-60 scale-[0.99]',
+    'bg-card/40 backdrop-blur-[1px]',
+    'shadow-sm',
+    'border-border/30',
+  ].join(' '),
+  
+  hidden: 'hidden',
+};
 
 export interface TypeStyle {
   // Base className for the element
@@ -71,19 +236,20 @@ export const FOCUS_MODE_STYLES: Record<TypingState, string> = {
 
 /**
  * Character-level highlighting styles for typing feedback
+ * Clean book-reading style matching TypeLit.io
  */
 export const CHARACTER_STYLES = {
-  // Not yet typed
-  pending: 'text-muted-foreground/60',
+  // Not yet typed - same color as base text, just slightly dimmed
+  pending: 'text-foreground/60',
   
-  // Correctly typed
-  correct: 'text-green-500 dark:text-green-400',
+  // Correctly typed - subtle green, not too bright
+  correct: 'text-emerald-400/90',
   
   // Incorrectly typed (shows expected character struck through)
-  incorrect: 'text-red-500 line-through opacity-70',
+  incorrect: 'text-red-400 line-through opacity-80',
   
   // What the user actually typed (incorrect)
-  actualTyped: 'text-yellow-400 font-bold',
+  actualTyped: 'text-yellow-400 font-semibold',
   
   // Current cursor position
   cursor: 'border-l-2 border-primary animate-pulse',
@@ -250,14 +416,15 @@ export const BOOK_TYPE_STYLES: Record<ContentType, TypeStyle> = {
   },
 
   // Narration/prose: Standard reading text with proper typographic treatment
-  // Desktop: 16-18px (1rem-1.125rem), Mobile: 14-16px (0.875rem-1rem)
+  // Desktop: 18-20px for immersive reading, Mobile: 16-18px
+  // Clean italic serif style matching TypeLit.io
   NARRATION: {
     element: 'p',
-    className: 'text-base md:text-lg text-foreground my-3 leading-[1.8] first-letter:text-lg first-letter:font-medium',
-    maxWidth: 'max-w-prose', // ~65-70 characters per line
+    className: 'text-lg md:text-xl lg:text-[1.35rem] text-foreground/95 my-4 leading-[1.85] md:leading-[1.95] tracking-normal font-serif italic',
+    maxWidth: 'max-w-[65ch]', // Optimal reading width for novels
     spacing: {
-      marginTop: '0.75rem',
-      marginBottom: '0.75rem',
+      marginTop: '1rem',
+      marginBottom: '1rem',
     },
   },
 

@@ -143,6 +143,46 @@ export async function fetchBooksFromGutendex(limit: number = 96): Promise<Gutend
 }
 
 /**
+ * Fetch a single book from Gutendex API by ID
+ * @param bookId The Gutenberg book ID
+ * @returns GutendexBook object or null if not found
+ */
+export async function fetchBookById(bookId: number): Promise<GutendexBook | null> {
+  const url = `https://gutendex.com/books/${bookId}`;
+  
+  console.log(`Fetching book ID ${bookId} from Gutendex API...`);
+  
+  try {
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.warn(`Book ID ${bookId} not found`);
+        return null;
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const book: GutendexBook = await response.json();
+    
+    // Check if book has text/plain format
+    const hasTextFormat = book.formats['text/plain; charset=utf-8'] || 
+                          book.formats['text/plain; charset=us-ascii'] || 
+                          book.formats['text/plain'];
+    
+    if (!hasTextFormat) {
+      console.warn(`Book "${book.title}" does not have text/plain format`);
+      return null;
+    }
+    
+    return book;
+  } catch (error) {
+    console.error(`Error fetching book ID ${bookId}:`, error);
+    throw error;
+  }
+}
+
+/**
  * Download book text from a URL
  * @param url The text/plain URL from Gutendex
  * @returns The raw book text

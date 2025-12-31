@@ -29,6 +29,7 @@ type Props = {
   duration: number;
   maxCombo: number;
   errors: number;
+  consistency?: number;
   difficulty: string;
   difficultyName: string;
   difficultyIcon: string;
@@ -62,6 +63,7 @@ export default function StressResultsComplete(props: Props) {
     duration,
     maxCombo,
     errors,
+    consistency = 85,
     difficulty,
     difficultyName,
     difficultyIcon,
@@ -92,7 +94,7 @@ export default function StressResultsComplete(props: Props) {
   const certificateProps = useMemo(() => ({
     wpm: Math.round(wpm),
     accuracy,
-    consistency: 85,
+    consistency,
     difficulty: difficultyName,
     stressScore,
     maxCombo,
@@ -102,7 +104,7 @@ export default function StressResultsComplete(props: Props) {
     duration,
     username: username || 'Stress Survivor',
     date: new Date(),
-  }), [wpm, accuracy, difficultyName, stressScore, maxCombo, completionRate, survivalTime, activeChallenges, duration, username]);
+  }), [wpm, accuracy, consistency, difficultyName, stressScore, maxCombo, completionRate, survivalTime, activeChallenges, duration, username]);
 
   const handleCopyImage = async () => {
     const certCanvas = document.querySelector('[data-testid="stress-certificate-canvas"]') as HTMLCanvasElement;
@@ -257,7 +259,7 @@ export default function StressResultsComplete(props: Props) {
                 <div className="p-4 text-center bg-gradient-to-b from-blue-500/5 to-transparent cursor-help hover:bg-blue-500/10 transition-colors">
                   <div className="text-2xl sm:text-3xl font-bold text-blue-400">{Math.round(wpm)}</div>
                   <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide mt-1">WPM</div>
-                </div>
+              </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-[200px]">
                 <p className="font-semibold">Words Per Minute</p>
@@ -270,9 +272,9 @@ export default function StressResultsComplete(props: Props) {
                 <div className="p-4 text-center bg-gradient-to-b from-green-500/5 to-transparent cursor-help hover:bg-green-500/10 transition-colors">
                   <div className={`text-2xl sm:text-3xl font-bold ${accuracy >= 90 ? 'text-green-400' : accuracy >= 70 ? 'text-yellow-400' : 'text-red-400'}`}>
                     {accuracy.toFixed(1)}%
-                  </div>
+            </div>
                   <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide mt-1">Accuracy</div>
-                </div>
+            </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-[200px]">
                 <p className="font-semibold">Typing Accuracy</p>
@@ -285,9 +287,9 @@ export default function StressResultsComplete(props: Props) {
                 <div className="p-4 text-center bg-gradient-to-b from-orange-500/5 to-transparent cursor-help hover:bg-orange-500/10 transition-colors">
                   <div className={`text-2xl sm:text-3xl font-bold ${completionRate >= 100 ? 'text-green-400' : 'text-orange-400'}`}>
                     {completionRate.toFixed(0)}%
-                  </div>
+              </div>
                   <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide mt-1">Done</div>
-                </div>
+            </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-[200px]">
                 <p className="font-semibold">Completion Rate</p>
@@ -300,7 +302,7 @@ export default function StressResultsComplete(props: Props) {
                 <div className="p-4 text-center bg-gradient-to-b from-cyan-500/5 to-transparent cursor-help hover:bg-cyan-500/10 transition-colors">
                   <div className="text-2xl sm:text-3xl font-bold text-cyan-400">{Math.round(survivalTime)}s</div>
                   <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide mt-1">Survival</div>
-                </div>
+          </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-[200px]">
                 <p className="font-semibold">Survival Time</p>
@@ -313,7 +315,7 @@ export default function StressResultsComplete(props: Props) {
                 <div className="p-4 text-center bg-gradient-to-b from-purple-500/5 to-transparent cursor-help hover:bg-purple-500/10 transition-colors">
                   <div className="text-2xl sm:text-3xl font-bold text-purple-400">{maxCombo}</div>
                   <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide mt-1">Combo</div>
-                </div>
+              </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-[200px]">
                 <p className="font-semibold">Max Combo</p>
@@ -326,7 +328,7 @@ export default function StressResultsComplete(props: Props) {
                 <div className="p-4 text-center bg-gradient-to-b from-red-500/5 to-transparent cursor-help hover:bg-red-500/10 transition-colors">
                   <div className={`text-2xl sm:text-3xl font-bold ${errors === 0 ? 'text-green-400' : 'text-red-400'}`}>{errors}</div>
                   <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide mt-1">Errors</div>
-                </div>
+            </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-[200px]">
                 <p className="font-semibold">Total Errors</p>
@@ -606,16 +608,16 @@ export default function StressResultsComplete(props: Props) {
 
               {/* Tab 3: Certificate */}
               {username && (
-                <TabsContent value="certificate" className="space-y-4">
-                  <div className="text-center space-y-2 mb-4">
-                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-red-500/20 to-orange-500/20 border-2 border-red-500/30 mb-2">
-                      <Award className="w-8 h-8 text-red-400" />
-                    </div>
+              <TabsContent value="certificate" className="space-y-4">
+                    <div className="text-center space-y-2 mb-4">
+                      <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-red-500/20 to-orange-500/20 border-2 border-red-500/30 mb-2">
+                        <Award className="w-8 h-8 text-red-400" />
+                      </div>
                     <h3 className="text-lg font-bold">Share Your Certificate</h3>
                     <p className="text-sm text-muted-foreground">
                       Show off your official {difficultyName} Stress Test Certificate!
                     </p>
-                  </div>
+                    </div>
 
                   {/* Certificate Stats Preview */}
                   <div className="p-4 bg-gradient-to-br from-red-500/10 via-orange-500/10 to-yellow-500/10 rounded-xl border border-red-500/20">
@@ -645,14 +647,14 @@ export default function StressResultsComplete(props: Props) {
                   </div>
 
                   {/* View, Download & Share Certificate Buttons */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => setShowCertificate(true)}
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => setShowCertificate(true)}
                       className="py-3 bg-gradient-to-r from-purple-500 to-cyan-500 text-white font-bold rounded-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg shadow-purple-500/25"
                       data-testid="button-view-certificate-share"
-                    >
-                      <Award className="w-5 h-5" />
-                      View Certificate
+                      >
+                        <Award className="w-5 h-5" />
+                        View Certificate
                     </button>
                     <button
                       onClick={handleCopyImage}
@@ -775,7 +777,7 @@ export default function StressResultsComplete(props: Props) {
                       >
                         <Mail className="w-4 h-4 text-gray-400" />
                         <span className="text-xs font-medium">Email</span>
-                      </button>
+                        </button>
                     </div>
                   </div>
 
@@ -962,32 +964,32 @@ export default function StressResultsComplete(props: Props) {
           <div className="grid grid-cols-3 gap-3">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button onClick={onChangeDifficulty} variant="outline" className="gap-2">
-                  <Zap className="w-4 h-4" />
-                  Change
-                </Button>
+            <Button onClick={onChangeDifficulty} variant="outline" className="gap-2">
+              <Zap className="w-4 h-4" />
+              Change
+            </Button>
               </TooltipTrigger>
               <TooltipContent>Select different difficulty</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Link href="/stress-leaderboard">
-                  <Button variant="outline" className="w-full gap-2">
-                    <Trophy className="w-4 h-4" />
-                    Ranks
-                  </Button>
-                </Link>
+            <Link href="/stress-leaderboard">
+              <Button variant="outline" className="w-full gap-2">
+                <Trophy className="w-4 h-4" />
+                Ranks
+              </Button>
+            </Link>
               </TooltipTrigger>
               <TooltipContent>View leaderboard</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Link href="/">
-                  <Button variant="outline" className="w-full gap-2">
-                    <Home className="w-4 h-4" />
-                    Home
-                  </Button>
-                </Link>
+            <Link href="/">
+              <Button variant="outline" className="w-full gap-2">
+                <Home className="w-4 h-4" />
+                Home
+              </Button>
+            </Link>
               </TooltipTrigger>
               <TooltipContent>Return home</TooltipContent>
             </Tooltip>

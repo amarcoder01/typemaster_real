@@ -273,4 +273,161 @@ export function BookHeaderCompact({
   );
 }
 
+/**
+ * Ultra-compact inline header for focus mode
+ * Single line: "Title • Author • Chapter X"
+ */
+export interface BookHeaderInlineProps {
+  /** Book title */
+  title: string;
+  /** Author name */
+  author?: string;
+  /** Current chapter/paragraph number */
+  chapter?: number;
+  /** Total chapters/paragraphs */
+  totalChapters?: number;
+  /** Progress percentage */
+  progress?: number;
+  /** Topic/genre */
+  topic?: string;
+  /** Difficulty level */
+  difficulty?: 'easy' | 'medium' | 'hard';
+  /** Additional className */
+  className?: string;
+}
+
+export function BookHeaderInline({
+  title,
+  author,
+  chapter,
+  totalChapters,
+  progress,
+  topic,
+  difficulty,
+  className,
+}: BookHeaderInlineProps) {
+  return (
+    <div className={cn(
+      'book-header-inline',
+      'flex items-center justify-between gap-4 px-4 py-2',
+      'bg-card/60 backdrop-blur-sm border-b border-border/30',
+      className
+    )}>
+      {/* Left: Book info breadcrumb */}
+      <div className="flex items-center gap-2 min-w-0 flex-1 text-sm">
+        <BookOpen className="w-4 h-4 text-primary flex-shrink-0" />
+        <span className="font-medium text-foreground truncate">{title}</span>
+        {author && (
+          <>
+            <span className="text-muted-foreground/50">•</span>
+            <span className="text-muted-foreground italic truncate">{author}</span>
+          </>
+        )}
+        {chapter && (
+          <>
+            <span className="text-muted-foreground/50">•</span>
+            <span className="text-muted-foreground">
+              Para {chapter}{totalChapters ? `/${totalChapters}` : ''}
+            </span>
+          </>
+        )}
+      </div>
+
+      {/* Right: Progress and badges */}
+      <div className="flex items-center gap-3 flex-shrink-0">
+        {/* Topic badge */}
+        {topic && (
+          <Badge variant="secondary" className="text-xs capitalize hidden sm:inline-flex">
+            {topic.replace(/-/g, ' ')}
+          </Badge>
+        )}
+        
+        {/* Difficulty badge */}
+        {difficulty && (
+          <Badge 
+            variant="outline" 
+            className={cn(
+              'text-xs capitalize',
+              difficulty === 'easy' && 'border-green-500/30 text-green-600 dark:text-green-400',
+              difficulty === 'medium' && 'border-yellow-500/30 text-yellow-600 dark:text-yellow-400',
+              difficulty === 'hard' && 'border-red-500/30 text-red-600 dark:text-red-400',
+            )}
+          >
+            {difficulty}
+          </Badge>
+        )}
+        
+        {/* Progress */}
+        {progress !== undefined && (
+          <div className="flex items-center gap-1.5">
+            <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden hidden sm:block">
+              <div 
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+              />
+            </div>
+            <span className="text-xs font-mono font-bold text-primary">
+              {Math.round(progress)}%
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Floating header that appears when scrolling
+ */
+export function BookHeaderFloating({
+  title,
+  author,
+  progress,
+  visible,
+  className,
+}: {
+  title: string;
+  author?: string;
+  progress: number;
+  visible: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={cn(
+      'fixed top-0 left-0 right-0 z-50',
+      'transform transition-transform duration-300',
+      visible ? 'translate-y-0' : '-translate-y-full',
+      className
+    )}>
+      <div className="container mx-auto max-w-4xl px-4">
+        <div className={cn(
+          'flex items-center justify-between gap-4 px-4 py-2 mt-2',
+          'bg-card/95 backdrop-blur-md rounded-lg shadow-lg border border-border/50'
+        )}>
+          <div className="flex items-center gap-2 min-w-0">
+            <BookOpen className="w-4 h-4 text-primary flex-shrink-0" />
+            <span className="font-medium text-sm truncate">{title}</span>
+            {author && (
+              <span className="text-xs text-muted-foreground italic hidden sm:inline">
+                by {author}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <span className="text-xs font-mono font-bold text-primary min-w-[2.5rem]">
+              {Math.round(progress)}%
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default BookHeader;

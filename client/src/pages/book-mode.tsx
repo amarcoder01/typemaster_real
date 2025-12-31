@@ -4,7 +4,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -12,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/searchable-select";
-import { BookOpen, Trophy, Zap, Target, RotateCcw, ArrowRight, Sparkles, Loader2, HelpCircle, RefreshCw, AlertCircle, WifiOff, Share2, Award, Copy, Check, Twitter, Facebook, Linkedin, MessageCircle, Send, Mail } from "lucide-react";
+import { BookOpen, Trophy, Zap, Target, RotateCcw, ArrowRight, Sparkles, Loader2, HelpCircle, RefreshCw, AlertCircle, WifiOff, Share2, Award, Copy, Check, Twitter, Facebook, Linkedin, MessageCircle, Send, Mail, Eye, EyeOff, Layers, Play, Pause } from "lucide-react";
 import confetti from "canvas-confetti";
 import type { BookParagraph, InsertBookTypingTest } from "@shared/schema";
 import { calculateWPM, calculateAccuracy } from "@/lib/typing-utils";
@@ -21,10 +20,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getTypingPerformanceRating } from "@/lib/share-utils";
 import { parseBookContent, getBlockOffset, joinBlocksToText, getNormalizedTypingText, type ParsedContent } from "@/lib/book-content-parser";
 import { BookContentBlockEnhanced } from "@/components/BookContentBlock";
-import { READING_MODES, type ReadingMode } from "@/lib/book-typography";
-import { BookHeader } from "@/components/book/BookHeader";
-import { ReadingProgress } from "@/components/book/ReadingProgress";
+import { READING_MODES, PREMIUM_SPACING } from "@/lib/book-typography";
+import { BookHeaderInline } from "@/components/book/BookHeader";
+import { BookProgressBar } from "@/components/book/BookProgressBar";
+import { FocusedReader, type ReadingMode } from "@/components/book/FocusedReader";
+import { SessionStats, SessionStatsMini } from "@/components/book/SessionStats";
 import { splitIntoTypingSegments, type TypingSegment } from "@/lib/book-segment-splitter";
+import { getParagraphText } from "@/components/book/ParagraphCard";
+import { CELEBRATION_ANIMATIONS } from "@/lib/book-animations";
 
 interface CachedTopics {
   topics: string[];
@@ -407,9 +410,16 @@ export default function BookMode() {
     difficulty: string;
   } | null>(null);
   const [parsedContent, setParsedContent] = useState<ParsedContent[]>([]);
-  const [readingMode, setReadingMode] = useState<'theater' | 'novel' | 'compact'>('theater');
+  const [readingMode, setReadingMode] = useState<ReadingMode>('flow');
+  const [paragraphs, setParagraphs] = useState<ParsedContent[][]>([]);
+  const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0);
+  const [statsCollapsed, setStatsCollapsed] = useState(false);
+  const [previousWpm, setPreviousWpm] = useState<number | undefined>(undefined);
+  const [previousAccuracy, setPreviousAccuracy] = useState<number | undefined>(undefined);
+  const [isPaused, setIsPaused] = useState(false);
+  const [accumulatedTime, setAccumulatedTime] = useState(0);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const focusedReaderRef = useRef<HTMLDivElement>(null);
   const hasInitiallyLoaded = useRef(false);
 
   const {
@@ -618,15 +628,167 @@ export default function BookMode() {
     return { normalizedText: normalized, typingSegments: segments };
   }, [currentParagraph]);
 
-  // Update parsedContent state when paragraph changes
+  // Update parsedContent state and split into paragraphs when paragraph changes
   useEffect(() => {
     if (currentParagraph?.text) {
       const parsed = parseBookContent(currentParagraph.text);
       setParsedContent(parsed);
+      
+      // First try to split raw text by natural paragraph breaks (double newlines)
+      // This gives better results for novels and prose
+      const naturalParagraphs = splitTextIntoParagraphs(currentParagraph.text);
+      
+      if (naturalParagraphs.length > 1) {
+        // Use natural paragraph splitting
+        setParagraphs(naturalParagraphs);
+      } else {
+        // Fallback to content-type based splitting
+        const splitParagraphs = splitContentIntoParagraphs(parsed);
+        setParagraphs(splitParagraphs);
+      }
+      
+      setCurrentParagraphIndex(0);
     } else {
       setParsedContent([]);
+      setParagraphs([]);
+      setCurrentParagraphIndex(0);
     }
   }, [currentParagraph]);
+
+  // Split raw text into natural paragraphs based on double newlines
+  // This creates a proper book-like structure with clear paragraph separation
+  function splitTextIntoParagraphs(rawText: string): ParsedContent[][] {
+    if (!rawText || rawText.trim().length === 0) return [];
+    
+    // Split on double newlines (paragraph breaks)
+    const paragraphTexts = rawText
+      .split(/\n\s*\n/)
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
+    
+    // If no double newlines found, try splitting on single newlines for short content
+    // or treat the whole thing as one paragraph
+    if (paragraphTexts.length <= 1 && rawText.length > 500) {
+      // Try to split long content by sentences (roughly 2-3 sentences per paragraph)
+      const sentences = rawText.split(/(?<=[.!?])\s+/);
+      const chunks: string[] = [];
+      let currentChunk: string[] = [];
+      let wordCount = 0;
+      
+      for (const sentence of sentences) {
+        const sentenceWords = sentence.split(/\s+/).length;
+        currentChunk.push(sentence);
+        wordCount += sentenceWords;
+        
+        // Create a paragraph every ~50-80 words
+        if (wordCount >= 60) {
+          chunks.push(currentChunk.join(' '));
+          currentChunk = [];
+          wordCount = 0;
+        }
+      }
+      
+      if (currentChunk.length > 0) {
+        chunks.push(currentChunk.join(' '));
+      }
+      
+      return chunks.map(text => [{
+        type: 'NARRATION' as const,
+        text: text,
+        displayText: text,
+      }]);
+    }
+    
+    // Convert each paragraph text into a ParsedContent block
+    return paragraphTexts.map(paragraphText => {
+      // Parse each paragraph to detect its type
+      const parsed = parseBookContent(paragraphText);
+      
+      if (parsed.length === 0) {
+        return [{
+          type: 'NARRATION' as const,
+          text: paragraphText,
+          displayText: paragraphText,
+        }];
+      }
+      
+      return parsed;
+    });
+  }
+
+  // Split parsed content into paragraph groups for focused display (fallback)
+  function splitContentIntoParagraphs(blocks: ParsedContent[]): ParsedContent[][] {
+    if (blocks.length === 0) return [];
+    
+    const result: ParsedContent[][] = [];
+    let currentGroup: ParsedContent[] = [];
+    
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+      const nextBlock = blocks[i + 1];
+      
+      currentGroup.push(block);
+      
+      // Determine if we should break after this block
+      const shouldBreak = 
+        // Section dividers always break
+        block.type === 'SECTION_DIVIDER' ||
+        // Act/scene headers break
+        block.type === 'ACT_HEADER' ||
+        block.type === 'SCENE_HEADER' ||
+        // Break after dialogue unless next is stage direction
+        (block.type === 'DIALOGUE' && nextBlock?.type !== 'STAGE_DIRECTION') ||
+        // Break after narration (each narration block is a paragraph)
+        block.type === 'NARRATION' ||
+        // Break after stage direction unless it follows a character name
+        (block.type === 'STAGE_DIRECTION' && currentGroup.length > 1) ||
+        // Don't break between character name and dialogue
+        (block.type === 'CHARACTER_NAME' && nextBlock?.type === 'DIALOGUE' ? false : 
+         block.type === 'CHARACTER_NAME');
+      
+      // Keep CHARACTER_NAME with following DIALOGUE
+      if (block.type === 'CHARACTER_NAME' && nextBlock?.type === 'DIALOGUE') {
+        continue;
+      }
+      
+      if (shouldBreak && currentGroup.length > 0) {
+        result.push([...currentGroup]);
+        currentGroup = [];
+      }
+    }
+    
+    // Add any remaining blocks
+    if (currentGroup.length > 0) {
+      result.push(currentGroup);
+    }
+    
+    return result;
+  }
+
+  // Get current paragraph text for typing
+  const currentParagraphText = useMemo(() => {
+    if (currentParagraphIndex < 0 || currentParagraphIndex >= paragraphs.length) return '';
+    return getParagraphText(paragraphs[currentParagraphIndex]);
+  }, [paragraphs, currentParagraphIndex]);
+
+  // Calculate paragraph progress
+  const paragraphProgress = useMemo(() => {
+    if (!currentParagraphText) return 0;
+    return (userInput.length / currentParagraphText.length) * 100;
+  }, [userInput, currentParagraphText]);
+
+  // Calculate words remaining in current paragraph
+  const wordsRemaining = useMemo(() => {
+    if (!currentParagraphText) return 0;
+    const typedWords = userInput.split(/\s+/).filter(w => w.length > 0).length;
+    const totalWords = currentParagraphText.split(/\s+/).filter(w => w.length > 0).length;
+    return Math.max(0, totalWords - typedWords);
+  }, [userInput, currentParagraphText]);
+
+  const totalWordsInParagraph = useMemo(() => {
+    if (!currentParagraphText) return 0;
+    return currentParagraphText.split(/\s+/).filter(w => w.length > 0).length;
+  }, [currentParagraphText]);
 
   const stats = useMemo(() => {
     if (!isActive || !startTime || !currentParagraph) {
@@ -636,17 +798,19 @@ export default function BookMode() {
     const chars = userInput.length;
     const errorCount = userInput.split("").filter((char, i) => char !== normalizedText[i]).length;
     const correctChars = chars - errorCount;
-    const timeElapsed = (Date.now() - startTime) / 1000;
+    // Include accumulated time from previous pause sessions
+    const currentSegmentTime = isPaused ? 0 : (Date.now() - startTime) / 1000;
+    const totalTimeElapsed = accumulatedTime + currentSegmentTime;
 
     return {
-      wpm: calculateWPM(correctChars, timeElapsed),
+      wpm: calculateWPM(correctChars, Math.max(totalTimeElapsed, 0.1)),
       accuracy: calculateAccuracy(correctChars, chars),
       errors: errorCount,
     };
-  }, [userInput, isActive, startTime, currentParagraph, normalizedText]);
+  }, [userInput, isActive, startTime, currentParagraph, normalizedText, isPaused, accumulatedTime]);
 
   useEffect(() => {
-    if (!isActive || isFinished) return;
+    if (!isActive || isFinished || isPaused) return;
 
     const timer = setTimeout(() => {
       setWpm(stats.wpm);
@@ -655,38 +819,77 @@ export default function BookMode() {
     }, 50);
 
     return () => clearTimeout(timer);
-  }, [stats, isActive, isFinished]);
+  }, [stats, isActive, isFinished, isPaused]);
 
-  useEffect(() => {
-    if (isActive && currentParagraph && userInput === normalizedText) {
-      finishTest();
-    }
-  }, [userInput, isActive, currentParagraph, normalizedText]);
+  // Check for paragraph completion (handled by FocusedReader's onComplete callback)
+  // The old full-text completion check is replaced by paragraph-based completion
 
   useEffect(() => {
     const handleKeyboard = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isActive && !isFinished) {
-        resetTest();
-        toast({
-          title: "Test Reset",
-          description: "Press any key to start typing.",
-        });
+      // Escape: Reset current paragraph or test
+      if (e.key === "Escape") {
+        if (isActive && !isFinished) {
+          // Reset current paragraph
+          setUserInput("");
+          setIsActive(false);
+          setStartTime(null);
+          setIsPaused(false);
+          setAccumulatedTime(0);
+          toast({
+            title: "Paragraph Reset",
+            description: "Press any key to start typing again.",
+          });
+        } else if (!isActive && !isFinished) {
+          resetTest();
+          toast({
+            title: "Test Reset",
+            description: "Press any key to start typing.",
+          });
+        }
+        return;
       }
 
+      // Ctrl+Enter: Load new book
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !isActive) {
         e.preventDefault();
         fetchParagraph();
+        return;
       }
 
+      // Tab: Continue to next when finished
       if (e.key === "Tab" && isFinished) {
         e.preventDefault();
         continueReading();
+        return;
+      }
+
+      // P key or Ctrl+Space: Toggle pause when typing is active
+      if ((e.key === "p" || e.key === "P" || ((e.ctrlKey || e.metaKey) && e.key === " ")) && isActive && !isFinished) {
+        e.preventDefault();
+        togglePause();
+        return;
+      }
+
+      // Arrow keys: Navigate paragraphs when not typing
+      if (!isActive && !isFinished && paragraphs.length > 1) {
+        if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+          e.preventDefault();
+          if (currentParagraphIndex > 0) {
+            handleParagraphNavigate(currentParagraphIndex - 1);
+          }
+        }
+        if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+          e.preventDefault();
+          if (currentParagraphIndex < paragraphs.length - 1) {
+            handleParagraphNavigate(currentParagraphIndex + 1);
+          }
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyboard);
     return () => window.removeEventListener("keydown", handleKeyboard);
-  }, [isActive, isFinished, fetchParagraph, continueReading, toast]);
+  }, [isActive, isFinished, fetchParagraph, continueReading, toast, paragraphs.length, currentParagraphIndex, handleParagraphNavigate, togglePause]);
 
   useEffect(() => {
     if (currentParagraph && !isActive && !isFinished && textareaRef.current) {
@@ -697,18 +900,19 @@ export default function BookMode() {
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
 
-    if (isActive && startTime) {
+    if (isActive && startTime && !isPaused) {
       interval = setInterval(() => {
-        setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+        setElapsedTime(accumulatedTime + Math.floor((Date.now() - startTime) / 1000));
       }, 100);
     } else if (!isActive) {
       setElapsedTime(0);
     }
+    // When paused, elapsedTime stays at its current value (no update needed)
 
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isActive, startTime]);
+  }, [isActive, startTime, isPaused, accumulatedTime]);
 
   const finishTest = useCallback(() => {
     if (!currentParagraph || !startTime) return;
@@ -849,8 +1053,85 @@ export default function BookMode() {
     setCompletedTestData(null);
     setElapsedTime(0);
     setPendingResult(null);
-    setTimeout(() => textareaRef.current?.focus(), 0);
+    setCurrentParagraphIndex(0);
+    setIsPaused(false);
+    setAccumulatedTime(0);
   };
+
+  // Handle paragraph completion (move to next paragraph)
+  const handleParagraphComplete = useCallback(() => {
+    // Save current WPM/accuracy as previous for trend comparison
+    setPreviousWpm(wpm);
+    setPreviousAccuracy(accuracy);
+    
+    if (currentParagraphIndex < paragraphs.length - 1) {
+      // Move to next paragraph
+      setCurrentParagraphIndex(prev => prev + 1);
+      setUserInput("");
+      
+      // Small celebration effect
+      confetti({
+        particleCount: 30,
+        spread: 50,
+        origin: { y: 0.7 },
+        colors: ['#22c55e', '#3b82f6'],
+      });
+      
+      toast({
+        title: "Paragraph Complete!",
+        description: `${paragraphs.length - currentParagraphIndex - 1} paragraphs remaining`,
+      });
+    } else {
+      // All paragraphs complete - finish the test
+      finishTest();
+    }
+  }, [currentParagraphIndex, paragraphs.length, wpm, accuracy, finishTest, toast]);
+
+  // Handle typing start
+  const handleTypingStart = useCallback(() => {
+    if (!isActive) {
+      setIsActive(true);
+      setStartTime(Date.now());
+    }
+  }, [isActive]);
+
+  // Handle input from FocusedReader
+  const handleReaderInput = useCallback((value: string) => {
+    if (isFinished || isPaused) return;
+    
+    // Start timing on first input
+    if (!isActive && value.length > 0) {
+      setIsActive(true);
+      setStartTime(Date.now());
+    }
+    
+    setUserInput(value);
+  }, [isActive, isFinished, isPaused]);
+
+  // Handle paragraph navigation
+  const handleParagraphNavigate = useCallback((index: number) => {
+    if (index >= 0 && index < paragraphs.length && !isActive) {
+      setCurrentParagraphIndex(index);
+      setUserInput("");
+    }
+  }, [paragraphs.length, isActive]);
+
+  // Toggle pause/resume
+  const togglePause = useCallback(() => {
+    if (!isActive || isFinished) return;
+    
+    if (isPaused) {
+      // Resume - reset startTime to now
+      setStartTime(Date.now());
+      setIsPaused(false);
+    } else {
+      // Pause - save accumulated time
+      if (startTime) {
+        setAccumulatedTime(prev => prev + Math.floor((Date.now() - startTime) / 1000));
+      }
+      setIsPaused(true);
+    }
+  }, [isActive, isFinished, isPaused, startTime]);
 
   const resetTest = () => {
     resetTestState();
@@ -1134,39 +1415,38 @@ export default function BookMode() {
           </div>
         </Card>
 
-        {/* Book Header - Production Ready */}
+        {/* Premium Book Header - Inline Variant */}
         {currentParagraph && (() => {
-          // Parse book source for title and author
           const source = currentParagraph.source || "";
           const byIdx = source.lastIndexOf(" by ");
           const bookTitle = byIdx >= 0 ? source.slice(0, byIdx) : source;
           const bookAuthor = byIdx >= 0 ? source.slice(byIdx + 4) : "Unknown Author";
-          const typingProgress = normalizedText.length > 0 ? (userInput.length / normalizedText.length) * 100 : 0;
+          const overallProgress = paragraphs.length > 0 
+            ? ((currentParagraphIndex + paragraphProgress / 100) / paragraphs.length) * 100 
+            : 0;
 
           return (
             <Card className="mb-6 overflow-hidden border-primary/30">
-              <BookHeader
+              <BookHeaderInline
                 title={bookTitle}
                 author={bookAuthor}
-                chapter={currentParagraph.paragraphIndex + 1}
+                chapter={currentParagraphIndex + 1}
+                totalChapters={paragraphs.length}
+                progress={overallProgress}
                 topic={currentParagraph.topic}
                 difficulty={currentParagraph.difficulty as 'easy' | 'medium' | 'hard'}
-                progress={typingProgress}
-                compact={isActive}
               />
 
-              {/* Reading Progress - shows when not finished */}
-              {!isFinished && typingSegments.length > 0 && (
+              {/* Progress Bar - Premium simplified version */}
+              {!isFinished && paragraphs.length > 0 && (
                 <div className="px-4 pb-4">
-                  <ReadingProgress
-                    currentSegment={0}
-                    totalSegments={typingSegments.length}
-                    segmentProgress={typingProgress}
-                    overallProgress={typingProgress}
-                    wordsTyped={userInput.split(/\s+/).filter(w => w.length > 0).length}
-                    totalWords={currentParagraph.lengthWords}
+                  <BookProgressBar
+                    currentParagraph={currentParagraphIndex + 1}
+                    totalParagraphs={paragraphs.length}
+                    paragraphProgress={paragraphProgress}
+                    wordsRemaining={wordsRemaining}
+                    totalWords={totalWordsInParagraph}
                     compact={isActive}
-                    segments={typingSegments}
                   />
                 </div>
               )}
@@ -1174,89 +1454,135 @@ export default function BookMode() {
           );
         })()}
 
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Card className="p-4 text-center cursor-help">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <Zap className="w-4 h-4 text-yellow-500" />
-                  <span className="text-sm text-muted-foreground">WPM</span>
-                </div>
-                <div className="text-3xl font-bold text-yellow-500" data-testid="text-wpm">
-                  {wpm}
-                </div>
-              </Card>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Words Per Minute - your typing speed</p>
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Card className="p-4 text-center cursor-help">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <Target className="w-4 h-4 text-green-500" />
-                  <span className="text-sm text-muted-foreground">Accuracy</span>
-                </div>
-                <div className="text-3xl font-bold text-green-500" data-testid="text-accuracy">
-                  {accuracy}%
-                </div>
-              </Card>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Percentage of correctly typed characters</p>
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Card className="p-4 text-center cursor-help">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <span className="text-sm text-muted-foreground">Errors</span>
-                </div>
-                <div className="text-3xl font-bold text-red-500" data-testid="text-errors">
-                  {errors}
-                </div>
-              </Card>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Number of incorrect characters typed</p>
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Card className="p-4 text-center cursor-help">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <span className="text-sm text-muted-foreground">Time</span>
-                </div>
-                <div className="text-3xl font-bold" data-testid="text-timer">
-                  {formatTime(elapsedTime)}
-                </div>
-              </Card>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Total time spent typing</p>
-            </TooltipContent>
-          </Tooltip>
+        {/* Session Stats - Collapsible */}
+        <div className="mb-6">
+          <SessionStats
+            wpm={wpm}
+            previousWpm={previousWpm}
+            accuracy={accuracy}
+            previousAccuracy={previousAccuracy}
+            errors={errors}
+            timeElapsed={elapsedTime}
+            charactersTyped={userInput.length}
+            wordsTyped={userInput.split(/\s+/).filter(w => w.length > 0).length}
+            collapsed={statsCollapsed}
+            onToggleCollapse={() => setStatsCollapsed(!statsCollapsed)}
+            isTyping={isActive}
+          />
         </div>
 
+        {/* Reading Mode Selector & Help */}
         <Card className="p-4 mb-4 bg-muted/30 border-dashed">
-          <div className="flex items-start gap-3">
-            <HelpCircle className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-            <div className="text-sm text-muted-foreground">
-              <p className="font-medium text-foreground mb-1">How highlighting works:</p>
-              <ul className="space-y-1 list-disc list-inside">
-                <li><span className="text-green-500">Green</span> = Correct character</li>
-                <li><span className="text-red-500 line-through">Red strikethrough</span> + <span className="text-yellow-400 font-bold">Yellow</span> = Wrong character (shows expected vs what you typed)</li>
-                <li><span className="text-muted-foreground">Gray</span> = Not typed yet</li>
-              </ul>
-              <p className="mt-2 text-xs">Tip: Use <kbd className="px-1.5 py-0.5 bg-background rounded text-xs">Backspace</kbd> to fix mistakes before continuing.</p>
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            {/* Reading Mode */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-primary" />
+                <label className="text-sm font-medium">View:</label>
+              </div>
+              <Tabs value={readingMode} onValueChange={(value) => setReadingMode(value as ReadingMode)}>
+                <TabsList className="h-8">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <TabsTrigger value="focus" className="text-xs h-7 px-3">
+                        <Eye className="w-3.5 h-3.5 mr-1" />
+                        Focus
+                      </TabsTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Single paragraph - maximum immersion</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <TabsTrigger value="flow" className="text-xs h-7 px-3">
+                        <Layers className="w-3.5 h-3.5 mr-1" />
+                        Flow
+                      </TabsTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Current + preview of next paragraph</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <TabsTrigger value="full" className="text-xs h-7 px-3">
+                        <BookOpen className="w-3.5 h-3.5 mr-1" />
+                        Full
+                      </TabsTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>See all paragraphs (traditional view)</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TabsList>
+              </Tabs>
+            </div>
+
+            {/* Help */}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="text-green-500">Green</span>=Correct
+              <span className="mx-1">|</span>
+              <span className="text-red-500">Red</span>=Error
+              <span className="mx-1">|</span>
+              <kbd className="px-1 py-0.5 bg-background rounded text-[10px]">Tab</kbd> to continue
             </div>
           </div>
         </Card>
 
-        <Card className="p-6 mb-6 relative">
+        {/* Premium FocusedReader - Paragraph-based Typing Experience */}
+        <Card className="p-6 mb-6 relative overflow-hidden">
+          {/* Pause/Resume Floating Button - shown when typing is active */}
+          {isActive && !isFinished && (
+            <div className="absolute top-4 right-4 z-30">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={togglePause}
+                    variant={isPaused ? "default" : "outline"}
+                    size="sm"
+                    className="gap-2 shadow-lg"
+                    data-testid="button-pause-resume"
+                  >
+                    {isPaused ? (
+                      <>
+                        <Play className="w-4 h-4" />
+                        Resume
+                      </>
+                    ) : (
+                      <>
+                        <Pause className="w-4 h-4" />
+                        Pause
+                      </>
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{isPaused ? "Resume typing (P)" : "Pause typing (P)"}</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          )}
+
+          {/* Paused Overlay */}
+          {isPaused && (
+            <div className="absolute inset-0 bg-background/60 backdrop-blur-sm flex items-center justify-center z-20 rounded-lg">
+              <div className="flex flex-col items-center gap-4 text-center">
+                <Pause className="w-12 h-12 text-primary animate-pulse" />
+                <div>
+                  <h3 className="text-lg font-semibold mb-1">Paused</h3>
+                  <p className="text-sm text-muted-foreground">Press P or click Resume to continue</p>
+                </div>
+                <Button onClick={togglePause} size="lg" className="gap-2">
+                  <Play className="w-5 h-5" />
+                  Resume Typing
+                </Button>
+              </div>
+            </div>
+          )}
+
           {isLoading && (
-            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
+            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-20 rounded-lg">
               <div className="flex flex-col items-center gap-2">
                 <Loader2 className="w-8 h-8 animate-spin text-primary" />
                 <span className="text-sm text-muted-foreground">Loading paragraph...</span>
@@ -1264,97 +1590,32 @@ export default function BookMode() {
             </div>
           )}
 
-          {/* Reading Mode Selector */}
-          {parsedContent.length > 0 && (
-            <div className="mb-6 flex items-center justify-between flex-wrap gap-4">
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium">Reading Mode:</label>
-                <Tabs value={readingMode} onValueChange={(value) => setReadingMode(value as 'theater' | 'novel' | 'compact')}>
-                  <TabsList>
-                    {READING_MODES.map(mode => (
-                      <Tooltip key={mode.id}>
-                        <TooltipTrigger asChild>
-                          <TabsTrigger value={mode.id} className="text-xs">
-                            {mode.label}
-                          </TabsTrigger>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p className="max-w-xs">{mode.description}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    ))}
-                  </TabsList>
-                </Tabs>
-              </div>
+          {paragraphs.length > 0 ? (
+            <FocusedReader
+              ref={focusedReaderRef}
+              paragraphs={paragraphs}
+              currentIndex={currentParagraphIndex}
+              userInput={userInput}
+              onInput={handleReaderInput}
+              onParagraphComplete={handleParagraphComplete}
+              onTypingStart={handleTypingStart}
+              readingMode={readingMode}
+              isTyping={isActive}
+              disabled={isFinished || isLoading}
+              onNavigate={handleParagraphNavigate}
+              className="min-h-[200px]"
+            />
+          ) : currentParagraph ? (
+            <div className="text-center text-muted-foreground py-12">
+              <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
+              <p>Preparing content...</p>
+            </div>
+          ) : (
+            <div className="text-center text-muted-foreground py-12">
+              <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>Select a book to start typing</p>
             </div>
           )}
-
-          {/* Structured Content Rendering - Production Ready */}
-          <div className="book-content-container mb-6 mx-auto px-4" style={{ maxWidth: '70ch' }}>
-            {parsedContent.length > 0 ? (
-              <div className="book-content-structure space-y-1">
-                {parsedContent.map((block, idx) => (
-                  <BookContentBlockEnhanced
-                    key={`block-${idx}-${block.type}`}
-                    block={block}
-                    userProgress={userInput.length}
-                    blockStartOffset={getBlockOffset(parsedContent, idx, true)}
-                    isActive={isActive}
-                    readingMode={readingMode}
-                    userInput={userInput}
-                    useDisplayText={true}
-                    focusMode={false}
-                    autoScroll={true}
-                  />
-                ))}
-              </div>
-            ) : currentParagraph ? (
-              // Fallback for content that couldn't be parsed - show clean display
-              <div className="font-serif text-lg leading-relaxed">
-                {normalizedText.split('').map((char, idx) => {
-                  const isTyped = idx < userInput.length;
-                  const isCorrect = isTyped && userInput[idx] === char;
-                  const isCursor = idx === userInput.length;
-
-                  return (
-                    <span
-                      key={idx}
-                      className={
-                        isTyped
-                          ? isCorrect
-                            ? 'text-green-500'
-                            : 'text-red-500'
-                          : isCursor
-                            ? 'text-muted-foreground border-l-2 border-primary animate-pulse'
-                            : 'text-muted-foreground/60'
-                      }
-                    >
-                      {char}
-                    </span>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-center text-muted-foreground py-8">
-                <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>Select a book to start typing</p>
-              </div>
-            )}
-          </div>
-
-          <Textarea
-            ref={textareaRef}
-            value={userInput}
-            onChange={handleInput}
-            onCompositionStart={handleCompositionStart}
-            onCompositionEnd={handleCompositionEnd}
-            onPaste={handlePaste}
-            onCut={handleCut}
-            placeholder={isLoading ? "Loading paragraph..." : "Start typing here..."}
-            className="min-h-[150px] font-serif text-lg resize-none"
-            disabled={isFinished || isLoading}
-            data-testid="textarea-typing"
-          />
 
           {isFinished && (
             <div className="mt-4 flex gap-3 justify-center flex-wrap">
@@ -1421,21 +1682,25 @@ export default function BookMode() {
           )}
         </Card>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Card className="p-4 bg-muted/50 cursor-help">
-              <div className="text-sm text-muted-foreground text-center">
-                <span className="font-semibold">Shortcuts:</span>{" "}
-                <kbd className="px-2 py-1 bg-background rounded text-xs">Esc</kbd> Reset • {" "}
-                <kbd className="px-2 py-1 bg-background rounded text-xs">Ctrl+Enter</kbd> New Paragraph • {" "}
-                <kbd className="px-2 py-1 bg-background rounded text-xs">Tab</kbd> Continue Reading (when finished)
+        <Card className="p-4 bg-muted/50">
+          <div className="text-sm text-muted-foreground text-center space-y-1">
+            <div>
+              <span className="font-semibold">Shortcuts:</span>{" "}
+              <kbd className="px-2 py-1 bg-background rounded text-xs">P</kbd> Pause/Resume{" "}
+              <span className="text-muted-foreground/50">•</span>{" "}
+              <kbd className="px-2 py-1 bg-background rounded text-xs">Esc</kbd> Reset paragraph{" "}
+              <span className="text-muted-foreground/50">•</span>{" "}
+              <kbd className="px-2 py-1 bg-background rounded text-xs">Tab</kbd> Continue{" "}
+              <span className="text-muted-foreground/50">•</span>{" "}
+              <kbd className="px-2 py-1 bg-background rounded text-xs">Ctrl+Enter</kbd> New book
+            </div>
+            {paragraphs.length > 1 && !isActive && (
+              <div className="text-xs text-muted-foreground/70">
+                <kbd className="px-1.5 py-0.5 bg-background rounded text-[10px]">↑↓</kbd> Navigate paragraphs when not typing
               </div>
-            </Card>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Use these keyboard shortcuts for quick actions while typing</p>
-          </TooltipContent>
-        </Tooltip>
+            )}
+          </div>
+        </Card>
 
         <Dialog open={isFinished} onOpenChange={(open) => !open && resetTestState()}>
           <DialogContent data-testid="dialog-results">
