@@ -1,0 +1,206 @@
+# ============================================
+# TypeMasterAI - Cloud Run Deployment Pipeline
+# Continuous Deployment with Zero Downtime
+# ============================================
+
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      traffic_percent:
+        description: 'Percentage of traffic for new revision (0-100)'
+        required: false
+        default: '100'
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+  SERVICE_NAME: typemasterai
+  ARTIFACT_REGISTRY: us-central1-docker.pkg.dev
+  REPOSITORY: typemasterai
+
+jobs:
+  # ============================================
+  # Build and Test
+  # ============================================
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run type check
+        run: npm run check
+
+      - name: Build application
+        run: npm run build
+
+  # ============================================
+  # Deploy to Cloud Run
+  # ============================================
+  deploy:
+    name: Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    permissions:
+      contents: read
+      id-token: write  # Required for Workload Identity Federation
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Authenticate using Workload Identity Federation (recommended)
+      # No service account keys needed - more secure
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }} --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --tag "${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}" \
+            --tag "${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest" \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --cache-from "${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest" \
+            .
+
+      - name: Push Docker image
+        run: |
+          docker push "${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+          docker push "${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest"
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.REGION }}
+          image: ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+          flags: |
+            --cpu=1
+            --memory=512Mi
+            --min-instances=1
+            --max-instances=10
+            --concurrency=80
+            --cpu-boost
+            --session-affinity
+            --no-cpu-throttling
+            --port=8080
+            --allow-unauthenticated
+          env_vars: |
+            NODE_ENV=production
+          secrets: |
+            DATABASE_URL=DATABASE_URL:latest
+            SESSION_SECRET=SESSION_SECRET:latest
+            OPENAI_API_KEY=OPENAI_API_KEY:latest
+            VAPID_PUBLIC_KEY=VAPID_PUBLIC_KEY:latest
+            VAPID_PRIVATE_KEY=VAPID_PRIVATE_KEY:latest
+            VAPID_SUBJECT=VAPID_SUBJECT:latest
+            GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest
+            GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
+            GITHUB_CLIENT_ID=GITHUB_CLIENT_ID:latest
+            GITHUB_CLIENT_SECRET=GITHUB_CLIENT_SECRET:latest
+
+      - name: Verify deployment health
+        run: |
+          SERVICE_URL="${{ steps.deploy.outputs.url }}"
+          echo "Checking health at: ${SERVICE_URL}/api/health"
+          
+          # Wait for service to be ready (up to 2 minutes)
+          for i in {1..24}; do
+            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "${SERVICE_URL}/api/health" || echo "000")
+            if [ "$RESPONSE" = "200" ]; then
+              echo "✅ Health check passed!"
+              exit 0
+            fi
+            echo "Attempt $i: Status $RESPONSE - waiting 5 seconds..."
+            sleep 5
+          done
+          
+          echo "❌ Health check failed after 2 minutes"
+          exit 1
+
+      - name: Output deployment URL
+        run: |
+          echo "🚀 Deployed to: ${{ steps.deploy.outputs.url }}"
+          echo "📊 View in Console: https://console.cloud.google.com/run/detail/${{ env.REGION }}/${{ env.SERVICE_NAME }}/revisions?project=${{ env.PROJECT_ID }}"
+
+  # ============================================
+  # Rollback Job (Manual Trigger)
+  # ============================================
+  rollback:
+    name: Rollback to Previous Revision
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get previous revision
+        id: get-revision
+        run: |
+          REVISIONS=$(gcloud run revisions list \
+            --service=${{ env.SERVICE_NAME }} \
+            --region=${{ env.REGION }} \
+            --format="value(name)" \
+            --sort-by="~creationTimestamp" \
+            --limit=2)
+          
+          PREVIOUS=$(echo "$REVISIONS" | tail -1)
+          echo "previous_revision=$PREVIOUS" >> $GITHUB_OUTPUT
+          echo "Rolling back to: $PREVIOUS"
+
+      - name: Rollback traffic
+        run: |
+          gcloud run services update-traffic ${{ env.SERVICE_NAME }} \
+            --region=${{ env.REGION }} \
+            --to-revisions=${{ steps.get-revision.outputs.previous_revision }}=100
+
+      - name: Verify rollback
+        run: |
+          echo "✅ Rolled back to revision: ${{ steps.get-revision.outputs.previous_revision }}"
+

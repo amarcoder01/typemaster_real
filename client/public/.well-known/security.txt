@@ -1,0 +1,22 @@
+# TypeMasterAI Security Policy
+# https://securitytxt.org/
+
+# Contact for security issues
+Contact: mailto:security@typemasterai.com
+Contact: https://github.com/amarcoder01/typemasterai/security/advisories/new
+
+# Preferred languages
+Preferred-Languages: en
+
+# Security policy page
+Policy: https://typemasterai.com/security-policy
+
+# Canonical URL for this file
+Canonical: https://typemasterai.com/.well-known/security.txt
+
+# When this file expires (update annually)
+Expires: 2026-12-31T23:59:59.000Z
+
+# Acknowledgments page for security researchers
+# Acknowledgments: https://typemasterai.com/security-acknowledgments
+

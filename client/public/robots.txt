@@ -1,13 +1,16 @@
 # Robots.txt for TypeMasterAI - Free Online Typing Test
-# https://typemaster-ai.replit.app
-# Last updated: 2025-12-09
+# Production URL: Update SITE_URL before deployment
+# Last updated: 2025-01-01
 
 # Allow all search engines to crawl and index
 User-agent: *
 Allow: /
 
 # Sitemaps
-Sitemap: https://typemaster-ai.replit.app/sitemap.xml
+# NOTE: Update this URL to your production domain before deploying
+# Cloud Run: https://typemasterai-xxxxx-uc.a.run.app/sitemap.xml
+# Custom Domain: https://yourdomain.com/sitemap.xml
+Sitemap: https://typemasterai.com/sitemap.xml
 
 # Block specific paths that shouldn't be indexed
 Disallow: /api/

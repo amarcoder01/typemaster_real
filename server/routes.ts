@@ -329,16 +329,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(401).json({ message: "Unauthorized" });
   }
 
-  app.get("/api/health", (_req, res) => {
-    res.status(200).json({ 
-      status: "ok", 
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime()
-    });
+  // Health check endpoints for Cloud Run and load balancers
+  app.get("/api/health", async (_req, res) => {
+    try {
+      const { performHealthCheck } = await import("./health-check");
+      const result = await performHealthCheck(true);
+      const statusCode = result.status === "unhealthy" ? 503 : 200;
+      res.status(statusCode).json(result);
+    } catch (error: any) {
+      res.status(503).json({ 
+        status: "unhealthy", 
+        timestamp: new Date().toISOString(),
+        error: error.message
+      });
+    }
   });
 
   app.head("/api/health", (_req, res) => {
     res.status(200).end();
+  });
+
+  // Liveness probe - is the application running?
+  // Should return 200 if the process is alive
+  app.get("/api/health/live", async (_req, res) => {
+    try {
+      const { performLivenessCheck } = await import("./health-check");
+      const result = await performLivenessCheck();
+      res.status(result.alive ? 200 : 503).json(result);
+    } catch (error: any) {
+      res.status(503).json({ alive: false, error: error.message });
+    }
+  });
+
+  // Readiness probe - can the application handle traffic?
+  // Should return 200 if the database and dependencies are ready
+  app.get("/api/health/ready", async (_req, res) => {
+    try {
+      const { performReadinessCheck } = await import("./health-check");
+      const result = await performReadinessCheck();
+      res.status(result.ready ? 200 : 503).json(result);
+    } catch (error: any) {
+      res.status(503).json({ ready: false, reason: error.message });
+    }
   });
 
   const errorReportLimiter = rateLimit({

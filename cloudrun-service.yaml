@@ -1,0 +1,164 @@
+# ============================================
+# TypeMasterAI - Cloud Run Service Configuration
+# Deploy with: gcloud run services replace cloudrun-service.yaml
+# ============================================
+#
+# This declarative configuration defines the Cloud Run service
+# with all production-ready settings for WebSocket support,
+# auto-scaling, and optimal performance.
+#
+# Prerequisites:
+# 1. Create secrets in Secret Manager (see DEPLOYMENT.md)
+# 2. Grant Cloud Run service account access to secrets
+# 3. Replace PROJECT_ID with your actual project ID
+# ============================================
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: typemasterai
+  labels:
+    cloud.googleapis.com/location: us-central1
+  annotations:
+    # Enable gradual rollouts for zero-downtime deployments
+    run.googleapis.com/launch-stage: BETA
+spec:
+  template:
+    metadata:
+      annotations:
+        # Auto-scaling configuration
+        autoscaling.knative.dev/minScale: "1"        # Keep 1 instance warm (prevents cold starts)
+        autoscaling.knative.dev/maxScale: "10"       # Scale up to 10 instances
+        
+        # CPU allocation - CRITICAL for WebSocket support
+        # "cpu-throttling" must be false for WebSockets to work properly
+        run.googleapis.com/cpu-throttling: "false"
+        
+        # Enable CPU boost for faster cold starts
+        run.googleapis.com/startup-cpu-boost: "true"
+        
+        # Session affinity for WebSocket connections
+        # Ensures clients reconnect to the same instance
+        run.googleapis.com/sessionAffinity: "true"
+        
+        # Execution environment (gen2 has better cold start performance)
+        run.googleapis.com/execution-environment: gen2
+        
+        # Network egress for external connections (Neon DB, OpenAI API)
+        run.googleapis.com/vpc-access-egress: all-traffic
+        
+    spec:
+      # Maximum concurrent requests per container
+      # Node.js is I/O bound, so higher concurrency is fine
+      containerConcurrency: 80
+      
+      # Request timeout (5 minutes for long-running operations)
+      timeoutSeconds: 300
+      
+      # Service account for accessing GCP resources
+      # serviceAccountName: typemasterai@PROJECT_ID.iam.gserviceaccount.com
+      
+      containers:
+        - image: us-central1-docker.pkg.dev/PROJECT_ID/typemasterai/typemasterai:latest
+          
+          ports:
+            - containerPort: 8080
+              name: http1
+          
+          # Resource allocation
+          resources:
+            limits:
+              cpu: "1"           # 1 vCPU
+              memory: "512Mi"    # 512 MB RAM
+          
+          # Environment variables
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "8080"
+            # APP_URL should be set to your custom domain or Cloud Run URL
+            # - name: APP_URL
+            #   value: "https://typemasterai.example.com"
+          
+          # Secrets from Secret Manager
+          # Format: secretKeyRef references secrets created in Secret Manager
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: DATABASE_URL
+                  key: latest
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: SESSION_SECRET
+                  key: latest
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: OPENAI_API_KEY
+                  key: latest
+            # Optional: Push Notifications
+            - name: VAPID_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: VAPID_PUBLIC_KEY
+                  key: latest
+            - name: VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: VAPID_PRIVATE_KEY
+                  key: latest
+            - name: VAPID_SUBJECT
+              valueFrom:
+                secretKeyRef:
+                  name: VAPID_SUBJECT
+                  key: latest
+            # Optional: OAuth Providers
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: GOOGLE_CLIENT_ID
+                  key: latest
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: GOOGLE_CLIENT_SECRET
+                  key: latest
+            - name: GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: GITHUB_CLIENT_ID
+                  key: latest
+            - name: GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: GITHUB_CLIENT_SECRET
+                  key: latest
+          
+          # Startup probe - checks if the app is ready to receive traffic
+          startupProbe:
+            httpGet:
+              path: /api/health/ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30    # Allow up to 2.5 minutes for startup
+          
+          # Liveness probe - checks if the app is still running
+          livenessProbe:
+            httpGet:
+              path: /api/health/live
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+  
+  # Traffic configuration for gradual rollouts
+  traffic:
+    - percent: 100
+      latestRevision: true
+

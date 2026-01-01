@@ -1,26 +1,100 @@
 import "dotenv/config";
 import { type Server } from "node:http";
 
+import compression from "compression";
+import cors from "cors";
 import express, { type Express, type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { requestIdMiddleware, errorHandler, notFoundHandler } from "./error-middleware";
 import { metricsCollector } from "./metrics";
 import { registerShutdownHandlers } from "./graceful-shutdown";
 
-export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
+const isProduction = process.env.NODE_ENV === "production";
 
-  console.log(`${formattedTime} [${source}] ${message}`);
+// Cloud Run structured logging format
+// https://cloud.google.com/run/docs/logging
+export function log(message: string, source = "express", severity: "INFO" | "WARNING" | "ERROR" = "INFO") {
+  if (isProduction) {
+    // Cloud Run structured logging (JSON format)
+    const logEntry = {
+      severity,
+      message: `[${source}] ${message}`,
+      timestamp: new Date().toISOString(),
+      "logging.googleapis.com/sourceLocation": {
+        file: "app.ts",
+        function: source,
+      },
+    };
+    console.log(JSON.stringify(logEntry));
+  } else {
+    // Development: human-readable format
+    const formattedTime = new Date().toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+    console.log(`${formattedTime} [${source}] ${message}`);
+  }
 }
 
 export const app = express();
 
+// Trust proxy for Cloud Run (load balancer)
+// Cloud Run uses a single hop, so trust proxy = 1
 app.set('trust proxy', 1);
+
+// Enable gzip compression for all responses
+// Significantly reduces bandwidth and improves load times
+app.use(compression({
+  level: 6, // Balanced compression level (1-9)
+  threshold: 1024, // Only compress responses > 1KB
+  filter: (req, res) => {
+    // Don't compress if the request includes 'x-no-compression' header
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    // Use compression's default filter (compresses text-based content)
+    return compression.filter(req, res);
+  },
+}));
+
+// CORS configuration for Cloud Run
+// Allows requests from custom domains and Cloud Run URLs
+const allowedOrigins = process.env.APP_URL 
+  ? [process.env.APP_URL, 'https://typemasterai.com', 'https://www.typemasterai.com']
+  : ['http://localhost:5000', 'http://localhost:8080'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // In development, allow all origins
+    if (!isProduction) {
+      return callback(null, true);
+    }
+    
+    // Check if origin is in allowed list or matches Cloud Run pattern
+    const isAllowed = allowedOrigins.some(allowed => origin === allowed) ||
+      origin.endsWith('.run.app') || // Cloud Run URLs
+      origin.endsWith('.web.app') || // Firebase Hosting
+      origin.includes('localhost');
+    
+    if (isAllowed) {
+      return callback(null, true);
+    }
+    
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true, // Allow cookies for session-based auth
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['X-Request-Id'],
+  maxAge: 86400, // Cache preflight for 24 hours
+}));
 
 app.use(requestIdMiddleware);
 
@@ -103,10 +177,10 @@ export default async function runApp(
   await setup(app, server);
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
+  // Cloud Run sets PORT=8080 automatically. Default to 8080 for production compatibility.
+  // For local development, you can set PORT=5000 in your .env file.
+  // This serves both the API and the client.
+  const port = parseInt(process.env.PORT || '8080', 10);
   const listenOptions: any = { port, host: "0.0.0.0" };
   if (process.platform !== 'win32') {
     listenOptions.reusePort = true;
