@@ -216,7 +216,8 @@ export default function TypingTest() {
     completionDate: string; // ISO string to avoid Date serialization issues
     verificationId?: string; // Server-generated certificate verification ID
   } | null>(null);
-  const [isTypingFast, setIsTypingFast] = useState(false);
+  // Use ref instead of state to avoid re-renders during fast typing
+  const isTypingFastRef = useRef(false);
   const lastKeystrokeTimeRef = useRef<number>(0);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
@@ -287,6 +288,9 @@ export default function TypingTest() {
   const charRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const caretRef = useRef<HTMLDivElement>(null);
   const caretPosRef = useRef({ left: 0, top: 0, height: 40 });
+  // Pre-cached character positions for fast cursor updates (avoids getBoundingClientRect during typing)
+  const charPositionCacheRef = useRef<Array<{left: number, top: number, height: number}>>([]);
+  const positionCacheValidRef = useRef(false);
   const keystrokeTrackerRef = useRef<KeystrokeTracker | null>(null);
   const pendingFetchesRef = useRef(0);
   const latestRequestIdRef = useRef(0);
@@ -685,6 +689,7 @@ export default function TypingTest() {
     setLastResultId(null);
     setHasInteracted(false);
     setCursorIndex(0);
+    lastCursorIndexRef.current = 0; // Sync ref with state for cursor positioning
     setCharStates([]);
 
     keystrokeTrackerRef.current = null;
@@ -692,7 +697,7 @@ export default function TypingTest() {
     lastSampleSecondRef.current = -1;
     freestyleLastKeystrokeRef.current = 0;
     lastKeystrokeTimeRef.current = 0;
-    setIsTypingFast(false);
+    isTypingFastRef.current = false;
 
     if (!freestyleMode) {
       if (forceNewParagraph) {
@@ -1249,6 +1254,7 @@ Test yourself: `,
           }));
           // Only reset cursor on full replacement, not extension
           setCursorIndex(0);
+          lastCursorIndexRef.current = 0; // Sync ref with state for cursor positioning
           return initialStates;
         }
       });
@@ -1275,8 +1281,9 @@ Test yourself: `,
     paragraphQueueRef.current = [];
     usedParagraphIdsRef.current = new Set();
     setCursorIndex(0);
+    lastCursorIndexRef.current = 0; // Sync ref with state for cursor positioning
     lastKeystrokeTimeRef.current = 0;
-    setIsTypingFast(false);
+    isTypingFastRef.current = false;
     freestyleLastKeystrokeRef.current = 0;
 
     const focusTimer = setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
@@ -1303,8 +1310,9 @@ Test yourself: `,
       paragraphQueueRef.current = [];
       usedParagraphIdsRef.current = new Set();
       setCursorIndex(0);
+      lastCursorIndexRef.current = 0; // Sync ref with state for cursor positioning
       lastKeystrokeTimeRef.current = 0;
-      setIsTypingFast(false);
+      isTypingFastRef.current = false;
       freestyleLastKeystrokeRef.current = 0;
     }
   }, [language, paragraphMode, difficulty]);
@@ -1381,11 +1389,11 @@ Test yourself: `,
         }
       }
 
-      // Adaptive cursor: detect fast typing (>80 WPM or <150ms between keystrokes)
+      // Adaptive cursor: detect fast typing (<100ms between keystrokes = ~120 WPM+)
       const now = Date.now();
       if (lastKeystrokeTimeRef.current > 0) {
         const timeSinceLastKeystroke = now - lastKeystrokeTimeRef.current;
-        setIsTypingFast(timeSinceLastKeystroke < 150 || rawWpmValue > 80);
+        isTypingFastRef.current = timeSinceLastKeystroke < 100;
       }
       lastKeystrokeTimeRef.current = now;
     }
@@ -1418,11 +1426,8 @@ Test yourself: `,
       const timeSinceLastKeystroke = now - lastKeystrokeTimeRef.current;
       lastKeystrokeTimeRef.current = now;
 
-      if (timeSinceLastKeystroke < 80 && timeSinceLastKeystroke > 0) {
-        setIsTypingFast(true);
-      } else {
-        setIsTypingFast(false);
-      }
+      // Consistent fast-typing detection: <100ms = ~120 WPM+
+      isTypingFastRef.current = timeSinceLastKeystroke < 100 && timeSinceLastKeystroke > 0;
 
       // Play keyboard sound (load once, then reuse to avoid micro-stalls)
       if (!keyboardLoadedRef.current) {
@@ -1739,63 +1744,90 @@ Test yourself: `,
   // Track if cursor update is from keystroke (for auto-scroll gating)
   const lastCursorIndexRef = useRef(0);
 
+  // Recalculate and cache all character positions (called on text change, resize, font load)
+  const recalculatePositionCache = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const containerRect = container.getBoundingClientRect();
+    const rtl = language === 'ar' || language === 'he';
+    const cache: Array<{left: number, top: number, height: number}> = [];
+    
+    charRefs.current.forEach((el, index) => {
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        // Store content-relative positions (add scrollTop for absolute positioning)
+        cache[index] = {
+          left: rtl ? (rect.right - containerRect.left) : (rect.left - containerRect.left),
+          top: (rect.top - containerRect.top) + container.scrollTop,
+          height: Math.max(1, rect.height)
+        };
+      }
+    });
+    
+    charPositionCacheRef.current = cache;
+    positionCacheValidRef.current = true;
+  }, [language]);
+
   // Update cursor position based on typing progress and layout changes
   const updateCursorPosition = useCallback((fromKeystroke = false) => {
-    // Throttle during very fast typing to avoid layout thrashing
-    if (fromKeystroke && isTypingFast) {
-      const now = performance.now();
-      if (now - lastCursorUpdateRef.current < 32) return; // ~30 FPS cap during bursts
-      lastCursorUpdateRef.current = now;
-    }
-
-    // Use requestAnimationFrame to ensure DOM has updated before measuring
+    // Use requestAnimationFrame to batch with rendering
     requestAnimationFrame(() => {
       const container = containerRef.current;
       const caretEl = caretRef.current;
       if (!container || !caretEl) return;
 
-      // Find the character element at current position using refs
       const targetIndex = lastCursorIndexRef.current;
-      let charEl = charRefs.current[targetIndex] || null;
-
+      const rtl = language === 'ar' || language === 'he';
+      
       let left = 0;
       let top = 0;
       let height = 40;
-      const rtl = language === 'ar' || language === 'he';
 
-      // Compute using precise geometry relative to the scrollable container
-      const containerRect = container.getBoundingClientRect();
-
-      // Fallback when at index 0 but ref not yet populated
-      if (!charEl && targetIndex === 0 && charRefs.current[0]) {
-        charEl = charRefs.current[0];
-      }
-
-      if (!charEl && targetIndex > 0) {
+      // Try to use cached position first (fast path)
+      const cache = charPositionCacheRef.current;
+      if (positionCacheValidRef.current && cache[targetIndex]) {
+        const cached = cache[targetIndex];
+        left = cached.left;
+        top = cached.top;
+        height = cached.height;
+      } else if (positionCacheValidRef.current && targetIndex > 0 && cache[targetIndex - 1]) {
+        // Cursor is after last typed character - use previous char's right edge
+        const prevCached = cache[targetIndex - 1];
         const prevEl = charRefs.current[targetIndex - 1];
         if (prevEl) {
+          const containerRect = container.getBoundingClientRect();
           const prevRect = prevEl.getBoundingClientRect();
-          top = (prevRect.top - containerRect.top);
-          left = rtl
-            ? (prevRect.left - containerRect.left)
-            : (prevRect.right - containerRect.left);
-          height = Math.max(1, prevRect.height);
+          left = rtl ? (prevRect.left - containerRect.left) : (prevRect.right - containerRect.left);
+          top = prevCached.top;
+          height = prevCached.height;
         }
-      } else if (charEl) {
-        const rect = charEl.getBoundingClientRect();
-        top = (rect.top - containerRect.top);
-        left = rtl
-          ? (rect.right - containerRect.left)
-          : (rect.left - containerRect.left);
-        height = Math.max(1, rect.height);
       } else {
-        // No characters rendered yet
-        top = 0;
-        left = 0;
-        height = 40;
+        // Fallback: calculate directly (slow path - only on cache miss)
+        const containerRect = container.getBoundingClientRect();
+        let charEl = charRefs.current[targetIndex] || null;
+        
+        if (!charEl && targetIndex === 0 && charRefs.current[0]) {
+          charEl = charRefs.current[0];
+        }
+
+        if (!charEl && targetIndex > 0) {
+          const prevEl = charRefs.current[targetIndex - 1];
+          if (prevEl) {
+            const prevRect = prevEl.getBoundingClientRect();
+            top = (prevRect.top - containerRect.top) + container.scrollTop;
+            left = rtl ? (prevRect.left - containerRect.left) : (prevRect.right - containerRect.left);
+            height = Math.max(1, prevRect.height);
+          }
+        } else if (charEl) {
+          const rect = charEl.getBoundingClientRect();
+          top = (rect.top - containerRect.top) + container.scrollTop;
+          left = rtl ? (rect.right - containerRect.left) : (rect.left - containerRect.left);
+          height = Math.max(1, rect.height);
+        }
       }
 
-      // Only mutate DOM if changed (rounded to whole pixels for crispness)
+      // Direct DOM update - only if changed
       const last = caretPosRef.current;
       const rLeft = Math.round(left);
       const rTop = Math.round(top);
@@ -1803,25 +1835,30 @@ Test yourself: `,
         caretEl.style.transform = `translate3d(${rLeft}px, ${rTop}px, 0)`;
         caretPosRef.current = { left: rLeft, top: rTop, height };
       }
-      // Ensure height is up-to-date
       if (parseFloat(caretEl.style.height || '0') !== height) {
         caretEl.style.height = `${height}px`;
       }
 
-      // Auto-scroll using container metrics only when triggered by keystroke and not during manual scroll
+      // Toggle transition class based on typing speed (no React state update)
+      caretEl.classList.toggle('no-transition', isTypingFastRef.current);
+
+      // Auto-scroll when triggered by keystroke and not during manual scroll
       if (fromKeystroke && !isUserScrollingRef.current) {
         const cursorTopRelative = top - container.scrollTop;
         const containerHeight = container.clientHeight;
-        const idealCursorPosition = containerHeight * 0.3; // Keep cursor at 30% from top
+        const idealCursorPosition = containerHeight * 0.3;
         if (cursorTopRelative > idealCursorPosition) {
           const delta = cursorTopRelative - idealCursorPosition;
           container.scrollTop = container.scrollTop + delta;
+          // Invalidate cache after scroll
+          positionCacheValidRef.current = false;
         } else if (cursorTopRelative < 0) {
-          container.scrollTop = container.scrollTop + cursorTopRelative - 20; // Small padding at top
+          container.scrollTop = container.scrollTop + cursorTopRelative - 20;
+          positionCacheValidRef.current = false;
         }
       }
     });
-  }, [text, language, isTypingFast]);
+  }, [language, recalculatePositionCache]);
 
   // Only update cursor position on keystroke changes (not on every layout change)
   useEffect(() => {
@@ -1833,41 +1870,59 @@ Test yourself: `,
     updateCursorPosition(wasKeystroke);
   }, [userInput, updateCursorPosition]);
 
-  // Recalculate cursor position on resize/layout changes (but don't auto-scroll)
+  // Recalculate position cache and cursor on resize/layout changes
   useEffect(() => {
     if (!containerRef.current) return;
 
     const resizeObserver = new ResizeObserver(() => {
-      updateCursorPosition(false); // false = not from keystroke, don't auto-scroll
+      // Invalidate cache and recalculate on resize
+      positionCacheValidRef.current = false;
+      requestAnimationFrame(() => {
+        recalculatePositionCache();
+        updateCursorPosition(false);
+      });
     });
 
     resizeObserver.observe(containerRef.current);
     return () => resizeObserver.disconnect();
-  }, [updateCursorPosition]);
+  }, [updateCursorPosition, recalculatePositionCache]);
 
   // Re-position caret on window resize and zoom changes
   useEffect(() => {
-    const onResize = () => updateCursorPosition(false);
+    const onResize = () => {
+      positionCacheValidRef.current = false;
+      requestAnimationFrame(() => {
+        recalculatePositionCache();
+        updateCursorPosition(false);
+      });
+    };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [updateCursorPosition]);
+  }, [updateCursorPosition, recalculatePositionCache]);
 
-  // Position caret when text loads or changes (initial render and paragraph switches)
+  // Build position cache and position caret when text loads or changes
   useEffect(() => {
     if (!text) return;
-    updateCursorPosition(false);
-  }, [text, updateCursorPosition]);
+    // Invalidate cache on text change
+    positionCacheValidRef.current = false;
+    // Wait for DOM to render new characters before caching positions
+    requestAnimationFrame(() => {
+      recalculatePositionCache();
+      updateCursorPosition(false);
+    });
+  }, [text, updateCursorPosition, recalculatePositionCache]);
 
-  // Apply GPU-accelerated transform transitions to caret and respect motion preferences
+  // Apply GPU-accelerated transform and base transition on mount
+  // Transition toggling during typing is handled via CSS class in updateCursorPosition
   useEffect(() => {
     const el = caretRef.current;
     if (!el) return;
-    const duration = (prefersReducedMotion || caretSpeed === 'off' || isTypingFast)
-      ? 0
+    // Set base transition based on caret speed preference
+    const baseDuration = prefersReducedMotion || caretSpeed === 'off' 
+      ? 0 
       : (caretSpeed === 'smooth' ? 120 : caretSpeed === 'fast' ? 40 : 80);
-    el.style.willChange = 'transform';
-    el.style.transition = duration ? `transform ${duration}ms ease-out` : 'none';
-  }, [prefersReducedMotion, isTypingFast, caretSpeed]);
+    el.style.setProperty('--caret-transition-duration', `${baseDuration}ms`);
+  }, [prefersReducedMotion, caretSpeed]);
 
   // Initialize keystroke tracker when test is ready (before first keystroke)
   useEffect(() => {
@@ -2324,7 +2379,7 @@ Test yourself: `,
                           lastSampleSecondRef.current = -1;
                           lastKeystrokeTimeRef.current = 0;
                           freestyleLastKeystrokeRef.current = 0;
-                          setIsTypingFast(false);
+                          isTypingFastRef.current = false;
                           // Close custom prompt when entering freestyle mode
                           if (newValue && showCustomPrompt) {
                             setShowCustomPrompt(false);
@@ -2552,7 +2607,7 @@ Test yourself: `,
                         keystrokeTrackerRef.current = null;
                         wpmHistoryRef.current = [];
                         lastKeystrokeTimeRef.current = 0;
-                        setIsTypingFast(false);
+                        isTypingFastRef.current = false;
                         freestyleLastKeystrokeRef.current = 0;
                       }
                     }}
@@ -2577,7 +2632,7 @@ Test yourself: `,
                         wpmHistoryRef.current = [];
                         lastSampleSecondRef.current = -1;
                         lastKeystrokeTimeRef.current = 0;
-                        setIsTypingFast(false);
+                        isTypingFastRef.current = false;
                         freestyleLastKeystrokeRef.current = 0;
                       } else {
                         toast({
@@ -2768,7 +2823,7 @@ Test yourself: `,
                       lastSampleSecondRef.current = -1;
                       lastKeystrokeTimeRef.current = 0;
                       freestyleLastKeystrokeRef.current = 0;
-                      setIsTypingFast(false);
+                      isTypingFastRef.current = false;
                       toast({
                         title: "Exited Freestyle Mode",
                         description: "Switched back to standard typing test.",
@@ -3052,7 +3107,7 @@ Test yourself: `,
                     wpmHistoryRef.current = [];
                     lastSampleSecondRef.current = -1;
                     lastKeystrokeTimeRef.current = 0;
-                    setIsTypingFast(false);
+                    isTypingFastRef.current = false;
                     freestyleLastKeystrokeRef.current = 0;
                   }}
                   data-testid="button-use-practice-text"
@@ -3193,8 +3248,8 @@ Test yourself: `,
                 <div
                   ref={caretRef}
                   className={cn(
-                    "absolute left-0 top-0 w-0.5 bg-primary pointer-events-none z-10",
-                    !isTypingFast && "animate-pulse"
+                    "absolute left-0 top-0 w-0.5 bg-primary pointer-events-none z-10 caret-element",
+                    "animate-pulse"
                   )}
                   aria-hidden="true"
                 />

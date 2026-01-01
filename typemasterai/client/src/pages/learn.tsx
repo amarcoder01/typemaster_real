@@ -244,10 +244,11 @@ export default function LearnPage() {
             </CardHeader>
             <CardContent>
               <Tabs defaultValue="standard" className="w-full">
-                <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6 mb-6">
+                <TabsList className="grid w-full grid-cols-3 lg:grid-cols-5 mb-6">
                   <TabsTrigger value="standard" data-testid="tab-standard">Standard</TabsTrigger>
                   <TabsTrigger value="code" data-testid="tab-code">Code</TabsTrigger>
-                  <TabsTrigger value="book" data-testid="tab-book">Book</TabsTrigger>
+                  {/* HIDDEN: Book mode temporarily disabled */}
+                  {/* <TabsTrigger value="book" data-testid="tab-book">Book</TabsTrigger> */}
                   <TabsTrigger value="dictation" data-testid="tab-dictation">Dictation</TabsTrigger>
                   <TabsTrigger value="stress" data-testid="tab-stress">Stress</TabsTrigger>
                   <TabsTrigger value="multiplayer" data-testid="tab-multiplayer">Multiplayer</TabsTrigger>
@@ -358,7 +359,8 @@ export default function LearnPage() {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="book" className="space-y-4">
+                {/* HIDDEN: Book mode content temporarily disabled */}
+                {/* <TabsContent value="book" className="space-y-4">
                   <div className="flex items-start gap-4">
                     <div className="p-3 rounded-lg bg-amber-500/10">
                       <BookMarked className="w-6 h-6 text-amber-500" />
@@ -406,7 +408,7 @@ export default function LearnPage() {
                       </Button>
                     </div>
                   </div>
-                </TabsContent>
+                </TabsContent> */}
 
                 <TabsContent value="dictation" className="space-y-4">
                   <div className="flex items-start gap-4">
@@ -1694,7 +1696,7 @@ export default function LearnPage() {
                     <div className="bg-amber-500/10 rounded-lg p-4 border border-amber-500/20">
                       <h4 className="font-semibold mb-2">2. Vary Your Practice</h4>
                       <p className="text-sm text-muted-foreground">
-                        Mix standard tests with Code Mode, Book Mode, and Dictation to challenge different skills.
+                        Mix standard tests with Code Mode and Dictation to challenge different skills.
                       </p>
                     </div>
                     <div className="bg-amber-500/10 rounded-lg p-4 border border-amber-500/20">
@@ -1751,7 +1753,7 @@ export default function LearnPage() {
                   <div className="flex items-start gap-3">
                     <Badge variant="outline">Week 3-4</Badge>
                     <p className="text-sm text-muted-foreground">
-                      20 min/day mixed practice. Add Code Mode or Book Mode. Target weak keys from analytics.
+                      20 min/day mixed practice. Add Code Mode or Dictation. Target weak keys from analytics.
                     </p>
                   </div>
                   <div className="flex items-start gap-3">

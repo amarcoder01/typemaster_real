@@ -1087,3 +1087,24 @@
     opacity: 1 !important;
   }
 }
+
+/* High-performance typing caret - GPU accelerated */
+.caret-element {
+  --caret-transition-duration: 80ms;
+  will-change: transform;
+  contain: layout style;
+  transition: transform var(--caret-transition-duration) ease-out;
+}
+
+.caret-element.no-transition {
+  transition: none !important;
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caret-element {
+    --caret-transition-duration: 0ms;
+    transition: none !important;
+    animation: none !important;
+  }
+}

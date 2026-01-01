@@ -52,12 +52,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { theme, setTheme } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // #region agent log
-  useEffect(() => {
-    fetch('http://127.0.0.1:7242/ingest/85713ae9-cd6d-4b11-aa90-6589ea95de7c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'layout.tsx:55',message:'Layout rendered',data:{user:!!user,location,hasLevelIconCode:false},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H5'})}).catch(()=>{});
-  }, [user, location]);
-  // #endregion
-
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location]);

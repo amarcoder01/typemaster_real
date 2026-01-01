@@ -296,7 +296,7 @@ export default function TypingComAlternativePage() {
                 The comprehensive analytics dashboard shows WPM trends over time, accuracy improvements, consistency scores, and detailed breakdowns of which fingers and hands need more practice. This data-driven approach helps adults optimize their learning efficiently.
               </p>
               <p>
-                Professional features like code typing mode, stress tests, and book typing mode cater to developers, writers, and knowledge workers who need typing proficiency for their careers—all without the monthly subscription fees that Typing.com charges.
+                Professional features like code typing mode and stress tests cater to developers and knowledge workers who need typing proficiency for their careers—all without the monthly subscription fees that Typing.com charges.
               </p>
             </div>
           </article>
@@ -321,7 +321,7 @@ export default function TypingComAlternativePage() {
                   Start with a simple 1-minute, 3-minute, or 5-minute typing test. No account required—just click start and begin typing. Our system captures every keystroke, measuring your speed (WPM), accuracy, and consistency in real-time.
                 </p>
                 <p>
-                  Choose from 23+ languages and multiple difficulty levels. Test yourself on standard paragraphs, code snippets, or even full book chapters depending on your goals.
+                  Choose from 23+ languages and multiple difficulty levels. Test yourself on standard paragraphs or code snippets depending on your goals.
                 </p>
               </CardContent>
             </Card>
@@ -389,7 +389,7 @@ export default function TypingComAlternativePage() {
                   Once you've built a solid foundation, test your skills in multiplayer races against other typists worldwide. Compete on global leaderboards, join daily and weekly challenges, and push yourself to new speed milestones.
                 </p>
                 <p>
-                  Try specialized modes like code typing (for developers), stress tests (for endurance), or book typing (for writers) to challenge yourself in new ways and keep practice interesting.
+                  Try specialized modes like code typing (for developers) or stress tests (for endurance) to challenge yourself in new ways and keep practice interesting.
                 </p>
               </CardContent>
             </Card>

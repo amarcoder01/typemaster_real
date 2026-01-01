@@ -685,6 +685,7 @@ export default function TypingTest() {
     setLastResultId(null);
     setHasInteracted(false);
     setCursorIndex(0);
+    lastCursorIndexRef.current = 0; // Sync ref with state for cursor positioning
     setCharStates([]);
 
     keystrokeTrackerRef.current = null;
@@ -1249,6 +1250,7 @@ Test yourself: `,
           }));
           // Only reset cursor on full replacement, not extension
           setCursorIndex(0);
+          lastCursorIndexRef.current = 0; // Sync ref with state for cursor positioning
           return initialStates;
         }
       });
@@ -1275,6 +1277,7 @@ Test yourself: `,
     paragraphQueueRef.current = [];
     usedParagraphIdsRef.current = new Set();
     setCursorIndex(0);
+    lastCursorIndexRef.current = 0; // Sync ref with state for cursor positioning
     lastKeystrokeTimeRef.current = 0;
     setIsTypingFast(false);
     freestyleLastKeystrokeRef.current = 0;
@@ -1303,6 +1306,8 @@ Test yourself: `,
       paragraphQueueRef.current = [];
       usedParagraphIdsRef.current = new Set();
       setCursorIndex(0);
+      // CRITICAL: Also reset the ref that updateCursorPosition uses
+      lastCursorIndexRef.current = 0;
       lastKeystrokeTimeRef.current = 0;
       setIsTypingFast(false);
       freestyleLastKeystrokeRef.current = 0;
@@ -1775,7 +1780,8 @@ Test yourself: `,
         const prevEl = charRefs.current[targetIndex - 1];
         if (prevEl) {
           const prevRect = prevEl.getBoundingClientRect();
-          top = (prevRect.top - containerRect.top);
+          // Add scrollTop to convert viewport-relative to content-relative coordinates
+          top = (prevRect.top - containerRect.top) + container.scrollTop;
           left = rtl
             ? (prevRect.left - containerRect.left)
             : (prevRect.right - containerRect.left);
@@ -1783,7 +1789,8 @@ Test yourself: `,
         }
       } else if (charEl) {
         const rect = charEl.getBoundingClientRect();
-        top = (rect.top - containerRect.top);
+        // Add scrollTop to convert viewport-relative to content-relative coordinates
+        top = (rect.top - containerRect.top) + container.scrollTop;
         left = rtl
           ? (rect.right - containerRect.left)
           : (rect.left - containerRect.left);

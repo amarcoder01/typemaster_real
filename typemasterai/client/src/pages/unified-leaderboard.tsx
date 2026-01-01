@@ -388,8 +388,7 @@ function getTestLink(mode: LeaderboardMode): string {
       return "/stress-test";
     case "rating":
       return "/multiplayer";
-    case "book":
-      return "/books";
+    // case "book": return "/books"; // HIDDEN: Book mode disabled
     default:
       return "/";
   }

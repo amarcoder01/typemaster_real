@@ -4,7 +4,6 @@ import { Keyboard, BarChart2, User, Settings, Trophy, LogOut, Sparkles, Github, 
 import FeedbackWidget from "@/components/FeedbackWidget";
 import { useAuth } from "@/lib/auth-context";
 import { useTheme } from "@/lib/theme-context";
-import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +18,6 @@ import {
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
@@ -58,29 +56,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     setMobileMenuOpen(false);
   }, [location]);
 
-  const { data: gamificationData } = useQuery({
-    queryKey: ["gamification"],
-    queryFn: async () => {
-      const response = await fetch("/api/gamification", {
-        credentials: "include",
-      });
-      if (!response.ok) throw new Error("Failed to fetch gamification");
-      return response.json();
-    },
-    enabled: !!user,
-    staleTime: 30000,
-  });
-
-  const level = gamificationData?.gamification?.level || 1;
-  const xp = gamificationData?.gamification?.experiencePoints || 0;
-  const xpForNextLevel = level * 100;
-  const xpInCurrentLevel = xp % 100;
-  const xpProgress = (xpInCurrentLevel / 100) * 100;
-
   const primaryNavItems = [
     { href: "/", icon: Keyboard, label: "Quick Test", description: "Practice typing with various texts and languages" },
     { href: "/code-mode", icon: Code, label: "Code Practice", description: "Practice typing real programming code" },
-    { href: "/books", icon: Book, label: "Book Library", description: "Type passages from famous books" },
+    // HIDDEN FOR LAUNCH - Book Library (will be enabled post-launch)
+    // { href: "/books", icon: Book, label: "Book Library", description: "Type passages from famous books" },
     { href: "/dictation-mode", icon: Headphones, label: "Listen & Type", description: "Listen and type what you hear" },
     { href: "/stress-test", icon: Zap, label: "Speed Challenge", description: "Test your typing under pressure" },
     { href: "/multiplayer", icon: Users, label: "Live Race", description: "Race against other players in real-time" },
@@ -260,41 +240,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {user && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link href="/profile">
-                    <div 
-                      className="hidden lg:flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 hover:border-amber-500/40 transition-all cursor-pointer"
-                      data-testid="xp-level-display"
-                    >
-                      <div className="flex items-center justify-center w-5 h-5 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 text-white font-bold text-[9px] shadow-lg shadow-amber-500/25">
-                        {level}
-                      </div>
-                      <div className="flex flex-col gap-0 min-w-[50px]">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[8px] font-semibold text-amber-500/90 uppercase tracking-wider">Lv {level}</span>
-                          <span className="text-[8px] font-mono text-muted-foreground">{xpInCurrentLevel}/100</span>
-                        </div>
-                        <Progress 
-                          value={xpProgress} 
-                          className="h-0.5 bg-amber-950/30 [&>div]:bg-gradient-to-r [&>div]:from-amber-500 [&>div]:to-orange-500"
-                          data-testid="xp-progress-bar"
-                        />
-                      </div>
-                    </div>
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="bg-card border-border">
-                  <div className="text-sm">
-                    <p className="font-semibold text-amber-500">Level {level}</p>
-                    <p className="text-muted-foreground">{xpInCurrentLevel} / 100 XP to next level</p>
-                    <p className="text-xs text-muted-foreground mt-1">Total: {xp} XP</p>
-                  </div>
-                </TooltipContent>
-              </Tooltip>
-            )}
-
             {user ? (
               <>
                 <DropdownMenu>
@@ -462,30 +407,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     TypeMasterAI
                   </SheetTitle>
                 </SheetHeader>
-                
-                {user && (
-                  <div className="p-4 border-b">
-                    <Link href="/profile" onClick={() => setMobileMenuOpen(false)}>
-                      <div 
-                        className="flex items-center gap-3 p-3 rounded-lg bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20"
-                      >
-                        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 text-white font-bold text-sm shadow-lg shadow-amber-500/25">
-                          {level}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-semibold text-amber-500/90">Level {level}</span>
-                            <span className="text-xs font-mono text-muted-foreground">{xpInCurrentLevel}/100 XP</span>
-                          </div>
-                          <Progress 
-                            value={xpProgress} 
-                            className="h-2 bg-amber-950/30 [&>div]:bg-gradient-to-r [&>div]:from-amber-500 [&>div]:to-orange-500"
-                          />
-                        </div>
-                      </div>
-                    </Link>
-                  </div>
-                )}
 
                 <div className="p-2 overflow-y-auto max-h-[calc(100vh-200px)]">
                   <div className="space-y-1">

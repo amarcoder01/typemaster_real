@@ -47,7 +47,8 @@ export default function NotFound() {
     { name: "Code Leaderboard", href: "/code-leaderboard" },
     { name: "Stress Leaderboard", href: "/stress-leaderboard" },
     { name: "Dictation Mode", href: "/dictation-mode" },
-    { name: "Book Typing", href: "/books" },
+    // HIDDEN: Book mode temporarily disabled
+    // { name: "Book Typing", href: "/books" },
     { name: "AI Chat Assistant", href: "/chat" },
     { name: "Learn Typing", href: "/learn" },
     { name: "Your Profile", href: "/profile" },

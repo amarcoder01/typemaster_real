@@ -1,6 +1,8 @@
-import { Trophy, Code, Headphones, Flame, Gauge, BookOpen, type LucideIcon } from "lucide-react";
+import { Trophy, Code, Headphones, Flame, Gauge, type LucideIcon } from "lucide-react";
+// BookOpen import removed - book mode hidden
 
-export type LeaderboardMode = "global" | "code" | "dictation" | "stress" | "rating" | "book";
+export type LeaderboardMode = "global" | "code" | "dictation" | "stress" | "rating";
+// Hidden: "book" mode temporarily disabled
 export type TimeFrame = "all" | "daily" | "weekly" | "monthly";
 
 export interface LeaderboardColumn {
@@ -327,38 +329,39 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
     sortMetric: "rating",
     sortMetricLabel: "Rating",
   },
-  book: {
-    key: "book",
-    label: "Book Library",
-    shortLabel: "Books",
-    description: "Rankings for book typing performance",
-    icon: BookOpen,
-    endpoint: "/api/book/leaderboard",
-    aroundMeEndpoint: "/api/book/leaderboard/around-me",
-    filters: [
-      {
-        key: "topic",
-        type: "select",
-        label: "Topic",
-        options: BOOK_TOPIC_OPTIONS,
-        defaultValue: "all",
-      },
-    ],
-    columns: [
-      { key: "rank", label: "#", width: "w-12", align: "center" },
-      { key: "user", label: "User", width: "flex-1", align: "left" },
-      { key: "wpm", label: "WPM", width: "w-20", align: "center", tooltip: "Words Per Minute" },
-      { key: "accuracy", label: "Accuracy", width: "w-20", align: "center" },
-      { key: "wordsTyped", label: "Words", width: "w-20", align: "center", tooltip: "Total words typed" },
-      { key: "booksCompleted", label: "Books", width: "w-16", align: "center", tooltip: "Books completed" },
-    ],
-    color: "text-amber-500",
-    bgColor: "bg-amber-500/10",
-    activeBgColor: "bg-amber-500",
-    activeTextColor: "text-amber-950",
-    sortMetric: "wpm",
-    sortMetricLabel: "WPM",
-  },
+  // HIDDEN: Book mode temporarily disabled
+  // book: {
+  //   key: "book",
+  //   label: "Book Library",
+  //   shortLabel: "Books",
+  //   description: "Rankings for book typing performance",
+  //   icon: BookOpen,
+  //   endpoint: "/api/book/leaderboard",
+  //   aroundMeEndpoint: "/api/book/leaderboard/around-me",
+  //   filters: [
+  //     {
+  //       key: "topic",
+  //       type: "select",
+  //       label: "Topic",
+  //       options: BOOK_TOPIC_OPTIONS,
+  //       defaultValue: "all",
+  //     },
+  //   ],
+  //   columns: [
+  //     { key: "rank", label: "#", width: "w-12", align: "center" },
+  //     { key: "user", label: "User", width: "flex-1", align: "left" },
+  //     { key: "wpm", label: "WPM", width: "w-20", align: "center", tooltip: "Words Per Minute" },
+  //     { key: "accuracy", label: "Accuracy", width: "w-20", align: "center" },
+  //     { key: "wordsTyped", label: "Words", width: "w-20", align: "center", tooltip: "Total words typed" },
+  //     { key: "booksCompleted", label: "Books", width: "w-16", align: "center", tooltip: "Books completed" },
+  //   ],
+  //   color: "text-amber-500",
+  //   bgColor: "bg-amber-500/10",
+  //   activeBgColor: "bg-amber-500",
+  //   activeTextColor: "text-amber-950",
+  //   sortMetric: "wpm",
+  //   sortMetricLabel: "WPM",
+  // },
 };
 
 // Helper function to get mode config
@@ -366,9 +369,13 @@ export function getModeConfig(mode: LeaderboardMode): LeaderboardModeConfig {
   return LEADERBOARD_MODES[mode];
 }
 
-// Get all mode keys as array
+// Hidden modes that should not appear in the UI
+const HIDDEN_MODES = ["book"];
+
+// Get all mode keys as array (excluding hidden modes)
 export function getAllModes(): LeaderboardMode[] {
-  return Object.keys(LEADERBOARD_MODES) as LeaderboardMode[];
+  return (Object.keys(LEADERBOARD_MODES) as string[])
+    .filter(mode => !HIDDEN_MODES.includes(mode)) as LeaderboardMode[];
 }
 
 // Build query params for API calls

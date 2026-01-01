@@ -16,7 +16,8 @@ import { useUserCertificates, useDeleteCertificate } from "@/hooks/useCertificat
 import { DictationCertificate } from "@/components/DictationCertificate";
 import { StressCertificate } from "@/components/StressCertificate";
 import { CodeCertificate } from "@/components/CodeCertificate";
-import { BookCertificate } from "@/components/BookCertificate";
+// HIDDEN: Book mode temporarily disabled
+// import { BookCertificate } from "@/components/BookCertificate";
 import { RaceCertificate } from "@/components/RaceCertificate";
 import { CertificateGenerator } from "@/components/certificate-generator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -1069,11 +1070,12 @@ export default function Profile() {
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="all" className="w-full" onValueChange={(value) => setCertificateFilter(value)}>
-              <TabsList className="grid w-full grid-cols-6">
+              <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="all">All</TabsTrigger>
                 <TabsTrigger value="standard">Standard</TabsTrigger>
                 <TabsTrigger value="code">Code</TabsTrigger>
-                <TabsTrigger value="book">Book</TabsTrigger>
+                {/* HIDDEN: Book mode temporarily disabled */}
+                {/* <TabsTrigger value="book">Book</TabsTrigger> */}
                 <TabsTrigger value="dictation">Dictation</TabsTrigger>
                 <TabsTrigger value="stress">Stress</TabsTrigger>
               </TabsList>
@@ -1210,27 +1212,28 @@ export default function Profile() {
                         verificationId={selectedCertificate.verificationId}
                       />
                     );
-                  } else if (certType === 'book') {
-                    return (
-                      <BookCertificate
-                        wpm={selectedCertificate.wpm}
-                        accuracy={selectedCertificate.accuracy}
-                        consistency={selectedCertificate.consistency}
-                        bookTitle={selectedCertificate.metadata?.bookTitle || 'Unknown Book'}
-                        author={selectedCertificate.metadata?.author || 'Unknown Author'}
-                        chapter={selectedCertificate.metadata?.chapter}
-                        chapterTitle={selectedCertificate.metadata?.chapterTitle}
-                        paragraphsCompleted={selectedCertificate.metadata?.paragraphsCompleted || 0}
-                        wordsTyped={selectedCertificate.metadata?.wordsTyped || 0}
-                        duration={selectedCertificate.duration}
-                        username={selectedCertificate.metadata?.username || user?.username || 'Typing Expert'}
-                        date={selectedCertificate.createdAt ? new Date(selectedCertificate.createdAt) : new Date()}
-                        difficulty={selectedCertificate.metadata?.difficulty}
-                        characters={selectedCertificate.metadata?.characters}
-                        errors={selectedCertificate.metadata?.errors}
-                        verificationId={selectedCertificate.verificationId}
-                      />
-                    );
+                  // HIDDEN: Book certificate rendering temporarily disabled
+                  // } else if (certType === 'book') {
+                  //   return (
+                  //     <BookCertificate
+                  //       wpm={selectedCertificate.wpm}
+                  //       accuracy={selectedCertificate.accuracy}
+                  //       consistency={selectedCertificate.consistency}
+                  //       bookTitle={selectedCertificate.metadata?.bookTitle || 'Unknown Book'}
+                  //       author={selectedCertificate.metadata?.author || 'Unknown Author'}
+                  //       chapter={selectedCertificate.metadata?.chapter}
+                  //       chapterTitle={selectedCertificate.metadata?.chapterTitle}
+                  //       paragraphsCompleted={selectedCertificate.metadata?.paragraphsCompleted || 0}
+                  //       wordsTyped={selectedCertificate.metadata?.wordsTyped || 0}
+                  //       duration={selectedCertificate.duration}
+                  //       username={selectedCertificate.metadata?.username || user?.username || 'Typing Expert'}
+                  //       date={selectedCertificate.createdAt ? new Date(selectedCertificate.createdAt) : new Date()}
+                  //       difficulty={selectedCertificate.metadata?.difficulty}
+                  //       characters={selectedCertificate.metadata?.characters}
+                  //       errors={selectedCertificate.metadata?.errors}
+                  //       verificationId={selectedCertificate.verificationId}
+                  //     />
+                  //   );
                   } else if (certType === 'race') {
                     return (
                       <RaceCertificate

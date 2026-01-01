@@ -62,7 +62,8 @@ const ERROR_CODES = {
 const CERTIFICATE_TYPE_NAMES: Record<string, string> = {
   standard: "Standard Typing Test",
   code: "Code Typing Test",
-  book: "Book Reading Mode",
+  // HIDDEN: Book mode temporarily disabled
+  // book: "Book Reading Mode",
   race: "Multiplayer Race",
   dictation: "Dictation Mode",
   stress: "Stress Test Mode",
@@ -621,7 +622,8 @@ export default function VerifyPage() {
                         <span className="font-medium">{verificationResult.certificate.metadata.difficulty}</span>
                       </div>
                     )}
-                    {verificationResult.certificate.metadata.bookTitle && (
+                    {/* HIDDEN: Book mode fields temporarily disabled */}
+                    {/* {verificationResult.certificate.metadata.bookTitle && (
                       <div className="flex justify-between col-span-full border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
                         <span className="text-muted-foreground">Book</span>
                         <span className="font-medium text-right">{verificationResult.certificate.metadata.bookTitle}</span>
@@ -632,7 +634,7 @@ export default function VerifyPage() {
                         <span className="text-muted-foreground">Author</span>
                         <span className="font-medium text-right">{verificationResult.certificate.metadata.author}</span>
                       </div>
-                    )}
+                    )} */}
                   </div>
                 )}
 
